@@ -1,126 +1,95 @@
-﻿using Avae.DAL;
-using Avae.Onion;
-using MagicOnion.Server.Hubs;
+﻿using MagicOnion.Server.Hubs;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using Queryeables.Abstraction;
+using Queryeables.Onion;
 
-namespace Avae.Server;
+namespace Queryeables.Server;
 
 /// <summary>
-/// Tracks which connections are subscribed to record change notifications for <typeparamref name="TObject"/>,
-/// and forwards notifications from a monitored data source to the shared <see cref="IGroup{TReceiver}"/>.
+/// Suit les connexions abonnées aux changements d'un type d'entité et leur transmet les changements :
+/// ceux de la base du serveur (via le moniteur) et ceux que les clients signalent. À enregistrer en singleton.
 /// </summary>
-/// <typeparam name="TObject">The entity type this repository tracks change notifications for.</typeparam>
-public class RecordHubRepository<TObject> : IDisposable where TObject : class, new()
+public sealed class RecordHubRepository<TObject> : IDisposable where TObject : class
 {
-    /// <summary>
-    /// Set of connection identifiers currently subscribed to notifications. Only membership matters;
-    /// the byte value is unused. The underlying broadcast group is shared across all connections.
-    /// </summary>
-    readonly Dictionary<Guid, byte> customerIds = new(); // just tracking membership, group itself is shared
+    private readonly HashSet<Guid> _subscribers = new();
+    private readonly object _gate = new();
 
-    /// <summary>
-    /// The shared broadcast group used to send change notifications, captured from the first registering connection.
-    /// </summary>
-    IGroup<IRecordHubReceiver<TObject>>? group;
+    private readonly IDbMonitor<TObject> _monitor;
+    private readonly DbMonitorRegistry? _registry;
+    private readonly ILogger? _logger;
 
-    /// <summary>
-    /// The data source monitor whose change events are forwarded to subscribed connections.
-    /// </summary>
-    IDBMonitor<TObject> monitor;
+    // Groupe de diffusion partagé, capturé à la première inscription.
+    private IGroup<IRecordHubReceiver<TObject>>? _group;
 
-    /// <summary>
-    /// Optional logger used to record registration, unregistration, and notification activity.
-    /// </summary>
-    ILogger? logger;
-
-    /// <summary>
-    /// Synchronizes access to <see cref="customerIds"/> and <see cref="group"/>.
-    /// </summary>
-    readonly object gate = new();
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="RecordHubRepository{TObject}"/> class, registering
-    /// it with <see cref="IDBFactory.Monitors"/> and subscribing to the monitor's change events.
-    /// </summary>
-    /// <param name="monitor">The data source monitor to subscribe to for change notifications.</param>
-    /// <param name="logger">Optional logger for registration and notification activity.</param>
-    public RecordHubRepository(IDBMonitor<TObject> monitor, IDBSession session, ILogger? logger = null)
+    /// <param name="registry">Si fourni, le moniteur y est ajouté pour recevoir les changements de la base du serveur.</param>
+    public RecordHubRepository(
+        IDbMonitor<TObject> monitor,
+        DbMonitorRegistry? registry = null,
+        ILogger<RecordHubRepository<TObject>>? logger = null)
     {
-        this.logger = logger;
-        this.monitor = monitor;
-        session.AddMonitor(monitor);
-        monitor.OnRecordChanged += OnRecordChanged;
+        _monitor = monitor;
+        _registry = registry;
+        _logger = logger;
+
+        _registry?.Add(monitor);
+        _monitor.RecordChanged += OnRecordChanged;
     }
 
-    /// <summary>
-    /// Handles a change event raised by <see cref="monitor"/> by forwarding it to <see cref="Raise(Record{TObject})"/>.
-    /// </summary>
-    /// <param name="sender">The event source (unused).</param>
-    /// <param name="e">The record change event.</param>
-    void OnRecordChanged(object? sender, Record<TObject> e)
+    public void RegisterGroup(IGroup<IRecordHubReceiver<TObject>> group, Guid contextId)
     {
-        Raise(e);
-    }
-
-    /// <summary>
-    /// Registers a connection as subscribed to change notifications, capturing the shared broadcast
-    /// group on first use. Called by each connecting hub instance; the same underlying group is
-    /// supplied every time, but only needs to be captured once.
-    /// </summary>
-    /// <param name="g">The broadcast group for the connecting hub.</param>
-    /// <param name="contextId">The connecting hub's context identifier.</param>
-    public void RegisterGroup(IGroup<IRecordHubReceiver<TObject>> g, Guid contextId)
-    {
-        lock (gate)
+        lock (_gate)
         {
-            logger?.LogInformation($"Registering : {contextId}");
-            group ??= g; // same underlying group object every time, but only need to capture it once
-            customerIds[contextId] = 0;
+            _group ??= group;
+            _subscribers.Add(contextId);
         }
+        _logger?.LogInformation("Abonnement de {ContextId}", contextId);
     }
 
-    /// <summary>
-    /// Removes a connection's subscription so it no longer receives change notifications.
-    /// </summary>
-    /// <param name="contextId">The context identifier of the connection to unregister.</param>
     public void Unregister(Guid contextId)
     {
-        lock (gate)
-        {
-            logger?.LogInformation($"Unregistering : {contextId}");
-            customerIds.Remove(contextId);
-        }
+        bool removed;
+        lock (_gate)
+            removed = _subscribers.Remove(contextId);
+
+        if (removed)
+            _logger?.LogInformation("Désabonnement de {ContextId}", contextId);
     }
 
-    /// <summary>
-    /// Broadcasts a record change event to all subscribed connections, excluding any connections
-    /// listed in <see cref="Record{TObject}.Connections"/> (typically the connection that caused the change).
-    /// </summary>
-    /// <param name="e">The record change event to broadcast.</param>
-    public void Raise(Record<TObject> e)
+    /// <summary>Diffuse un changement à tous les abonnés, sauf ceux listés dans <see cref="Record{T}.Connections"/>.</summary>
+    public void Raise(Record<TObject> record)
     {
-        var excludedIds = (e.Connections ?? []).Select(id => new Guid(id)).ToList();
+        // Les identifiants qui ne sont pas des connexions MagicOnion (session SignalR...) sont ignorés au lieu de faire échouer la diffusion.
+        var excluded = (record.Connections ?? [])
+            .Select(id => Guid.TryParse(id, out var guid) ? guid : (Guid?)null)
+            .OfType<Guid>()
+            .ToList();
 
-        List<Guid> notified;
-        lock (gate)
+        IGroup<IRecordHubReceiver<TObject>>? group;
+        lock (_gate)
         {
-            notified = customerIds.Where(id => !excludedIds.Contains(id.Key)).Select(k => k.Key).ToList();
+            group = _group;
+            if (_logger?.IsEnabled(LogLevel.Debug) == true)
+            {
+                foreach (var id in _subscribers.Where(id => !excluded.Contains(id)))
+                    _logger.LogDebug("Notification de {Record} à {ContextId}", record, id);
+            }
         }
 
-        foreach (var id in notified)
-            logger?.LogInformation($"Notifying : {id}");
-
-        group?.Except(excludedIds).OnChanged(e);
+        try
+        {
+            group?.Except(excluded).OnChanged(record);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Échec de la diffusion du changement {Record}.", record);
+        }
     }
 
-    /// <summary>
-    /// Unsubscribes from the monitor's change events.
-    /// </summary>
+    private void OnRecordChanged(object? sender, Record<TObject> record) => Raise(record);
+
     public void Dispose()
     {
-        monitor.OnRecordChanged -= OnRecordChanged;
+        _monitor.RecordChanged -= OnRecordChanged;
+        _registry?.Remove(_monitor);
     }
 }
