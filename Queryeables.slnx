@@ -2,4 +2,5 @@
   <Project Path="Queryeables.Abstraction/Queryeables.Abstraction.csproj" />
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />
+  <Project Path="Queryeables.Onion/Queryeables.Onion.csproj" Id="b02edfb3-6a85-4718-890e-8ca3bcd9459d" />
 </Solution>
