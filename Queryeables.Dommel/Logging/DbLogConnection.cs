@@ -12,9 +12,10 @@ namespace Queryeables.Dommel.Logging;
 /// <see cref="DbConnection"/> decorator that returns <see cref="DbLogCommand"/> instances.
 /// Created by <see cref="DbFactory{TDbConnection}"/> when command logging is enabled.
 /// </summary>
-internal sealed class DbLogConnection : DbConnection
+public sealed class DbLogConnection : DbConnection
 {
-    public DbConnection Inner { get; private set; }
+    /// <summary>Connexion réelle du fournisseur (SqliteConnection, SqlConnection...).</summary>
+    public DbConnection Inner { get; }
     private readonly ILogger _logger;
     private readonly LogLevel _level;
     private bool _disposed;

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Côté serveur : Hub et IHubContext font partie d'ASP.NET Core, fourni avec .NET.
+    Le paquet NuGet Microsoft.AspNetCore.SignalR.Core est une ancienne version 1.x obsolète : ne pas l'utiliser.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+    <ProjectReference Include="..\Queryeables.SignalR\Queryeables.SignalR.csproj" />
+  </ItemGroup>
+
+</Project>

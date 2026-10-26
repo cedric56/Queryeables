@@ -30,19 +30,22 @@ public sealed class DbFactoryOptions
 public class DbFactory<TDbConnection> : DbProviderFactory where TDbConnection : DbConnection, new()
 {
     private readonly string _connectionString;
-    private readonly ILogger? _logger;
+    private readonly bool _logCommands;
     private readonly LogLevel _logLevel;
+
+    /// <summary>Logger fourni au constructeur, utilisable par les classes dérivées.</summary>
+    protected ILogger? Logger { get; }
 
     public DbFactory(string connectionString, DbFactoryOptions? options = null, ILogger? logger = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         _connectionString = connectionString;
         _logLevel = options?.CommandLogLevel ?? LogLevel.Information;
+        Logger = logger;
+        _logCommands = options?.LogCommands == true && logger != null;
 
-        if (options?.LogCommands == true && logger != null)
+        if (_logCommands)
         {
-            _logger = logger;
-
             // Dommel choisit son dialecte SQL d'après le type de la connexion. Sans cela, il ne reconnaîtrait
             // pas DbLogConnection et produirait du SQL Server, même sur SQLite.
             using var probe = new TDbConnection();
@@ -53,6 +56,6 @@ public class DbFactory<TDbConnection> : DbProviderFactory where TDbConnection : 
     public override DbConnection CreateConnection()
     {
         var connection = new TDbConnection { ConnectionString = _connectionString };
-        return _logger is null ? connection : new DbLogConnection(connection, _logger, _logLevel);
+        return _logCommands ? new DbLogConnection(connection, Logger!, _logLevel) : connection;
     }
 }
