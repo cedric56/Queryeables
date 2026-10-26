@@ -154,6 +154,94 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Select_with_comparisons_and_ranges()
+    {
+        var a = await InsertAsync("A");
+        var b = await InsertAsync("B");
+        var c = await InsertAsync("C");
+
+        await using var store = CreateStore();
+        var after = await store.SelectAsync<TestClient>(x => x.Id > a.Id);
+        var range = await store.SelectAsync<TestClient>(x => x.Id >= b.Id && x.Id <= c.Id);
+        var notB = await store.SelectAsync<TestClient>(x => x.Id != b.Id);
+
+        Assert.Equal(new[] { b.Id, c.Id }, after.Select(x => x.Id).OrderBy(id => id));
+        Assert.Equal(new[] { b.Id, c.Id }, range.Select(x => x.Id).OrderBy(id => id));
+        Assert.Equal(new[] { a.Id, c.Id }, notB.Select(x => x.Id).OrderBy(id => id));
+    }
+
+    [Fact]
+    public async Task Select_with_a_list_of_values()
+    {
+        var a = await InsertAsync("A");
+        await InsertAsync("B");
+        var c = await InsertAsync("C");
+        var wanted = new List<long> { a.Id, c.Id };
+
+        await using var store = CreateStore();
+        var result = await store.SelectAsync<TestClient>(x => wanted.Contains(x.Id));
+
+        Assert.Equal(new[] { "A", "C" }, result.Select(x => x.Nom).OrderBy(n => n));
+    }
+
+    [Fact]
+    public async Task Select_with_text_searches()
+    {
+        await InsertAsync("Anaïs");
+        await InsertAsync("Bob");
+        await InsertAsync("Annabelle");
+
+        await using var store = CreateStore();
+
+        Assert.Equal(2, (await store.SelectAsync<TestClient>(x => x.Nom.StartsWith("An"))).Count);
+        Assert.Equal("Annabelle", Assert.Single(await store.SelectAsync<TestClient>(x => x.Nom.EndsWith("belle"))).Nom);
+        Assert.Equal("Bob", Assert.Single(await store.SelectAsync<TestClient>(x => x.Nom.Contains("o"))).Nom);
+    }
+
+    [Fact]
+    public async Task Update_increments_the_version()
+    {
+        var client = await InsertAsync("Ana");
+        var before = client.Version;
+
+        await using var store = CreateStore();
+        Assert.True(await store.UpdateAsync(client));
+
+        Assert.Equal(before + 1, client.Version);
+        Assert.Equal(client.Version, (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Version);
+    }
+
+    [Fact]
+    public async Task Stale_update_is_a_conflict()
+    {
+        var client = await InsertAsync("Ana");
+        var stale = client.Copy();
+
+        await using var store = CreateStore();
+        client.Nom = "Modifiée par un autre";
+        Assert.True(await store.UpdateAsync(client));
+
+        stale.Nom = "Écrasement";
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.UpdateAsync(stale));
+        Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
+        Assert.Equal("Modifiée par un autre", (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Nom);
+    }
+
+    [Fact]
+    public async Task Stale_delete_is_a_conflict()
+    {
+        var client = await InsertAsync("Ana");
+        var stale = client.Copy();
+
+        await using var store = CreateStore();
+        Assert.True(await store.UpdateAsync(client));
+
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.DeleteAsync(stale));
+        Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
+        Assert.Single(await store.GetAllAsync<TestClient>());
+    }
+
+    [Fact]
     public async Task Transaction_without_commit_is_rolled_back()
     {
         if (!SupportsTransactions)

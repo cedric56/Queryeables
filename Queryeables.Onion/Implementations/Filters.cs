@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
@@ -6,50 +7,44 @@ using System.Reflection;
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Conversion entre prédicats LINQ et filtres transportables par MagicOnion.
-/// Client : prédicat → filtres. Serveur : filtres → prédicat.
+/// Conversion entre prédicats LINQ et conditions transportables par MagicOnion.
+/// Client : prédicat → conditions. Serveur : conditions → prédicat, sur une liste blanche d'opérations.
 /// </summary>
 internal static class Filters
 {
-    // ---------- Client : prédicat → filtres ----------
+    private static readonly MethodInfo StringStartsWith = typeof(string).GetMethod(nameof(string.StartsWith), [typeof(string)])!;
+    private static readonly MethodInfo StringEndsWith = typeof(string).GetMethod(nameof(string.EndsWith), [typeof(string)])!;
+    private static readonly MethodInfo StringContains = typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
+
+    // =====================================================================
+    // Client : prédicat → conditions
+    // =====================================================================
 
     /// <summary>
-    /// Traduit un prédicat de la forme <c>e => e.A == x &amp;&amp; e.B == y</c> (ou avec ||) en filtres.
-    /// Formes acceptées : égalités entre une propriété et une valeur, propriétés booléennes (<c>e.Actif</c>,
-    /// <c>!e.Actif</c>), et <c>e => true</c>. Tout le reste lève <see cref="NotSupportedException"/>.
+    /// Traduit un prédicat en conditions. Formes acceptées, combinées toutes en ET ou toutes en OU :
+    /// <list type="bullet">
+    /// <item>comparaisons entre une propriété et une valeur : ==, !=, &gt;, &gt;=, &lt;, &lt;= ;</item>
+    /// <item>propriété booléenne : <c>e.Actif</c>, <c>!e.Actif</c> ;</item>
+    /// <item>appartenance à une liste : <c>ids.Contains(e.Id)</c> ;</item>
+    /// <item>texte : <c>e.Nom.StartsWith(x)</c>, <c>EndsWith</c>, <c>Contains</c> ;</item>
+    /// <item><c>e => true</c>.</item>
+    /// </list>
+    /// Tout le reste lève <see cref="NotSupportedException"/>, avant tout appel au serveur.
     /// </summary>
-    public static (Dictionary<string, object?> Filters, bool Any) FromPredicate<T>(Expression<Func<T, bool>> predicate)
+    public static (FilterCondition[] Conditions, bool Any) FromPredicate<T>(Expression<Func<T, bool>> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
         var parameter = predicate.Parameters[0];
-        var filters = new Dictionary<string, object?>();
 
         if (predicate.Body is ConstantExpression { Value: true })
-            return (filters, false);
+            return ([], false);
 
         bool? any = null;
         var terms = new List<Expression>();
         Flatten(predicate.Body, terms, ref any);
 
-        foreach (var term in terms)
-        {
-            var (name, value) = ParseTerm(term, parameter);
-            value = Normalize(value);
-
-            if (filters.TryAdd(name, value))
-                continue;
-
-            // En OU, plusieurs valeurs pour une même propriété deviennent une liste (équivalent d'un IN).
-            if (any != true)
-                throw Unsupported($"la propriété {name} est comparée plusieurs fois dans un ET");
-
-            if (filters[name] is List<object?> values)
-                values.Add(value);
-            else
-                filters[name] = new List<object?> { filters[name], value };
-        }
-
-        return (filters, any ?? false);
+        var conditions = terms.Select(term => ParseTerm(term, parameter)).ToArray();
+        return (conditions, any ?? false);
     }
 
     private static void Flatten(Expression expression, List<Expression> terms, ref bool? any)
@@ -71,29 +66,107 @@ internal static class Filters
         }
     }
 
-    private static (string Name, object? Value) ParseTerm(Expression term, ParameterExpression parameter)
+    private static FilterCondition ParseTerm(Expression term, ParameterExpression parameter)
     {
         switch (term)
         {
-            case BinaryExpression { NodeType: ExpressionType.Equal } equal:
-                if (AsProperty(equal.Left, parameter) is { } left && !UsesParameter(equal.Right, parameter))
-                    return (left.Name, Evaluate(equal.Right));
-                if (AsProperty(equal.Right, parameter) is { } right && !UsesParameter(equal.Left, parameter))
-                    return (right.Name, Evaluate(equal.Left));
+            case BinaryExpression binary when ComparisonOperator(binary.NodeType) is { } op:
+                if (AsProperty(binary.Left, parameter) is { } left && !UsesParameter(binary.Right, parameter))
+                    return new FilterCondition(left.Name, op, Normalize(Evaluate(binary.Right)));
+                if (AsProperty(binary.Right, parameter) is { } right && !UsesParameter(binary.Left, parameter))
+                    return new FilterCondition(right.Name, Mirror(op), Normalize(Evaluate(binary.Left)));
                 break;
 
             case UnaryExpression { NodeType: ExpressionType.Not } negation
                 when AsProperty(negation.Operand, parameter) is { } negated && IsBoolean(negated):
-                return (negated.Name, false);
+                return new FilterCondition(negated.Name, FilterOperator.Equal, false);
+
+            case MethodCallExpression call when ParseMethodCall(call, parameter) is { } condition:
+                return condition;
 
             default:
                 if (AsProperty(term, parameter) is { } flag && IsBoolean(flag))
-                    return (flag.Name, true);
+                    return new FilterCondition(flag.Name, FilterOperator.Equal, true);
                 break;
         }
 
-        throw Unsupported($"« {term} » n'est pas une égalité entre une propriété et une valeur");
+        throw Unsupported($"« {term} » n'est pas une condition prise en charge");
     }
+
+    private static FilterCondition? ParseMethodCall(MethodCallExpression call, ParameterExpression parameter)
+    {
+        // e.Nom.StartsWith(x), EndsWith(x), Contains(x)
+        if (call.Method.DeclaringType == typeof(string) && !call.Method.IsStatic && call.Arguments.Count == 1
+            && AsProperty(call.Object!, parameter) is { } text && !UsesParameter(call.Arguments[0], parameter))
+        {
+            FilterOperator? op = call.Method.Name switch
+            {
+                nameof(string.StartsWith) => FilterOperator.StartsWith,
+                nameof(string.EndsWith) => FilterOperator.EndsWith,
+                nameof(string.Contains) => FilterOperator.Contains,
+                _ => null
+            };
+            return op is null ? null : new FilterCondition(text.Name, op.Value, Normalize(Evaluate(call.Arguments[0])));
+        }
+
+        if (call.Method.Name != "Contains")
+            return null;
+
+        // liste.Contains(e.Id) : Enumerable.Contains(liste, e.Id), MemoryExtensions.Contains(span, e.Id)
+        // (forme produite par C# 14 pour un tableau) ou méthode d'instance d'une collection.
+        var (source, item) = call.Object is null && call.Arguments.Count == 2
+            ? (call.Arguments[0], call.Arguments[1])
+            : (call.Object, call.Arguments.Count == 1 ? call.Arguments[0] : null);
+
+        // "abc".Contains(e.Nom) n'est pas une liste de valeurs : un texte n'est pas une collection ici.
+        if (source is null || item is null || source.Type == typeof(string)
+            || AsProperty(item, parameter) is not { } member || UsesParameter(source, parameter))
+            return null;
+
+        var values = Evaluate(UnwrapSpan(source)) as IEnumerable
+            ?? throw Unsupported($"« {source} » n'est pas une collection");
+        return new FilterCondition(member.Name, FilterOperator.In, values.Cast<object?>().Select(Normalize).ToArray());
+    }
+
+    /// <summary>Un tableau converti en ReadOnlySpan ne peut pas être évalué : on évalue le tableau d'origine.</summary>
+    private static Expression UnwrapSpan(Expression source)
+    {
+        while (true)
+        {
+            switch (source)
+            {
+                case MethodCallExpression { Method.Name: "op_Implicit", Arguments.Count: 1 } implicitCall:
+                    source = implicitCall.Arguments[0];
+                    continue;
+                case UnaryExpression { NodeType: ExpressionType.Convert } convert when convert.Type.IsByRefLike:
+                    source = convert.Operand;
+                    continue;
+                default:
+                    return source;
+            }
+        }
+    }
+
+    private static FilterOperator? ComparisonOperator(ExpressionType type) => type switch
+    {
+        ExpressionType.Equal => FilterOperator.Equal,
+        ExpressionType.NotEqual => FilterOperator.NotEqual,
+        ExpressionType.GreaterThan => FilterOperator.GreaterThan,
+        ExpressionType.GreaterThanOrEqual => FilterOperator.GreaterThanOrEqual,
+        ExpressionType.LessThan => FilterOperator.LessThan,
+        ExpressionType.LessThanOrEqual => FilterOperator.LessThanOrEqual,
+        _ => null
+    };
+
+    /// <summary><c>5 &lt; e.Id</c> devient <c>e.Id &gt; 5</c>.</summary>
+    private static FilterOperator Mirror(FilterOperator op) => op switch
+    {
+        FilterOperator.GreaterThan => FilterOperator.LessThan,
+        FilterOperator.GreaterThanOrEqual => FilterOperator.LessThanOrEqual,
+        FilterOperator.LessThan => FilterOperator.GreaterThan,
+        FilterOperator.LessThanOrEqual => FilterOperator.GreaterThanOrEqual,
+        _ => op
+    };
 
     /// <summary>Renvoie la propriété si l'expression est <c>e.Propriete</c> (éventuellement convertie).</summary>
     private static PropertyInfo? AsProperty(Expression expression, ParameterExpression parameter)
@@ -135,8 +208,9 @@ internal static class Filters
     };
 
     private static NotSupportedException Unsupported(string reason)
-        => new($"Prédicat non transmissible au serveur : {reason}. " +
-               "Seules les égalités propriété = valeur, combinées toutes en ET ou toutes en OU, sont prises en charge.");
+        => new($"Prédicat non transmissible au serveur : {reason}. Sont pris en charge : comparaisons entre une " +
+               "propriété et une valeur, propriétés booléennes, liste.Contains(e.Prop), StartsWith/EndsWith/Contains " +
+               "sur du texte, combinés tous en ET ou tous en OU.");
 
     private sealed class ParameterFinder(ParameterExpression parameter) : ExpressionVisitor
     {
@@ -149,32 +223,112 @@ internal static class Filters
         }
     }
 
-    // ---------- Serveur : filtres → prédicat ----------
+    // =====================================================================
+    // Serveur : conditions → prédicat
+    // =====================================================================
 
-    /// <summary>Construit <c>e => e.A == a &amp;&amp; e.B == b</c> (ou avec || si <paramref name="any"/>).</summary>
+    /// <summary>Construit le prédicat, en refusant toute condition hors de la liste blanche.</summary>
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
-        IReadOnlyDictionary<string, object?> filters, bool any)
+        IReadOnlyList<FilterCondition> conditions, bool any)
     {
         var parameter = Expression.Parameter(typeof(T), "e");
         Expression? body = null;
 
-        foreach (var (name, value) in filters)
+        foreach (var condition in conditions)
         {
-            var property = typeof(T).GetProperty(name, BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new ArgumentException($"Propriété inconnue « {name} » sur {typeof(T).Name}.");
+            ArgumentNullException.ThrowIfNull(condition);
+            var property = typeof(T).GetProperty(condition.Property, BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new ArgumentException($"Propriété inconnue « {condition.Property} » sur {typeof(T).Name}.");
 
-            var member = Expression.Property(parameter, property);
-            var equal = AsValueList(value) is { } values
-                ? AnyOf(member, values, property.PropertyType, name)
-                : Equal(member, Expression.Constant(ConvertTo(value, property.PropertyType, name), property.PropertyType));
-
-            body = body is null ? equal
-                : any ? Expression.OrElse(body, equal)
-                : Expression.AndAlso(body, equal);
+            var term = Build(Expression.Property(parameter, property), condition);
+            body = body is null ? term
+                : any ? Expression.OrElse(body, term)
+                : Expression.AndAlso(body, term);
         }
 
         body ??= Expression.Constant(true);
         return Expression.Lambda<Func<T, bool>>(body, parameter);
+    }
+
+    private static Expression Build(MemberExpression member, FilterCondition condition)
+    {
+        var type = member.Type;
+        var name = condition.Property;
+
+        switch (condition.Operator)
+        {
+            case FilterOperator.Equal or FilterOperator.NotEqual
+                or FilterOperator.GreaterThan or FilterOperator.GreaterThanOrEqual
+                or FilterOperator.LessThan or FilterOperator.LessThanOrEqual:
+                if (condition.Value is IList and not byte[])
+                    throw new ArgumentException($"« {name} » : une liste n'est acceptée qu'avec l'opérateur In.");
+                return Compare(member, Constant(condition.Value, type, name), condition.Operator, name);
+
+            case FilterOperator.In:
+                if (condition.Value is not IList values || condition.Value is byte[])
+                    throw new ArgumentException($"« {name} » : l'opérateur In attend une liste de valeurs.");
+                if (values.Count == 0)
+                    return Expression.Constant(false); // aucune valeur : aucune ligne
+                Expression? anyOf = null;
+                foreach (var value in values)
+                {
+                    var equal = Compare(member, Constant(value, type, name), FilterOperator.Equal, name);
+                    anyOf = anyOf is null ? equal : Expression.OrElse(anyOf, equal);
+                }
+                return anyOf!;
+
+            case FilterOperator.StartsWith or FilterOperator.EndsWith or FilterOperator.Contains:
+                if (type != typeof(string))
+                    throw new ArgumentException($"« {name} » n'est pas du texte : {condition.Operator} impossible.");
+                if (condition.Value is not string text)
+                    throw new ArgumentException($"« {name} » : {condition.Operator} attend un texte.");
+                var method = condition.Operator switch
+                {
+                    FilterOperator.StartsWith => StringStartsWith,
+                    FilterOperator.EndsWith => StringEndsWith,
+                    _ => StringContains
+                };
+                return Expression.Call(member, method, Expression.Constant(text));
+
+            default:
+                throw new ArgumentException($"Opérateur inconnu : {condition.Operator}.");
+        }
+    }
+
+    private static ConstantExpression Constant(object? value, Type type, string name)
+        => Expression.Constant(ConvertTo(value, type, name), type);
+
+    /// <summary>Comparaison, y compris pour les enums, que les arbres d'expressions ne comparent pas directement.</summary>
+    private static Expression Compare(Expression left, Expression right, FilterOperator op, string name)
+    {
+        var underlying = Nullable.GetUnderlyingType(left.Type);
+        var core = underlying ?? left.Type;
+        if (core.IsEnum)
+        {
+            var numeric = Enum.GetUnderlyingType(core);
+            var target = underlying is null ? numeric : typeof(Nullable<>).MakeGenericType(numeric);
+            left = Expression.Convert(left, target);
+            right = Expression.Convert(right, target);
+        }
+
+        try
+        {
+            return op switch
+            {
+                FilterOperator.Equal => Expression.Equal(left, right),
+                FilterOperator.NotEqual => Expression.NotEqual(left, right),
+                FilterOperator.GreaterThan => Expression.GreaterThan(left, right),
+                FilterOperator.GreaterThanOrEqual => Expression.GreaterThanOrEqual(left, right),
+                FilterOperator.LessThan => Expression.LessThan(left, right),
+                FilterOperator.LessThanOrEqual => Expression.LessThanOrEqual(left, right),
+                _ => throw new ArgumentException($"Opérateur inattendu : {op}.")
+            };
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Par exemple « Nom > 'A' » : pas d'opérateur de comparaison sur le texte.
+            throw new ArgumentException($"« {name} » ({left.Type.Name}) ne peut pas être comparé avec {op}.", ex);
+        }
     }
 
     /// <summary>
@@ -224,40 +378,5 @@ internal static class Filters
             throw new ArgumentException(
                 $"Valeur « {value} » ({value.GetType().Name}) invalide pour la propriété « {name} » ({type.Name}).", ex);
         }
-    }
-
-    /// <summary>
-    /// Une liste de valeurs (reçue en object[] après MessagePack) signifie « l'une de ces valeurs ».
-    /// Un byte[] reste une valeur unique (Guid binaire, blob).
-    /// </summary>
-    private static System.Collections.IList? AsValueList(object? value)
-        => value is System.Collections.IList list and not byte[] ? list : null;
-
-    /// <summary>Construit <c>e.P == v1 || e.P == v2 || ...</c>.</summary>
-    private static Expression AnyOf(MemberExpression member, System.Collections.IList values, Type type, string name)
-    {
-        if (values.Count == 0)
-            throw new ArgumentException($"Liste de valeurs vide pour la propriété « {name} ».");
-
-        Expression? body = null;
-        foreach (var value in values)
-        {
-            var equal = Equal(member, Expression.Constant(ConvertTo(value, type, name), type));
-            body = body is null ? equal : Expression.OrElse(body, equal);
-        }
-        return body!;
-    }
-
-    /// <summary>Égalité, y compris pour les enums, que les arbres d'expressions ne comparent pas directement.</summary>
-    private static Expression Equal(Expression left, Expression right)
-    {
-        var underlying = Nullable.GetUnderlyingType(left.Type);
-        var core = underlying ?? left.Type;
-        if (!core.IsEnum)
-            return Expression.Equal(left, right);
-
-        var numeric = Enum.GetUnderlyingType(core);
-        var target = underlying is null ? numeric : typeof(Nullable<>).MakeGenericType(numeric);
-        return Expression.Equal(Expression.Convert(left, target), Expression.Convert(right, target));
     }
 }

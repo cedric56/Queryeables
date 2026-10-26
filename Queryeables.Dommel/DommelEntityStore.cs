@@ -112,18 +112,26 @@ public sealed class DommelEntityStore : IEntityStore
         AssignGeneratedKey(entity, id);
     }
 
+    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
     public async Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
-        return await _connection.UpdateAsync(entity, _transaction, ct);
+
+        return ConcurrencyToken.Find(typeof(TEntity)) is { } version
+            ? await VersionedCommands.UpdateAsync(_connection, _transaction, entity, version, ct)
+            : await _connection.UpdateAsync(entity, _transaction, ct);
     }
 
+    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
     public async Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
-        return await _connection.DeleteAsync(entity, _transaction, ct);
+
+        return ConcurrencyToken.Find(typeof(TEntity)) is { } version
+            ? await VersionedCommands.DeleteAsync(_connection, _transaction, entity, version, ct)
+            : await _connection.DeleteAsync(entity, _transaction, ct);
     }
 
     // ---------- Transactions ----------

@@ -66,18 +66,58 @@ public sealed class EfEntityStore : IEntityStore
         await SaveAndDetachAsync(entity, ct); // EF remplit la clé générée
     }
 
+    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
     public async Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        _context.Update(entity);
-        return await SaveAndDetachAsync(entity, ct) > 0;
+        var entry = _context.Update(entity);
+
+        if (ConcurrencyToken.Find(typeof(TEntity)) is not { } version)
+            return await SaveAndDetachAsync(entity, ct) > 0;
+
+        // EF vérifie l'ancienne version (WHERE Version = ...) et enregistre la nouvelle.
+        var current = ConcurrencyToken.Get(entity, version);
+        var token = entry.Property(version.Name);
+        token.OriginalValue = ConcurrencyToken.Box(version, current);
+        token.CurrentValue = ConcurrencyToken.Box(version, current + 1);
+
+        if (await SaveAndDetachAsync(entity, ct) > 0)
+            return true;
+
+        ConcurrencyToken.Set(entity, version, current); // l'entité garde la version qu'elle avait
+        return await ExistsAsync(entity, ct) ? throw ConcurrencyToken.ConflictFor(typeof(TEntity)) : false;
     }
 
+    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
     public async Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        _context.Remove(entity);
-        return await SaveAndDetachAsync(entity, ct) > 0;
+        var entry = _context.Remove(entity);
+
+        if (ConcurrencyToken.Find(typeof(TEntity)) is not { } version)
+            return await SaveAndDetachAsync(entity, ct) > 0;
+
+        entry.Property(version.Name).OriginalValue = ConcurrencyToken.Box(version, ConcurrencyToken.Get(entity, version));
+
+        if (await SaveAndDetachAsync(entity, ct) > 0)
+            return true;
+
+        return await ExistsAsync(entity, ct) ? throw ConcurrencyToken.ConflictFor(typeof(TEntity)) : false;
+    }
+
+    /// <summary>La ligne de cette clé existe-t-elle encore ? (distingue un conflit d'une ligne supprimée)</summary>
+    private async Task<bool> ExistsAsync<TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
+    {
+        var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
+            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");
+        var values = key.Properties.Select(p => p.PropertyInfo?.GetValue(entity)).ToArray();
+
+        var found = await _context.Set<TEntity>().FindAsync(values, ct);
+        if (found is null)
+            return false;
+
+        _context.Entry(found).State = EntityState.Detached;
+        return true;
     }
 
     // ---------- Transactions ----------
