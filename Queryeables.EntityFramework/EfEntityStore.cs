@@ -108,7 +108,7 @@ public sealed class EfEntityStore : IEntityStore
     private async Task<bool> ExistsAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
     {
         var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
-            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");
+            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} has no primary key.");
         var values = key.Properties.Select(p => p.PropertyInfo?.GetValue(entity)).ToArray();
 
         var found = await _context.Set<TEntity>().FindAsync(values, ct);
@@ -148,7 +148,7 @@ public sealed class EfEntityStore : IEntityStore
     private IQueryable<TEntity> OrderByKey<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IQueryable<TEntity> query) where TEntity : class
     {
         var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
-            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");
+            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} has no primary key.");
 
         IOrderedQueryable<TEntity>? ordered = null;
         foreach (var property in key.Properties)

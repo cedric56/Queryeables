@@ -128,7 +128,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
     {
         if (aggregate is not null)
             throw new EntityStoreException(EntityErrorCode.NotSupported,
-                $"{typeof(T).Name} est enregistré par son propre service transactionnel : il ne peut pas faire partie d'un lot.");
+                $"{typeof(T).Name} is saved by its own transactional service: it cannot be part of a batch.");
 
         var value = await PrepareAsync(kind, entity, context, ct);
 
@@ -183,16 +183,16 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
             BatchOperationKind.Insert => EntityOperation.Insert,
             BatchOperationKind.Update => EntityOperation.Update,
             BatchOperationKind.Delete => EntityOperation.Delete,
-            _ => throw new ArgumentException($"Opération inconnue : {kind}.")
+            _ => throw new ArgumentException($"Unknown operation: {kind}.")
         };
         await AuthorizeAsync(operation, value, context, ct);
 
         if (validate && kind is BatchOperationKind.Insert or BatchOperationKind.Update)
         {
-            var errors = EntityValidator.Validate(value).Select(e => e.ErrorMessage ?? "Valeur invalide.").ToList();
+            var errors = EntityValidator.Validate(value).Select(e => e.ErrorMessage ?? "Invalid value.").ToList();
             if (errors.Count > 0)
                 throw new EntityStoreException(EntityErrorCode.Validation,
-                    $"{typeof(T).Name} invalide : {string.Join(" ", errors)}", errors);
+                    $"Invalid {typeof(T).Name}: {string.Join(" ", errors)}", errors);
         }
 
         return value;
@@ -203,15 +203,15 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
     private async Task AuthorizeAsync(EntityOperation operation, T? entity, EntityRequestContext context, CancellationToken ct)
     {
         if (!await _policy.IsAllowedAsync(new EntityAccessRequest(operation, typeof(T), entity, context.User), ct))
-            throw new EntityStoreException(EntityErrorCode.Forbidden, $"Accès refusé : {operation} sur {typeof(T).Name}.");
+            throw new EntityStoreException(EntityErrorCode.Forbidden, $"Access denied: {operation} on {typeof(T).Name}.");
     }
 
     private static EntityStoreException NotFound()
-        => new(EntityErrorCode.NotFound, $"{typeof(T).Name} introuvable : la ligne n'existe plus.");
+        => new(EntityErrorCode.NotFound, $"{typeof(T).Name} not found: the row no longer exists.");
 
     private T Deserialize(byte[] bytes, CancellationToken ct)
         => MessagePackSerializer.Deserialize<T>(bytes, options, ct)
-           ?? throw new ArgumentException($"Entité {typeof(T).Name} vide.");
+           ?? throw new ArgumentException($"Empty {typeof(T).Name} entity.");
 
     private byte[] Serialize(T value, CancellationToken ct) => MessagePackSerializer.Serialize(value, options, ct);
 

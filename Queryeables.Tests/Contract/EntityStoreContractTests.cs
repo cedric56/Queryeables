@@ -23,9 +23,9 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     /// <summary>True when the store applies [LastModified] and [SoftDelete] (<see cref="SyncConventionsStore"/>).</summary>
     protected virtual bool UsesSyncConventions => false;
 
-    private async Task<TestClient> InsertAsync(string nom, bool actif = true, int? parrain = null)
+    private async Task<TestClient> InsertAsync(string name, bool active = true, int? sponsorId = null)
     {
-        var client = new TestClient { Nom = nom, Actif = actif, Parrain = parrain };
+        var client = new TestClient { Name = name, Active = active, SponsorId = sponsorId };
         await using var store = CreateStore();
         await store.InsertAsync(client);
         return client;
@@ -50,32 +50,32 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         await using var store = CreateStore();
         var all = await store.GetAllAsync<TestClient>();
 
-        Assert.Equal(new[] { "Ana", "Bob" }, all.Select(c => c.Nom).OrderBy(n => n));
+        Assert.Equal(new[] { "Ana", "Bob" }, all.Select(c => c.Name).OrderBy(n => n));
     }
 
     [Fact]
     public async Task Select_filters_with_equalities()
     {
-        await InsertAsync("Ana", actif: true, parrain: 1);
-        await InsertAsync("Bob", actif: false, parrain: 1);
-        await InsertAsync("Cid", actif: true, parrain: 2);
+        await InsertAsync("Ana", active: true, sponsorId: 1);
+        await InsertAsync("Bob", active: false, sponsorId: 1);
+        await InsertAsync("Cid", active: true, sponsorId: 2);
 
         await using var store = CreateStore();
-        var result = await store.SelectAsync<TestClient>(c => c.Actif == true && c.Parrain == 1);
+        var result = await store.SelectAsync<TestClient>(c => c.Active == true && c.SponsorId == 1);
 
-        Assert.Equal("Ana", Assert.Single(result).Nom);
+        Assert.Equal("Ana", Assert.Single(result).Name);
     }
 
     [Fact]
     public async Task Select_handles_null_values()
     {
-        await InsertAsync("Ana", parrain: null);
-        await InsertAsync("Bob", parrain: 3);
+        await InsertAsync("Ana", sponsorId: null);
+        await InsertAsync("Bob", sponsorId: 3);
 
         await using var store = CreateStore();
-        var result = await store.SelectAsync<TestClient>(c => c.Parrain == null);
+        var result = await store.SelectAsync<TestClient>(c => c.SponsorId == null);
 
-        Assert.Equal("Ana", Assert.Single(result).Nom);
+        Assert.Equal("Ana", Assert.Single(result).Name);
     }
 
     [Fact]
@@ -85,20 +85,20 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
 
         await using var store = CreateStore();
 
-        Assert.Null(await store.FirstOrDefaultAsync<TestClient>(c => c.Nom == "Personne"));
-        Assert.Equal("Ana", (await store.FirstOrDefaultAsync<TestClient>(c => c.Nom == "Ana"))?.Nom);
+        Assert.Null(await store.FirstOrDefaultAsync<TestClient>(c => c.Name == "Nobody"));
+        Assert.Equal("Ana", (await store.FirstOrDefaultAsync<TestClient>(c => c.Name == "Ana"))?.Name);
     }
 
     [Fact]
     public async Task SelectPaged_returns_stable_pages_starting_at_one()
     {
-        foreach (var nom in new[] { "A", "B", "C", "D", "E" })
-            await InsertAsync(nom);
+        foreach (var name in new[] { "A", "B", "C", "D", "E" })
+            await InsertAsync(name);
 
         await using var store = CreateStore();
-        var page1 = await store.SelectPagedAsync<TestClient>(c => c.Actif == true, 1, 2);
-        var page2 = await store.SelectPagedAsync<TestClient>(c => c.Actif == true, 2, 2);
-        var page3 = await store.SelectPagedAsync<TestClient>(c => c.Actif == true, 3, 2);
+        var page1 = await store.SelectPagedAsync<TestClient>(c => c.Active == true, 1, 2);
+        var page2 = await store.SelectPagedAsync<TestClient>(c => c.Active == true, 2, 2);
+        var page3 = await store.SelectPagedAsync<TestClient>(c => c.Active == true, 3, 2);
 
         var ids = page1.Concat(page2).Concat(page3).Select(c => c.Id).ToList();
         Assert.Equal(5, ids.Count);
@@ -111,27 +111,27 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     {
         await using var store = CreateStore();
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => store.SelectPagedAsync<TestClient>(c => c.Actif == true, 0, 10));
+            () => store.SelectPagedAsync<TestClient>(c => c.Active == true, 0, 10));
     }
 
     [Fact]
     public async Task Update_returns_true_and_persists()
     {
         var client = await InsertAsync("Ana");
-        client.Nom = "Ana modifiée";
+        client.Name = "Ana updated";
 
         await using (var store = CreateStore())
             Assert.True(await store.UpdateAsync(client));
 
         await using var check = CreateStore();
-        Assert.Equal("Ana modifiée", (await check.FirstOrDefaultAsync<TestClient>(c => c.Id == client.Id))?.Nom);
+        Assert.Equal("Ana updated", (await check.FirstOrDefaultAsync<TestClient>(c => c.Id == client.Id))?.Name);
     }
 
     [Fact]
     public async Task Update_returns_false_for_a_missing_row()
     {
         await using var store = CreateStore();
-        Assert.False(await store.UpdateAsync(new TestClient { Id = 999, Nom = "Fantôme" }));
+        Assert.False(await store.UpdateAsync(new TestClient { Id = 999, Name = "Ghost" }));
     }
 
     [Fact]
@@ -148,12 +148,12 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     [Fact]
     public async Task Count_counts_matching_rows()
     {
-        await InsertAsync("Ana", actif: true);
-        await InsertAsync("Bob", actif: false);
-        await InsertAsync("Cid", actif: true);
+        await InsertAsync("Ana", active: true);
+        await InsertAsync("Bob", active: false);
+        await InsertAsync("Cid", active: true);
 
         await using var store = CreateStore();
-        Assert.Equal(2, await store.CountAsync<TestClient>(c => c.Actif == true));
+        Assert.Equal(2, await store.CountAsync<TestClient>(c => c.Active == true));
     }
 
     [Fact]
@@ -184,21 +184,21 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         await using var store = CreateStore();
         var result = await store.SelectAsync<TestClient>(x => wanted.Contains(x.Id));
 
-        Assert.Equal(new[] { "A", "C" }, result.Select(x => x.Nom).OrderBy(n => n));
+        Assert.Equal(new[] { "A", "C" }, result.Select(x => x.Name).OrderBy(n => n));
     }
 
     [Fact]
     public async Task Select_with_text_searches()
     {
-        await InsertAsync("Anaïs");
+        await InsertAsync("Anna");
         await InsertAsync("Bob");
         await InsertAsync("Annabelle");
 
         await using var store = CreateStore();
 
-        Assert.Equal(2, (await store.SelectAsync<TestClient>(x => x.Nom.StartsWith("An"))).Count);
-        Assert.Equal("Annabelle", Assert.Single(await store.SelectAsync<TestClient>(x => x.Nom.EndsWith("belle"))).Nom);
-        Assert.Equal("Bob", Assert.Single(await store.SelectAsync<TestClient>(x => x.Nom.Contains("o"))).Nom);
+        Assert.Equal(2, (await store.SelectAsync<TestClient>(x => x.Name.StartsWith("An"))).Count);
+        Assert.Equal("Annabelle", Assert.Single(await store.SelectAsync<TestClient>(x => x.Name.EndsWith("belle"))).Name);
+        Assert.Equal("Bob", Assert.Single(await store.SelectAsync<TestClient>(x => x.Name.Contains("o"))).Name);
     }
 
     [Fact]
@@ -221,13 +221,13 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         var stale = client.Copy();
 
         await using var store = CreateStore();
-        client.Nom = "Modifiée par un autre";
+        client.Name = "Changed by someone else";
         Assert.True(await store.UpdateAsync(client));
 
-        stale.Nom = "Écrasement";
+        stale.Name = "Overwrite";
         var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.UpdateAsync(stale));
         Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
-        Assert.Equal("Modifiée par un autre", (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Nom);
+        Assert.Equal("Changed by someone else", (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Name);
     }
 
     [Fact]
@@ -276,8 +276,8 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         await using var store = CreateStore();
         Assert.True(await store.DeleteAsync(a));
 
-        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
-        Assert.Equal(1, await store.CountAsync<TestClient>(x => x.Actif == true));
+        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Name);
+        Assert.Equal(1, await store.CountAsync<TestClient>(x => x.Active == true));
         Assert.Null(await store.FirstOrDefaultAsync<TestClient>(x => x.Id == a.Id));
 
         var changes = await store.SelectChangesAsync<TestClient>(DateTime.MinValue);
@@ -292,12 +292,12 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
 
         await InsertAsync("Ancien");
         await Task.Delay(20);
-        var recent = await InsertAsync("Récent");
+        var recent = await InsertAsync("Recent");
 
         await using var store = CreateStore();
         var changes = await store.SelectChangesAsync<TestClient>(recent.LastModified);
 
-        Assert.Equal("Récent", Assert.Single(changes).Nom);
+        Assert.Equal("Recent", Assert.Single(changes).Name);
     }
 
     [Fact]
@@ -309,7 +309,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         await using (var store = CreateStore())
         {
             await using var transaction = await store.BeginTransactionAsync();
-            await store.InsertAsync(new TestClient { Nom = "Annulé" });
+            await store.InsertAsync(new TestClient { Name = "Rolled back" });
             // no CommitAsync
         }
 
@@ -327,8 +327,8 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         {
             var result = await store.RunInTransactionAsync(async s =>
             {
-                await s.InsertAsync(new TestClient { Nom = "Ana" });
-                await s.InsertAsync(new TestClient { Nom = "Bob" });
+                await s.InsertAsync(new TestClient { Name = "Ana" });
+                await s.InsertAsync(new TestClient { Name = "Bob" });
             });
             Assert.True(result.Successful);
         }

@@ -53,7 +53,7 @@ public class RemoteContractTests
     [Fact]
     public void Store_errors_keep_their_code_and_messages()
     {
-        var result = DBResultMessage.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalide", ["a", "b"]));
+        var result = DBResultMessage.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalid", ["a", "b"]));
 
         var error = Assert.Throws<EntityStoreException>(() => result.GetDataOrThrow());
         Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
@@ -75,13 +75,13 @@ public class RemoteContractTests
     [Fact]
     public void DBResult_survives_the_wire_form()
     {
-        var original = DBResult.Failure(EntityErrorCode.Conflict, "modifiée entre-temps", ["v1"]);
+        var original = DBResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
 
         var back = DBResultMessage.From(original).ToDBResult();
 
         Assert.False(back.Successful);
         Assert.Equal(EntityErrorCode.Conflict, back.ErrorCode);
-        Assert.Equal("modifiée entre-temps", back.Exception);
+        Assert.Equal("changed in the meantime", back.Exception);
         Assert.Equal(new[] { "v1" }, back.Errors);
         Assert.True(DBResultMessage.From(DBResult.Success()).ToDBResult().Successful);
     }

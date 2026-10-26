@@ -6,8 +6,8 @@ public class EntityCacheTests
 {
     private readonly List<TestClient> _rows =
     [
-        new() { Id = 1, Nom = "Ana" },
-        new() { Id = 2, Nom = "Bob" },
+        new() { Id = 1, Name = "Ana" },
+        new() { Id = 2, Name = "Bob" },
     ];
 
     private readonly List<InMemoryEntityStore> _stores = [];
@@ -38,7 +38,7 @@ public class EntityCacheTests
         await cache.LoadAsync();
 
         Assert.Equal(2, cache.Entities.Count);
-        Assert.Equal("Bob", cache.Find(2)?.Nom);
+        Assert.Equal("Bob", cache.Find(2)?.Name);
         Assert.Equal(1, raised);
     }
 
@@ -49,10 +49,10 @@ public class EntityCacheTests
         using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor, RecordKey.Parse<long>);
         await cache.LoadAsync();
 
-        _rows[1].Nom = "Bob modifié";
+        _rows[1].Name = "Bob updated";
         await WaitForChangeAsync(cache, () => monitor.Publish(new Record<TestClient>(2L, ChangeType.Update)));
 
-        Assert.Equal("Bob modifié", cache.Find(2)?.Nom);
+        Assert.Equal("Bob updated", cache.Find(2)?.Name);
         Assert.Equal(0, _stores[0].SelectCalls);       // full load: no filtered query
         Assert.Equal(1, _stores[1].SelectCalls);       // update: a single row requested
     }
@@ -77,7 +77,7 @@ public class EntityCacheTests
         using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor);
         await cache.LoadAsync();
 
-        _rows.Add(new TestClient { Id = 3, Nom = "Cid" });
+        _rows.Add(new TestClient { Id = 3, Name = "Cid" });
         await WaitForChangeAsync(cache, () => monitor.Publish(new Record<TestClient>(3L, ChangeType.Insert)));
 
         Assert.Equal(3, cache.Entities.Count);
@@ -89,10 +89,10 @@ public class EntityCacheTests
         using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id);
         await cache.LoadAsync();
 
-        cache.Track(new TestClient { Id = 2, Nom = "Remplacé" });
-        cache.Track(new TestClient { Id = 9, Nom = "Ajouté" });
+        cache.Track(new TestClient { Id = 2, Name = "Replaced" });
+        cache.Track(new TestClient { Id = 9, Name = "Added" });
 
-        Assert.Equal("Remplacé", cache.Find(2)?.Nom);
+        Assert.Equal("Replaced", cache.Find(2)?.Name);
         Assert.Equal(3, cache.Entities.Count);
     }
 

@@ -19,7 +19,7 @@ public class SyncAndCoalescingTests
     {
         var clock = new FakeClock(T0);
         var store = new InMemoryEntityStore([]).WithSyncConventions(clock);
-        var client = new TestClient { Nom = "Ana" };
+        var client = new TestClient { Name = "Ana" };
 
         await store.InsertAsync(client);
         Assert.Equal(T0, client.LastModified);
@@ -34,17 +34,17 @@ public class SyncAndCoalescingTests
     {
         var rows = new List<TestClient>();
         var store = new InMemoryEntityStore(rows).WithSyncConventions(new FakeClock(T0));
-        var ana = new TestClient { Nom = "Ana" };
+        var ana = new TestClient { Name = "Ana" };
         await store.InsertAsync(ana);
-        await store.InsertAsync(new TestClient { Nom = "Bob" });
+        await store.InsertAsync(new TestClient { Name = "Bob" });
 
         Assert.True(await store.DeleteAsync(ana));
         Assert.False(await store.DeleteAsync(ana)); // already deleted
 
         Assert.Equal(2, rows.Count);                 // still in the database
-        Assert.True(rows.Single(r => r.Nom == "Ana").Deleted);
-        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
-        Assert.Null(await store.FirstOrDefaultAsync<TestClient>(c => c.Nom == "Ana"));
+        Assert.True(rows.Single(r => r.Name == "Ana").Deleted);
+        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Name);
+        Assert.Null(await store.FirstOrDefaultAsync<TestClient>(c => c.Name == "Ana"));
         Assert.Equal(1, await store.CountAsync<TestClient>(c => true));
     }
 
@@ -53,17 +53,17 @@ public class SyncAndCoalescingTests
     {
         var clock = new FakeClock(T0);
         var store = new InMemoryEntityStore([]).WithSyncConventions(clock);
-        var ana = new TestClient { Nom = "Ana" };
+        var ana = new TestClient { Name = "Ana" };
         await store.InsertAsync(ana);
 
         clock.Now = T0.AddHours(1);
-        await store.InsertAsync(new TestClient { Nom = "Bob" });
+        await store.InsertAsync(new TestClient { Name = "Bob" });
         await store.DeleteAsync(ana);
 
         var changes = await store.SelectChangesAsync<TestClient>(T0.AddMinutes(30));
 
-        Assert.Equal(new[] { "Ana", "Bob" }, changes.Select(c => c.Nom).OrderBy(n => n));
-        Assert.True(changes.Single(c => c.Nom == "Ana").Deleted);
+        Assert.Equal(new[] { "Ana", "Bob" }, changes.Select(c => c.Name).OrderBy(n => n));
+        Assert.True(changes.Single(c => c.Name == "Ana").Deleted);
     }
 
     // ---------- EntityCache.SyncAsync ----------
@@ -73,25 +73,25 @@ public class SyncAndCoalescingTests
     {
         var rows = new List<TestClient>
         {
-            new() { Id = 1, Nom = "Ana", LastModified = T0 },
-            new() { Id = 2, Nom = "Bob", LastModified = T0 },
-            new() { Id = 3, Nom = "Cid", LastModified = T0 },
+            new() { Id = 1, Name = "Ana", LastModified = T0 },
+            new() { Id = 2, Name = "Bob", LastModified = T0 },
+            new() { Id = 3, Name = "Cid", LastModified = T0 },
         };
         var log = new List<string>();
         using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows, log), c => c.Id);
         await cache.LoadAsync();
 
-        rows[0].Nom = "Ana modifiée"; rows[0].LastModified = T0.AddMinutes(1);
+        rows[0].Name = "Ana updated"; rows[0].LastModified = T0.AddMinutes(1);
         rows[1].Deleted = true;       rows[1].LastModified = T0.AddMinutes(2);
-        rows.Add(new TestClient { Id = 4, Nom = "Dan", LastModified = T0.AddMinutes(3) });
+        rows.Add(new TestClient { Id = 4, Name = "Dan", LastModified = T0.AddMinutes(3) });
         log.Clear();
 
         await cache.SyncAsync();
 
         Assert.DoesNotContain("GETALL", log); // no full reload
-        Assert.Equal("Ana modifiée", cache.Find(1)?.Nom);
+        Assert.Equal("Ana updated", cache.Find(1)?.Name);
         Assert.Null(cache.Find(2));
-        Assert.Equal("Dan", cache.Find(4)?.Nom);
+        Assert.Equal("Dan", cache.Find(4)?.Name);
         Assert.Equal(3, cache.Entities.Count);
     }
 
@@ -100,14 +100,14 @@ public class SyncAndCoalescingTests
     {
         var rows = new List<TestClient>
         {
-            new() { Id = 1, Nom = "Ana", LastModified = T0 },
-            new() { Id = 2, Nom = "Bob", LastModified = T0, Deleted = true },
+            new() { Id = 1, Name = "Ana", LastModified = T0 },
+            new() { Id = 2, Name = "Bob", LastModified = T0, Deleted = true },
         };
         using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id);
 
         await cache.LoadAsync();
 
-        Assert.Equal("Ana", Assert.Single(cache.Entities).Nom);
+        Assert.Equal("Ana", Assert.Single(cache.Entities).Name);
     }
 
     // ---------- Notification coalescing ----------
@@ -115,7 +115,7 @@ public class SyncAndCoalescingTests
     [Fact]
     public async Task A_burst_of_notifications_triggers_few_refreshes()
     {
-        var rows = new List<TestClient> { new() { Id = 1, Nom = "Ana", LastModified = T0 } };
+        var rows = new List<TestClient> { new() { Id = 1, Name = "Ana", LastModified = T0 } };
         var storesCreated = 0;
         var monitor = new DbMonitor<TestClient>();
         using var cache = new EntityCache<TestClient, long>(() =>
@@ -139,7 +139,7 @@ public class SyncAndCoalescingTests
     [Fact]
     public async Task A_burst_on_one_row_reads_it_at_most_twice()
     {
-        var rows = new List<TestClient> { new() { Id = 1, Nom = "Ana" } };
+        var rows = new List<TestClient> { new() { Id = 1, Name = "Ana" } };
         var stores = new List<InMemoryEntityStore>();
         var monitor = new DbMonitor<TestClient>();
         using var cache = new EntityCache<TestClient, long>(() =>
@@ -164,9 +164,9 @@ public class SyncAndCoalescingTests
     [Fact]
     public async Task GetAsync_throws_NotFound()
     {
-        var store = new InMemoryEntityStore([new() { Id = 1, Nom = "Ana" }]);
+        var store = new InMemoryEntityStore([new() { Id = 1, Name = "Ana" }]);
 
-        Assert.Equal("Ana", (await store.GetAsync<TestClient>(c => c.Id == 1)).Nom);
+        Assert.Equal("Ana", (await store.GetAsync<TestClient>(c => c.Id == 1)).Name);
         var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.GetAsync<TestClient>(c => c.Id == 9));
         Assert.Equal(EntityErrorCode.NotFound, error.ErrorCode);
     }
@@ -177,7 +177,7 @@ public class SyncAndCoalescingTests
         var log = new List<string>();
         var store = new InMemoryEntityStore([], log);
 
-        var result = await store.InsertManyAsync(new[] { new TestClient { Nom = "A" }, new TestClient { Nom = "B" } });
+        var result = await store.InsertManyAsync(new[] { new TestClient { Name = "A" }, new TestClient { Name = "B" } });
 
         Assert.True(result.Successful);
 
@@ -188,9 +188,9 @@ public class SyncAndCoalescingTests
     public async Task UpdateMany_with_a_missing_row_commits_nothing()
     {
         var log = new List<string>();
-        var store = new InMemoryEntityStore([new() { Id = 1, Nom = "A" }], log);
+        var store = new InMemoryEntityStore([new() { Id = 1, Name = "A" }], log);
 
-        var result = await store.UpdateManyAsync(new[] { new TestClient { Id = 1, Nom = "A2" }, new TestClient { Id = 9, Nom = "?" } });
+        var result = await store.UpdateManyAsync(new[] { new TestClient { Id = 1, Name = "A2" }, new TestClient { Id = 9, Name = "?" } });
 
         Assert.Equal(EntityErrorCode.NotFound, result.ErrorCode);
         Assert.DoesNotContain("COMMIT", log);

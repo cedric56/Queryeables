@@ -28,8 +28,8 @@ public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
             existing.Type == handler.Type
                 ? handler
                 : throw new InvalidOperationException(
-                    $"Le nom « {name} » est déjà utilisé par {existing.Type.FullName}. " +
-                    $"Donnez un nom distinct à {handler.Type.FullName} avec [RemoteName]."));
+                    $"The name '{name}' is already used by {existing.Type.FullName}. " +
+                    $"Give {handler.Type.FullName} a distinct name with [RemoteName]."));
     }
 
     /// <summary>Registers the handler under its type name, the one used by <see cref="MagicOnionEntityStore"/>.</summary>

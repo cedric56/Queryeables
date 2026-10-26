@@ -53,7 +53,7 @@ public class AggregateService<[DynamicallyAccessedMembers(EntityMembers.Required
             return await DBResult.RunAsync(async () =>
             {
                 if (!await store.DeleteAsync(entity, ct))
-                    throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} introuvable : rien n'a été supprimé.");
+                    throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} not found: nothing was deleted.");
             });
 
         return await store.RunInTransactionAsync(s => Aggregate.RemoveAsync(s, entity, ct), ct);

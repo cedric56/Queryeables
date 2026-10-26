@@ -79,7 +79,7 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     }
 
     private static PropertyInfo IdProperty<[DynamicallyAccessedMembers(EntityMembers.Required)] T>()
-        => typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"{typeof(T).Name} n'a pas de propriété Id.");
+        => typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"{typeof(T).Name} has no Id property.");
 
     /// <summary>Shallow copy of the scalar properties: collections are not stored, like in a table.</summary>
     private static T Copy<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T source) where T : class

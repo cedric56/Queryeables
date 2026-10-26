@@ -24,11 +24,11 @@ public abstract class SqliteContractTests : EntityStoreContractTests
         await using var command = _keepAlive.CreateCommand();
         command.CommandText = """
             CREATE TABLE Clients (
-                Id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                Nom     TEXT    NOT NULL,
-                Actif   INTEGER NOT NULL,
-                Parrain INTEGER NULL,
-                Version INTEGER NOT NULL DEFAULT 0,
+                Id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name      TEXT    NOT NULL,
+                Active    INTEGER NOT NULL,
+                SponsorId INTEGER NULL,
+                Version   INTEGER NOT NULL DEFAULT 0,
                 LastModified TEXT NOT NULL DEFAULT '0001-01-01 00:00:00',
                 Deleted INTEGER NOT NULL DEFAULT 0
             );
@@ -107,7 +107,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     {
         await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, maxPageSize: 2);
         for (var i = 0; i < 5; i++)
-            await store.InsertAsync(new TestClient { Nom = $"C{i}" });
+            await store.InsertAsync(new TestClient { Name = $"C{i}" });
 
         Assert.Equal(2, (await store.SelectPagedAsync<TestClient>(x => true, 1, 5000)).Count);
     }
@@ -116,22 +116,22 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     public async Task Remote_changes_include_soft_deleted_rows()
     {
         await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, syncConventions: true);
-        var a = new TestClient { Nom = "Ana" };
+        var a = new TestClient { Name = "Ana" };
         await store.InsertAsync(a);
-        await store.InsertAsync(new TestClient { Nom = "Bob" });
+        await store.InsertAsync(new TestClient { Name = "Bob" });
 
         Assert.True(await store.DeleteAsync(a));
 
-        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
+        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Name);
         var changes = await store.SelectChangesAsync<TestClient>(DateTime.MinValue);
-        Assert.True(Assert.Single(changes, c => c.Nom == "Ana").Deleted);
+        Assert.True(Assert.Single(changes, c => c.Name == "Ana").Deleted);
     }
 
     [Fact]
     public async Task Commit_sends_one_batch_and_assigns_generated_keys()
     {
-        var a = new TestClient { Nom = "Ana" };
-        var b = new TestClient { Nom = "Bob" };
+        var a = new TestClient { Name = "Ana" };
+        var b = new TestClient { Name = "Bob" };
 
         await using var store = CreateStore();
         var result = await store.RunInTransactionAsync(async s =>
@@ -154,8 +154,8 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 
         var result = await store.RunInTransactionAsync(async s =>
         {
-            await s.InsertAsync(new TestClient { Nom = "Ana" });
-            await s.UpdateAsync(new TestClient { Id = 999, Nom = "Fantôme" }); // nonexistent row
+            await s.InsertAsync(new TestClient { Name = "Ana" });
+            await s.UpdateAsync(new TestClient { Id = 999, Name = "Ghost" }); // nonexistent row
         });
 
         Assert.False(result.Successful);
@@ -167,12 +167,12 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     public async Task Access_policy_is_enforced()
     {
         await using (var writer = CreateStore())
-            await writer.InsertAsync(new TestClient { Nom = "Ana" });
+            await writer.InsertAsync(new TestClient { Name = "Ana" });
 
         await using var readOnly = CreateRemoteStore(EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read));
 
         Assert.Single(await readOnly.GetAllAsync<TestClient>());
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => readOnly.InsertAsync(new TestClient { Nom = "Bob" }));
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => readOnly.InsertAsync(new TestClient { Name = "Bob" }));
         Assert.Equal(EntityErrorCode.Forbidden, error.ErrorCode);
     }
 
@@ -181,10 +181,10 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     {
         await using var store = CreateStore();
 
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Nom = "" }));
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "" }));
 
         Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
-        Assert.Contains("Le nom est obligatoire.", error.Errors);
+        Assert.Contains("The name is required.", error.Errors);
         Assert.Empty(await store.GetAllAsync<TestClient>());
     }
 
@@ -196,9 +196,9 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll, aggregate: service));
         await using var store = new MagicOnionEntityStore(new InProcessLayer(new EntityRequestDispatcher(registry)));
 
-        var ana = new TestClient { Nom = "Ana" };
+        var ana = new TestClient { Name = "Ana" };
         await store.InsertAsync(ana);
-        ana.Nom = "Ana B";
+        ana.Name = "Ana B";
         Assert.True(await store.UpdateAsync(ana));
         Assert.True(await store.DeleteAsync(ana));
 
@@ -214,7 +214,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             aggregate: new RecordingService(CreateDommelStore, fail: true)));
         await using var store = new MagicOnionEntityStore(new InProcessLayer(new EntityRequestDispatcher(registry)));
 
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Nom = "Ana" }));
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "Ana" }));
 
         Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
     }
@@ -226,7 +226,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 
         public async Task<DBResult> SaveAsync(TestClient entity, CancellationToken ct = default)
         {
-            Calls.Add($"SAVE {entity.Nom}");
+            Calls.Add($"SAVE {entity.Name}");
             if (fail)
                 return DBResult.Failure(EntityErrorCode.Conflict, "conflit");
 
@@ -240,7 +240,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 
         public async Task<DBResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
         {
-            Calls.Add($"REMOVE {entity.Nom}");
+            Calls.Add($"REMOVE {entity.Name}");
             await using var store = storeFactory();
             return await store.RunInTransactionAsync(s => s.DeleteAsync(entity, ct), ct);
         }
@@ -250,7 +250,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     public async Task Unsupported_predicates_fail_before_calling_the_server()
     {
         await using var store = CreateStore();
-        await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Nom.Length > 3));
+        await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Name.Length > 3));
     }
 
     /// <summary>The MagicOnion service without the network: each call goes straight to the dispatcher.</summary>

@@ -114,7 +114,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
             }
             catch (Exception ex)
             {
-                Logger?.LogError(ex, "Échec de la notification du changement {Table}#{RowId}.", change.Table, change.RowId);
+                Logger?.LogError(ex, "Failed to report the change {Table}#{RowId}.", change.Table, change.RowId);
             }
         }
     }

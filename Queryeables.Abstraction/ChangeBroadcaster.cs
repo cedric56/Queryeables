@@ -65,7 +65,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
             return;
 
         if (!_queue.Writer.TryWrite(record))
-            OnError(new InvalidOperationException($"Impossible de mettre en file le changement {record}."));
+            OnError(new InvalidOperationException($"Could not queue the change {record}."));
     }
 
     /// <summary>Sends the change to every client except <paramref name="excludedConnections"/>.</summary>

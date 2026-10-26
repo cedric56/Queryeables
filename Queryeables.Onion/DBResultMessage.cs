@@ -58,7 +58,7 @@ public partial class DBResultMessage
 
     /// <summary>The response as a <see cref="DBResult"/> (the serialized data is not part of it).</summary>
     public DBResult ToDBResult()
-        => Successful ? DBResult.Success() : DBResult.Failure(ErrorCode, Exception ?? "L'appel distant a échoué.", Errors);
+        => Successful ? DBResult.Success() : DBResult.Failure(ErrorCode, Exception ?? "The remote call failed.", Errors);
 
     /// <summary>Client side: returns the data, or throws the server error as an <see cref="EntityStoreException"/>.</summary>
     public byte[]? GetDataOrThrow()

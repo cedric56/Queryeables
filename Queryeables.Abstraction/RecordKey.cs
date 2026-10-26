@@ -29,7 +29,7 @@ public static class RecordKey
         if (key is ITuple tuple)
         {
             if (tuple.Length > 7)
-                throw new ArgumentException("Une clé composite est limitée à 7 éléments.", nameof(key));
+                throw new ArgumentException("A composite key is limited to 7 elements.", nameof(key));
 
             var parts = new string[tuple.Length];
             for (var i = 0; i < tuple.Length; i++)
@@ -57,7 +57,7 @@ public static class RecordKey
         var elementTypes = type.GetGenericArguments();
         var parts = text.Split(Separator);
         if (parts.Length != elementTypes.Length)
-            throw new FormatException($"La clé « {text} » n'a pas {elementTypes.Length} éléments.");
+            throw new FormatException($"The key '{text}' does not have {elementTypes.Length} elements.");
 
         var values = new object[parts.Length];
         for (var i = 0; i < parts.Length; i++)
@@ -67,14 +67,14 @@ public static class RecordKey
 
     private static string FormatPart(object? value) => value switch
     {
-        null => throw new ArgumentException("Une clé ne peut pas contenir null."),
-        string s when s.Contains(Separator) => throw new ArgumentException("La clé contient un caractère réservé (U+001F)."),
+        null => throw new ArgumentException("A key cannot contain null."),
+        string s when s.Contains(Separator) => throw new ArgumentException("The key contains a reserved character (U+001F)."),
         string s => s,
         Guid g => g.ToString("D"),
         DateTime dt => dt.ToString("O", CultureInfo.InvariantCulture),
         DateTimeOffset dto => dto.ToString("O", CultureInfo.InvariantCulture),
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? throw new ArgumentException($"Clé de type {value.GetType().Name} non convertible en texte.")
+        _ => value.ToString() ?? throw new ArgumentException($"Key of type {value.GetType().Name} cannot be converted to text.")
     };
 
     /// <summary>
@@ -109,7 +109,7 @@ public static class RecordKey
             _ when target == typeof(DateTimeOffset) => DateTimeOffset.Parse(text, invariant, DateTimeStyles.RoundtripKind),
             _ when target == typeof(TimeSpan) => TimeSpan.Parse(text, invariant),
             _ when target == typeof(DateOnly) => DateOnly.Parse(text, invariant),
-            _ => throw new NotSupportedException($"Type de clé non pris en charge : {type.Name}.")
+            _ => throw new NotSupportedException($"Unsupported key type: {type.Name}.")
         };
     }
 

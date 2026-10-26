@@ -108,7 +108,7 @@ public sealed class MagicOnionEntityStore(
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
         if (_transaction is not null)
-            throw new InvalidOperationException("Une transaction est déjà en cours sur ce store.");
+            throw new InvalidOperationException("A transaction is already in progress on this store.");
 
         _transaction = new RemoteTransaction(this);
         return Task.FromResult<IEntityTransaction>(_transaction);
@@ -137,7 +137,7 @@ public sealed class MagicOnionEntityStore(
     private async Task<DBResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
     {
         if (!ReferenceEquals(_transaction, transaction))
-            return DBResult.Failure(EntityErrorCode.InvalidRequest, "Cette transaction n'est plus active.");
+            return DBResult.Failure(EntityErrorCode.InvalidRequest, "This transaction is no longer active.");
         _transaction = null;
 
         if (transaction.Operations.Count == 0)
@@ -183,7 +183,7 @@ public sealed class MagicOnionEntityStore(
         public Task<DBResult> CommitAsync(CancellationToken ct = default)
         {
             if (_done)
-                return Task.FromResult(DBResult.Failure(EntityErrorCode.InvalidRequest, "La transaction est déjà terminée."));
+                return Task.FromResult(DBResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished."));
             _done = true;
             return store.CommitAsync(this, ct);
         }

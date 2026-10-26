@@ -78,7 +78,7 @@ internal static class VersionedCommands
     private static string KeyCondition(PropertyInfo[] keys, ISqlBuilder sql)
     {
         if (keys.Length == 0)
-            throw new InvalidOperationException("La concurrence optimiste exige une clé primaire.");
+            throw new InvalidOperationException("Optimistic concurrency requires a primary key.");
 
         return string.Join(" AND ", keys.Select(k => $"{Resolvers.Column(k, sql, false)} = {sql.PrefixParameter(k.Name)}"));
     }

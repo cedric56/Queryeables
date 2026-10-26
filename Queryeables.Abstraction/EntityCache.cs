@@ -323,8 +323,8 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         catch (InvalidOperationException ex)
         {
             throw new ArgumentException(
-                $"La mise à jour ligne par ligne exige une clé comparable avec == ({typeof(TKey).Name} ne l'est pas). " +
-                "Pour une clé composite, omettez parseKey : le cache se synchronisera à chaque changement.",
+                $"Row-by-row updates require a key comparable with == ({typeof(TKey).Name} is not). " +
+                "For a composite key, omit parseKey: the cache will synchronize on every change.",
                 "parseKey", ex);
         }
     }

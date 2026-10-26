@@ -84,7 +84,7 @@ public static class SyncMetadata
     {
         var property = LastModified(typeof(T))
             ?? throw new NotSupportedException(
-                $"{typeof(T).Name} n'a pas de propriété [LastModified] : la synchronisation incrémentale est impossible.");
+                $"{typeof(T).Name} has no [LastModified] property: incremental synchronization is not possible.");
 
         var parameter = Expression.Parameter(typeof(T), "e");
         var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);

@@ -15,6 +15,6 @@ namespace Queryeables.Abstraction;
 public sealed class RemoteNameAttribute(string name) : Attribute
 {
     public string Name { get; } = string.IsNullOrWhiteSpace(name)
-        ? throw new ArgumentException("Le nom ne peut pas être vide.", nameof(name))
+        ? throw new ArgumentException("The name cannot be empty.", nameof(name))
         : name;
 }

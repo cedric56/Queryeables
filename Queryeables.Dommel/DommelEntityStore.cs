@@ -31,7 +31,7 @@ public sealed class DommelEntityStore : IEntityStore
     public static DommelEntityStore Create(DbProviderFactory factory)
     {
         var connection = factory.CreateConnection()
-            ?? throw new InvalidOperationException("La fabrique n'a pas pu créer de connexion.");
+            ?? throw new InvalidOperationException("The factory could not create a connection.");
         return new DommelEntityStore(connection);
     }
 
@@ -39,7 +39,7 @@ public sealed class DommelEntityStore : IEntityStore
     public static DommelEntityStore Create(DbProviderFactory factory, string connectionString)
     {
         var connection = factory.CreateConnection()
-            ?? throw new InvalidOperationException("La fabrique n'a pas pu créer de connexion.");
+            ?? throw new InvalidOperationException("The factory could not create a connection.");
         connection.ConnectionString = connectionString;
         return new DommelEntityStore(connection);
     }
@@ -51,7 +51,7 @@ public sealed class DommelEntityStore : IEntityStore
         if (string.IsNullOrWhiteSpace(createScript)) return;
 
         await using var connection = factory.CreateConnection()
-            ?? throw new InvalidOperationException("La fabrique n'a pas pu créer de connexion.");
+            ?? throw new InvalidOperationException("The factory could not create a connection.");
         connection.ConnectionString = connectionString;
         await connection.OpenAsync(ct);
 
@@ -140,7 +140,7 @@ public sealed class DommelEntityStore : IEntityStore
     public async Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
         if (_transaction != null)
-            throw new InvalidOperationException("Une transaction est déjà en cours sur ce store.");
+            throw new InvalidOperationException("A transaction is already in progress on this store.");
 
         await EnsureOpenAsync(ct);
         _transaction = await _connection.BeginTransactionAsync(ct);

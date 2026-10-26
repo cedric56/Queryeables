@@ -99,7 +99,7 @@ public class DBResult
     public DBResult<T> As<T>()
     {
         if (Successful)
-            throw new InvalidOperationException("Seul un échec peut être converti vers un autre type de résultat.");
+            throw new InvalidOperationException("Only a failure can be converted to another result type.");
         return this as DBResult<T> ?? new DBResult<T>(ErrorCode, Exception, Errors);
     }
 
@@ -107,8 +107,8 @@ public class DBResult
     public EntityStoreException ToException()
     {
         if (Successful)
-            throw new InvalidOperationException("Un succès n'a pas d'erreur.");
-        return new EntityStoreException(ErrorCode, Exception ?? "L'opération a échoué.", Errors);
+            throw new InvalidOperationException("A success has no error.");
+        return new EntityStoreException(ErrorCode, Exception ?? "The operation failed.", Errors);
     }
 
     /// <summary>Throws <see cref="EntityStoreException"/> on failure.</summary>

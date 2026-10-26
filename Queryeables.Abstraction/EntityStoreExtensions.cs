@@ -138,7 +138,7 @@ public static class EntityStoreExtensions
         if (isNew(entity))
             await store.InsertAsync(entity, ct);
         else if (!await store.UpdateAsync(entity, ct))
-            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été mis à jour.");
+            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found: nothing was updated.");
     }
 
     // ---------- Strict read and bulk operations (ideas from ABP repositories, see CREDITS.md) ----------
@@ -152,7 +152,7 @@ public static class EntityStoreExtensions
     {
         ArgumentNullException.ThrowIfNull(store);
         return await store.FirstOrDefaultAsync(predicate, ct)
-            ?? throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable.");
+            ?? throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found.");
     }
 
     /// <summary>Inserts all entities in a single transaction (a single call with the remote store).</summary>
@@ -169,7 +169,7 @@ public static class EntityStoreExtensions
         => store.ForEachInTransactionAsync(entities, async (s, e) =>
         {
             if (!await s.UpdateAsync(e, ct))
-                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été mis à jour.");
+                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found: nothing was updated.");
         }, ct);
 
     /// <summary>
@@ -181,7 +181,7 @@ public static class EntityStoreExtensions
         => store.ForEachInTransactionAsync(entities, async (s, e) =>
         {
             if (!await s.DeleteAsync(e, ct))
-                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été supprimé.");
+                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found: nothing was deleted.");
         }, ct);
 
     private static Task<DBResult> ForEachInTransactionAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,

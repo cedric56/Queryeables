@@ -53,7 +53,7 @@ internal static class Filters
         {
             var isOr = expression.NodeType == ExpressionType.OrElse;
             if (any is not null && any != isOr)
-                throw Unsupported("ET et OU ne peuvent pas être mélangés");
+                throw Unsupported("AND and OR cannot be mixed");
             any = isOr;
 
             var binary = (BinaryExpression)expression;
@@ -90,7 +90,7 @@ internal static class Filters
                 break;
         }
 
-        throw Unsupported($"« {term} » n'est pas une condition prise en charge");
+        throw Unsupported($"'{term}' is not a supported condition");
     }
 
     private static FilterCondition? ParseMethodCall(MethodCallExpression call, ParameterExpression parameter)
@@ -124,7 +124,7 @@ internal static class Filters
             return null;
 
         var values = Evaluate(UnwrapSpan(source)) as IEnumerable
-            ?? throw Unsupported($"« {source} » n'est pas une collection");
+            ?? throw Unsupported($"'{source}' is not a collection");
         return new FilterCondition(member.Name, FilterOperator.In, values.Cast<object?>().Select(Normalize).ToArray());
     }
 
@@ -208,9 +208,9 @@ internal static class Filters
     };
 
     private static NotSupportedException Unsupported(string reason)
-        => new($"Prédicat non transmissible au serveur : {reason}. Sont pris en charge : comparaisons entre une " +
-               "propriété et une valeur, propriétés booléennes, liste.Contains(e.Prop), StartsWith/EndsWith/Contains " +
-               "sur du texte, combinés tous en ET ou tous en OU.");
+        => new($"Predicate cannot be sent to the server: {reason}. Supported: comparisons between a " +
+               "property and a value, boolean properties, list.Contains(e.Prop), StartsWith/EndsWith/Contains " +
+               "on strings, all combined with AND or all with OR.");
 
     private sealed class ParameterFinder(ParameterExpression parameter) : ExpressionVisitor
     {
@@ -238,7 +238,7 @@ internal static class Filters
         {
             ArgumentNullException.ThrowIfNull(condition);
             var property = typeof(T).GetProperty(condition.Property, BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new ArgumentException($"Propriété inconnue « {condition.Property} » sur {typeof(T).Name}.");
+                ?? throw new ArgumentException($"Unknown property '{condition.Property}' on {typeof(T).Name}.");
 
             var term = Build(Expression.Property(parameter, property), condition);
             body = body is null ? term
@@ -261,12 +261,12 @@ internal static class Filters
                 or FilterOperator.GreaterThan or FilterOperator.GreaterThanOrEqual
                 or FilterOperator.LessThan or FilterOperator.LessThanOrEqual:
                 if (condition.Value is IList and not byte[])
-                    throw new ArgumentException($"« {name} » : une liste n'est acceptée qu'avec l'opérateur In.");
+                    throw new ArgumentException($"'{name}': a list is only accepted with the In operator.");
                 return Compare(member, Constant(condition.Value, type, name), condition.Operator, name);
 
             case FilterOperator.In:
                 if (condition.Value is not IList values || condition.Value is byte[])
-                    throw new ArgumentException($"« {name} » : l'opérateur In attend une liste de valeurs.");
+                    throw new ArgumentException($"'{name}': the In operator expects a list of values.");
                 if (values.Count == 0)
                     return Expression.Constant(false); // no value: no row
                 Expression? anyOf = null;
@@ -279,9 +279,9 @@ internal static class Filters
 
             case FilterOperator.StartsWith or FilterOperator.EndsWith or FilterOperator.Contains:
                 if (type != typeof(string))
-                    throw new ArgumentException($"« {name} » n'est pas du texte : {condition.Operator} impossible.");
+                    throw new ArgumentException($"'{name}' is not a string: {condition.Operator} is not possible.");
                 if (condition.Value is not string text)
-                    throw new ArgumentException($"« {name} » : {condition.Operator} attend un texte.");
+                    throw new ArgumentException($"'{name}': {condition.Operator} expects a string.");
                 var method = condition.Operator switch
                 {
                     FilterOperator.StartsWith => StringStartsWith,
@@ -291,7 +291,7 @@ internal static class Filters
                 return Expression.Call(member, method, Expression.Constant(text));
 
             default:
-                throw new ArgumentException($"Opérateur inconnu : {condition.Operator}.");
+                throw new ArgumentException($"Unknown operator: {condition.Operator}.");
         }
     }
 
@@ -321,13 +321,13 @@ internal static class Filters
                 FilterOperator.GreaterThanOrEqual => Expression.GreaterThanOrEqual(left, right),
                 FilterOperator.LessThan => Expression.LessThan(left, right),
                 FilterOperator.LessThanOrEqual => Expression.LessThanOrEqual(left, right),
-                _ => throw new ArgumentException($"Opérateur inattendu : {op}.")
+                _ => throw new ArgumentException($"Unexpected operator: {op}.")
             };
         }
         catch (InvalidOperationException ex)
         {
             // For example "Name > 'A'": no comparison operator on strings.
-            throw new ArgumentException($"« {name} » ({left.Type.Name}) ne peut pas être comparé avec {op}.", ex);
+            throw new ArgumentException($"'{name}' ({left.Type.Name}) cannot be compared with {op}.", ex);
         }
     }
 
@@ -345,7 +345,7 @@ internal static class Filters
         TypeCode.UInt32 => typeof(uint?),
         TypeCode.UInt64 => typeof(ulong?),
         TypeCode.UInt16 => typeof(ushort?),
-        _ => throw new NotSupportedException($"Type sous-jacent d'énumération inattendu : {numeric.Name}.")
+        _ => throw new NotSupportedException($"Unexpected enum underlying type: {numeric.Name}.")
     };
 
     /// <summary>
@@ -359,7 +359,7 @@ internal static class Filters
         if (value is null)
         {
             if (type.IsValueType && target == type)
-                throw new ArgumentException($"La propriété « {name} » ({type.Name}) n'accepte pas null.");
+                throw new ArgumentException($"Property '{name}' ({type.Name}) does not accept null.");
             return null;
         }
 
@@ -393,7 +393,7 @@ internal static class Filters
         catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException or ArgumentException)
         {
             throw new ArgumentException(
-                $"Valeur « {value} » ({value.GetType().Name}) invalide pour la propriété « {name} » ({type.Name}).", ex);
+                $"Invalid value '{value}' ({value.GetType().Name}) for property '{name}' ({type.Name}).", ex);
         }
     }
 }

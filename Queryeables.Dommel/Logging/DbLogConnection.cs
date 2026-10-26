@@ -38,9 +38,9 @@ public sealed class DbLogConnection : DbConnection
 
             if (_dialectProvider is not null)
                 throw new InvalidOperationException(
-                    $"La journalisation SQL est déjà active pour {_dialectProvider.Name} : " +
-                    $"elle ne peut pas l'être aussi pour {typeof(TDbConnection).Name}. " +
-                    "Désactivez LogCommands pour l'un des deux fournisseurs.");
+                    $"SQL logging is already active for {_dialectProvider.Name}: " +
+                    $"it cannot also be active for {typeof(TDbConnection).Name}. " +
+                    "Disable LogCommands for one of the two providers.");
 
             using var probe = new TDbConnection();
             DommelMapper.AddSqlBuilder(typeof(DbLogConnection), DommelMapper.GetSqlBuilder(probe));

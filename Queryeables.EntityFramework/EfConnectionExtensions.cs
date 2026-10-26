@@ -53,8 +53,8 @@ public static class EfConnectionExtensions
         }
 
         return _defaultProvider ?? throw new InvalidOperationException(
-            $"Aucun fournisseur EF pour {connection.GetType().Name} : " +
-            $"appelez EfConnectionExtensions.UseProvider<{connection.GetType().Name}>(...) au démarrage.");
+            $"No EF provider for {connection.GetType().Name}: " +
+            $"call EfConnectionExtensions.UseProvider<{connection.GetType().Name}>(...) at startup.");
     }
 
     // ---------- Read ----------
@@ -81,7 +81,7 @@ public static class EfConnectionExtensions
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize,
         IDbTransaction? transaction = null, CancellationToken cancellationToken = default) where TEntity : class
     {
-        if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber), "La première page est 1.");
+        if (pageNumber < 1) throw new ArgumentOutOfRangeException(nameof(pageNumber), "The first page is 1.");
         if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
         await using var ctx = await CreateContextAsync<TEntity>(connection, transaction, cancellationToken);
@@ -142,7 +142,7 @@ public static class EfConnectionExtensions
         IDbTransaction? transaction, CancellationToken ct) where TEntity : class
     {
         var dbConnection = connection as DbConnection
-            ?? throw new ArgumentException("EF Core nécessite un DbConnection.", nameof(connection));
+            ?? throw new ArgumentException("EF Core requires a DbConnection.", nameof(connection));
         var configure = ProviderFor(dbConnection);
 
         var builder = new DbContextOptionsBuilder();
@@ -155,7 +155,7 @@ public static class EfConnectionExtensions
         if (transaction != null)
         {
             var dbTransaction = transaction as DbTransaction
-                ?? throw new ArgumentException("EF Core nécessite un DbTransaction.", nameof(transaction));
+                ?? throw new ArgumentException("EF Core requires a DbTransaction.", nameof(transaction));
             await ctx.Database.UseTransactionAsync(dbTransaction, ct);
         }
 
@@ -179,7 +179,7 @@ public static class EfConnectionExtensions
         where TEntity : class
     {
         var key = ctx.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
-            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");
+            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} has no primary key.");
 
         IOrderedQueryable<TEntity>? ordered = null;
         foreach (var property in key.Properties)

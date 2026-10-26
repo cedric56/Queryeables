@@ -106,7 +106,7 @@ public static class MagicOnionClientExtensions
                 hub?.OnRecordChanged(RecordMessage.From(record));
                 return Task.CompletedTask;
             },
-            onError: ex => logger?.LogWarning(ex, "Impossible d'envoyer le changement de {Type} au hub.", typeof(TObject).Name));
+            onError: ex => logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name));
 
         try
         {
@@ -120,7 +120,7 @@ public static class MagicOnionClientExtensions
         {
             receiver.Dispose();
             channel.Dispose();
-            logger?.LogError(ex, "Connexion au hub {Url} impossible pour {Type}.", url, typeof(TObject).Name);
+            logger?.LogError(ex, "Could not connect to the hub {Url} for {Type}.", url, typeof(TObject).Name);
             return () => Task.CompletedTask;
         }
 
@@ -138,7 +138,7 @@ public static class MagicOnionClientExtensions
             }
             catch (Exception ex)
             {
-                logger?.LogWarning(ex, "Déconnexion du hub {Url} incomplète.", url);
+                logger?.LogWarning(ex, "Incomplete disconnection from the hub {Url}.", url);
             }
             finally
             {

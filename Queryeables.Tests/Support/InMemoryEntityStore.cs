@@ -54,7 +54,7 @@ public sealed class InMemoryEntityStore : IEntityStore
         if (client.Id == 0)
             client.Id = _rows.Count == 0 ? 1 : _rows.Max(r => r.Id) + 1;
         _rows.Add(client.Copy());
-        _log?.Add($"INSERT {client.Nom}");
+        _log?.Add($"INSERT {client.Name}");
         return Task.CompletedTask;
     }
 

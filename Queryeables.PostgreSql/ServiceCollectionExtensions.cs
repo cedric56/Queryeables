@@ -26,7 +26,7 @@ public static class ServiceCollectionExtensions
     {
         services.UseFactory<NpgsqlConnection>(connectionString, logCommands, commandLogLevel: commandLogLevel);
         services.AddTransient<IDbConnection>(sp => sp.GetRequiredService<DbProviderFactory>().CreateConnection()
-            ?? throw new InvalidOperationException("La fabrique n'a pas pu créer de connexion."));
+            ?? throw new InvalidOperationException("The factory could not create a connection."));
         return services;
     }
 }

@@ -8,23 +8,23 @@ public class EntityStoreExtensionsTests
     public async Task SyncChildren_deletes_then_updates_then_inserts()
     {
         var log = new List<string>();
-        var rows = new List<TestClient> { new() { Id = 1, Nom = "A" }, new() { Id = 2, Nom = "B" }, new() { Id = 3, Nom = "C" } };
+        var rows = new List<TestClient> { new() { Id = 1, Name = "A" }, new() { Id = 2, Name = "B" }, new() { Id = 3, Name = "C" } };
         var store = new InMemoryEntityStore(rows, log);
 
         var before = rows.Select(r => r.Copy()).ToList();
         var current = new List<TestClient>
         {
-            new() { Id = 1, Nom = "A modifié" },
-            new() { Id = 3, Nom = "C" },
-            new() { Id = 0, Nom = "Nouveau" },
+            new() { Id = 1, Name = "A updated" },
+            new() { Id = 3, Name = "C" },
+            new() { Id = 0, Name = "New" },
         };
 
         var result = await store.RunInTransactionAsync(s => s.SyncChildrenAsync(before, current, c => c.Id == 0, (a, b) => a.Id == b.Id));
 
         Assert.True(result.Successful);
 
-        Assert.Equal(new[] { "BEGIN", "DELETE 2", "UPDATE 1", "UPDATE 3", "INSERT Nouveau", "COMMIT", "DISPOSE" }, log);
-        Assert.Equal(new[] { "A modifié", "C", "Nouveau" }, rows.Select(r => r.Nom));
+        Assert.Equal(new[] { "BEGIN", "DELETE 2", "UPDATE 1", "UPDATE 3", "INSERT New", "COMMIT", "DISPOSE" }, log);
+        Assert.Equal(new[] { "A updated", "C", "New" }, rows.Select(r => r.Name));
     }
 
     [Fact]
@@ -48,10 +48,10 @@ public class EntityStoreExtensionsTests
         var store = new InMemoryEntityStore([]);
 
         var result = await store.RunInTransactionAsync(_ =>
-            throw new EntityStoreException(EntityErrorCode.Validation, "invalide", ["Nom requis"]));
+            throw new EntityStoreException(EntityErrorCode.Validation, "invalid", ["Name required"]));
 
         Assert.Equal(EntityErrorCode.Validation, result.ErrorCode);
-        Assert.Equal(new[] { "Nom requis" }, result.Errors);
+        Assert.Equal(new[] { "Name required" }, result.Errors);
         Assert.Throws<EntityStoreException>(result.ThrowIfFailed);
     }
 
@@ -63,9 +63,9 @@ public class EntityStoreExtensionsTests
 
         var result = await store.RunInTransactionAsync(async s =>
         {
-            var client = new TestClient { Nom = "Ana" };
+            var client = new TestClient { Name = "Ana" };
             await s.InsertAsync(client);
-            return client.Nom;
+            return client.Name;
         });
 
         Assert.Equal("Ana", result.GetDataOrThrow());
@@ -96,8 +96,8 @@ public class EntityStoreExtensionsTests
     public async Task Default_CountAsync_counts_through_SelectAsync()
     {
         IEntityStore store = new InMemoryEntityStore(
-            [new() { Id = 1, Actif = true }, new() { Id = 2, Actif = false }, new() { Id = 3, Actif = true }]);
+            [new() { Id = 1, Active = true }, new() { Id = 2, Active = false }, new() { Id = 3, Active = true }]);
 
-        Assert.Equal(2, await store.CountAsync<TestClient>(c => c.Actif));
+        Assert.Equal(2, await store.CountAsync<TestClient>(c => c.Active));
     }
 }

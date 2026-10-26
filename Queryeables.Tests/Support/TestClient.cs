@@ -14,13 +14,13 @@ public class TestClient
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public long Id { get; set; }
 
-    [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = false, ErrorMessage = "Le nom est obligatoire.")]
-    [System.ComponentModel.DataAnnotations.StringLength(50, ErrorMessage = "Le nom fait au plus 50 caractères.")]
-    public string Nom { get; set; } = string.Empty;
+    [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = false, ErrorMessage = "The name is required.")]
+    [System.ComponentModel.DataAnnotations.StringLength(50, ErrorMessage = "The name is at most 50 characters long.")]
+    public string Name { get; set; } = string.Empty;
 
-    public bool Actif { get; set; }
+    public bool Active { get; set; }
 
-    public int? Parrain { get; set; }
+    public int? SponsorId { get; set; }
 
     /// <summary>Version for optimistic concurrency, managed by the stores.</summary>
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
@@ -36,6 +36,6 @@ public class TestClient
 
     public TestClient Copy() => new()
     {
-        Id = Id, Nom = Nom, Actif = Actif, Parrain = Parrain, Version = Version, LastModified = LastModified, Deleted = Deleted
+        Id = Id, Name = Name, Active = Active, SponsorId = SponsorId, Version = Version, LastModified = LastModified, Deleted = Deleted
     };
 }

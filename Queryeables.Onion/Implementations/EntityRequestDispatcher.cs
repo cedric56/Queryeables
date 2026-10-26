@@ -47,7 +47,7 @@ public sealed class EntityRequestDispatcher(
     {
         if (transactionStoreFactory is null)
             return Task.FromResult(DBResultMessage.Failure(EntityErrorCode.NotSupported,
-                "Ce serveur n'accepte pas les lots : aucun store transactionnel n'est configuré."));
+                "This server does not accept batches: no transactional store is configured."));
 
         if (operations is null || operations.Length == 0)
             return Task.FromResult(DBResultMessage.Success(MessagePackSerializer.Serialize(Array.Empty<byte[]>(), cancellationToken: ct)));
@@ -85,5 +85,5 @@ public sealed class EntityRequestDispatcher(
             : Task.FromResult(UnknownType(type));
 
     private static DBResultMessage UnknownType(string? type)
-        => DBResultMessage.Failure(EntityErrorCode.UnknownType, $"Type non exposé par le serveur : {type}.");
+        => DBResultMessage.Failure(EntityErrorCode.UnknownType, $"Type not exposed by the server: {type}.");
 }

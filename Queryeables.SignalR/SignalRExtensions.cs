@@ -60,7 +60,7 @@ public static class SignalRExtensions
             onError: ex =>
             {
                 if (!stop.IsCancellationRequested)
-                    logger?.LogWarning(ex, "Impossible d'envoyer le changement de {Type} au hub.", typeof(TObject).Name);
+                    logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name);
             });
 
         hub.On<SignalRRecord>(SignalRContract.DbChanged, message => relay.Receive(message.ToRecord<TObject>()));
@@ -116,7 +116,7 @@ public static class SignalRExtensions
             catch (Exception ex)
             {
                 if (!stop.IsCancellationRequested)
-                    logger?.LogWarning(ex, "Connexion au hub {Url} impossible.", url);
+                    logger?.LogWarning(ex, "Could not connect to the hub {Url}.", url);
                 return ex;
             }
         }
@@ -138,7 +138,7 @@ public static class SignalRExtensions
 
                 if (delay is null)
                 {
-                    logger?.LogError(lastError, "Abandon de la connexion au hub {Url}.", url);
+                    logger?.LogError(lastError, "Giving up connecting to the hub {Url}.", url);
                     return;
                 }
 

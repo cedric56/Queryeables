@@ -34,7 +34,7 @@ public static class ConcurrencyToken
 
         if (property is not null && property.PropertyType != typeof(long) && property.PropertyType != typeof(int))
             throw new NotSupportedException(
-                $"{type.Name}.{property.Name} : [ConcurrencyCheck] n'est pris en charge que sur un int ou un long.");
+                $"{type.Name}.{property.Name}: [ConcurrencyCheck] is only supported on an int or a long.");
 
         _properties.TryAdd(type, property);
         return property;
@@ -53,5 +53,5 @@ public static class ConcurrencyToken
 
     public static EntityStoreException ConflictFor(Type type)
         => new(EntityErrorCode.Conflict,
-            $"{type.Name} a été modifié par quelqu'un d'autre depuis sa lecture. Rechargez-le avant de réessayer.");
+            $"{type.Name} was modified by someone else since it was read. Reload it before trying again.");
 }

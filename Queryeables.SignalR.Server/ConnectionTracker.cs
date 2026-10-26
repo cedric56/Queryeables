@@ -18,21 +18,21 @@ public sealed class ConnectionTracker<TObject>(
     public void Add(string connectionId)
     {
         if (AddSubscriber(connectionId))
-            logger?.LogInformation("Client connecté : {ConnectionId}", connectionId);
+            logger?.LogInformation("Client connected: {ConnectionId}", connectionId);
     }
 
     public void Remove(string connectionId)
     {
         if (RemoveSubscriber(connectionId))
-            logger?.LogInformation("Client déconnecté : {ConnectionId}", connectionId);
+            logger?.LogInformation("Client disconnected: {ConnectionId}", connectionId);
     }
 
     protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
-        logger?.LogDebug("Diffusion de {Record}", record);
+        logger?.LogDebug("Broadcasting {Record}", record);
         return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRRecord.From(record), ct);
     }
 
     protected override void OnError(Exception exception)
-        => logger?.LogError(exception, "Échec de la notification d'un changement aux clients.");
+        => logger?.LogError(exception, "Failed to notify the clients of a change.");
 }

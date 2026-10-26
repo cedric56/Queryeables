@@ -20,6 +20,6 @@ public static class EntityName
         return _names.GetOrAdd(type, static t =>
             t.GetCustomAttribute<RemoteNameAttribute>()?.Name
             ?? t.FullName
-            ?? throw new ArgumentException($"Le type {t} n'a pas de nom complet.", nameof(type)));
+            ?? throw new ArgumentException($"Type {t} has no full name.", nameof(type)));
     }
 }

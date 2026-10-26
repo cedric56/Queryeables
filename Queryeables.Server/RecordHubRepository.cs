@@ -22,13 +22,13 @@ public sealed class RecordHubRepository<TObject>(
     {
         _group ??= group;
         if (AddSubscriber(contextId.ToString()))
-            logger?.LogInformation("Abonnement de {ContextId}", contextId);
+            logger?.LogInformation("{ContextId} subscribed", contextId);
     }
 
     public void Unregister(Guid contextId)
     {
         if (RemoveSubscriber(contextId.ToString()))
-            logger?.LogInformation("Désabonnement de {ContextId}", contextId);
+            logger?.LogInformation("{ContextId} unsubscribed", contextId);
     }
 
     /// <summary>Broadcasts a change reported by a client.</summary>
@@ -42,11 +42,11 @@ public sealed class RecordHubRepository<TObject>(
             .OfType<Guid>()
             .ToList();
 
-        logger?.LogDebug("Diffusion de {Record}", record);
+        logger?.LogDebug("Broadcasting {Record}", record);
         _group?.Except(excluded).OnChanged(RecordMessage.From(record));
         return Task.CompletedTask;
     }
 
     protected override void OnError(Exception exception)
-        => logger?.LogError(exception, "Échec de la diffusion d'un changement.");
+        => logger?.LogError(exception, "Failed to broadcast a change.");
 }

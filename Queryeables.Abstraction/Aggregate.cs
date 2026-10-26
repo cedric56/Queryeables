@@ -107,7 +107,7 @@ public sealed class Aggregate<[DynamicallyAccessedMembers(EntityMembers.Required
         }
 
         if (!await store.DeleteAsync(parent, ct))
-            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} introuvable : rien n'a été supprimé.");
+            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} not found: nothing was deleted.");
     }
 
     /// <summary>Reads the children of the parent into its collections. A new parent gets empty collections.</summary>
@@ -201,12 +201,12 @@ public sealed class Aggregate<[DynamicallyAccessedMembers(EntityMembers.Required
 
         if (body is not MemberExpression { Member: PropertyInfo { CanWrite: true } property } member
             || member.Expression != selector.Parameters[0])
-            throw new ArgumentException($"{selector} doit désigner une propriété modifiable, par exemple x => x.Propriete.", argument);
+            throw new ArgumentException($"{selector} must select a writable property, for example x => x.Property.", argument);
 
         if (!property.PropertyType.IsAssignableFrom(typeof(TValue))
             && Nullable.GetUnderlyingType(property.PropertyType) != typeof(TValue))
             throw new ArgumentException(
-                $"La propriété {property.Name} ({property.PropertyType.Name}) doit accepter une valeur de type {typeof(TValue).Name}.", argument);
+                $"Property {property.Name} ({property.PropertyType.Name}) must accept a value of type {typeof(TValue).Name}.", argument);
 
         var owner = Expression.Parameter(typeof(TOwner), "owner");
         var value = Expression.Parameter(typeof(TValue), "value");
