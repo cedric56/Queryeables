@@ -111,6 +111,36 @@ public static class EntityStoreExtensions
         }
     }
 
+    /// <summary>
+    /// Inserts the entity when it is new, updates it otherwise. Throws <see cref="EntityStoreException"/> (NotFound)
+    /// when an updated entity no longer exists.
+    /// </summary>
+    /// <param name="key">Primary key: a default value (0, Guid.Empty, null) means a new entity.</param>
+    /// <example><code>await store.SaveAsync(person, p => p.Id);</code></example>
+    public static Task SaveAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey>(this IEntityStore store,
+        TEntity entity, Func<TEntity, TKey> key, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return store.SaveAsync(entity, e => key(e) is not { } value || EqualityComparer<TKey>.Default.Equals(value, default!), ct);
+    }
+
+    /// <summary>
+    /// Inserts the entity when <paramref name="isNew"/> says so, updates it otherwise. Throws
+    /// <see cref="EntityStoreException"/> (NotFound) when an updated entity no longer exists.
+    /// </summary>
+    public static async Task SaveAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        TEntity entity, Func<TEntity, bool> isNew, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(isNew);
+
+        if (isNew(entity))
+            await store.InsertAsync(entity, ct);
+        else if (!await store.UpdateAsync(entity, ct))
+            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été mis à jour.");
+    }
+
     // ---------- Strict read and bulk operations (ideas from ABP repositories, see CREDITS.md) ----------
 
     /// <summary>

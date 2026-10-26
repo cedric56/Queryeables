@@ -1,0 +1,216 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
+using System.Reflection;
+
+namespace Queryeables.Abstraction;
+
+/// <summary>Entry point to describe an aggregate: a parent entity and its children, linked by a foreign key.</summary>
+/// <example>
+/// <code>
+/// var persons = Aggregate.For&lt;Person, long&gt;(p => p.Id)
+///     .HasMany(p => p.Contacts, foreignKey: c => c.IdContact, key: c => c.Id, onLoaded: graph.AttachContacts);
+///
+/// await using var store = DommelEntityStore.Create(factory);
+/// var result = await store.RunInTransactionAsync(s => persons.SaveAsync(s, person));
+/// </code>
+/// </example>
+public static class Aggregate
+{
+    /// <param name="key">Primary key of the parent. A parent whose key has its default value (0, Guid.Empty, null) is new.</param>
+    public static Aggregate<TParent, TKey> For<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
+        Expression<Func<TParent, TKey>> key)
+        where TParent : class
+        where TKey : notnull
+        => new(key);
+}
+
+/// <summary>
+/// A parent entity and its child collections, saved, removed and loaded together through any <see cref="IEntityStore"/>
+/// (Dommel, EF Core...). Immutable once configured: build it once and share it.
+/// </summary>
+/// <remarks>
+/// <list type="bullet">
+/// <item><see cref="SaveAsync"/> inserts or updates the parent, writes its key into the children's foreign key,
+/// then aligns the stored children with the collection (<see cref="EntityStoreExtensions.SyncChildrenAsync{TChild}"/>).</item>
+/// <item><see cref="RemoveAsync"/> deletes the children, then the parent.</item>
+/// <item><see cref="LoadAsync"/> reads the children of a parent into its collection.</item>
+/// </list>
+/// Save and remove must run in a transaction, for example inside
+/// <see cref="EntityStoreExtensions.RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
+/// or through <see cref="AggregateService{TParent, TKey}"/>.
+/// </remarks>
+public sealed class Aggregate<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>
+    where TParent : class
+    where TKey : notnull
+{
+    private readonly Func<TParent, TKey> _key;
+    private readonly List<IRelation> _relations = [];
+
+    internal Aggregate(Expression<Func<TParent, TKey>> key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        _key = key.Compile();
+    }
+
+    /// <summary>Key of the parent.</summary>
+    public TKey KeyOf(TParent parent) => _key(parent);
+
+    /// <summary>True when the parent's key still has its default value: it is not in the database yet.</summary>
+    public bool IsNew(TParent parent) => IsDefault(_key(parent));
+
+    /// <summary>Declares a child collection.</summary>
+    /// <param name="children">Collection property of the parent, for example <c>p => p.Contacts</c>. It must be writable.</param>
+    /// <param name="foreignKey">Child property holding the parent's key, for example <c>c => c.IdPerson</c>. It must be writable.</param>
+    /// <param name="key">Primary key of the child: a default value means a new child; equal keys mean the same row.</param>
+    /// <param name="onLoaded">Called after <see cref="LoadAsync"/> with the loaded children, for example to set navigation properties.</param>
+    public Aggregate<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
+        Expression<Func<TParent, IEnumerable<TChild>?>> children,
+        Expression<Func<TChild, TKey>> foreignKey,
+        Expression<Func<TChild, TChildKey>> key,
+        Action<TParent, IReadOnlyList<TChild>>? onLoaded = null)
+        where TChild : class
+        where TChildKey : notnull
+    {
+        _relations.Add(new Relation<TChild, TChildKey>(children, foreignKey, key, onLoaded));
+        return this;
+    }
+
+    /// <summary>
+    /// Inserts or updates the parent and aligns its children. Throws <see cref="EntityStoreException"/>
+    /// (NotFound) when an updated parent no longer exists. Run it in a transaction.
+    /// </summary>
+    public async Task SaveAsync(IEntityStore store, TParent parent, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(parent);
+
+        await store.SaveAsync(parent, IsNew, ct);   // a generated key is written back into the parent
+        var key = _key(parent);
+        foreach (var relation in _relations)
+            await relation.SaveAsync(store, parent, key, ct);
+    }
+
+    /// <summary>
+    /// Deletes the children stored for the parent, then the parent. Throws <see cref="EntityStoreException"/>
+    /// (NotFound) when the parent no longer exists. Run it in a transaction.
+    /// </summary>
+    public async Task RemoveAsync(IEntityStore store, TParent parent, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(parent);
+
+        if (!IsNew(parent))
+        {
+            var key = _key(parent);
+            foreach (var relation in _relations)
+                await relation.RemoveAsync(store, key, ct);
+        }
+
+        if (!await store.DeleteAsync(parent, ct))
+            throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} introuvable : rien n'a été supprimé.");
+    }
+
+    /// <summary>Reads the children of the parent into its collections. A new parent gets empty collections.</summary>
+    public async Task LoadAsync(IEntityStore store, TParent parent, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(parent);
+
+        var isNew = IsNew(parent);
+        var key = _key(parent);
+        foreach (var relation in _relations)
+            await relation.LoadAsync(store, parent, isNew ? default : key, ct);
+    }
+
+    private static bool IsDefault<T>(T value) => value is null || EqualityComparer<T>.Default.Equals(value, default!);
+
+    private interface IRelation
+    {
+        Task SaveAsync(IEntityStore store, TParent parent, TKey key, CancellationToken ct);
+        Task RemoveAsync(IEntityStore store, TKey key, CancellationToken ct);
+        Task LoadAsync(IEntityStore store, TParent parent, TKey? key, CancellationToken ct);
+    }
+
+    private sealed class Relation<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey> : IRelation
+        where TChild : class
+        where TChildKey : notnull
+    {
+        private readonly Func<TParent, IEnumerable<TChild>?> _getChildren;
+        private readonly Action<TParent, List<TChild>> _setChildren;
+        private readonly Expression<Func<TChild, TKey>> _foreignKey;
+        private readonly Action<TChild, TKey> _setForeignKey;
+        private readonly Func<TChild, TChildKey> _childKey;
+        private readonly Action<TParent, IReadOnlyList<TChild>>? _onLoaded;
+
+        public Relation(Expression<Func<TParent, IEnumerable<TChild>?>> children, Expression<Func<TChild, TKey>> foreignKey,
+            Expression<Func<TChild, TChildKey>> key, Action<TParent, IReadOnlyList<TChild>>? onLoaded)
+        {
+            ArgumentNullException.ThrowIfNull(children);
+            ArgumentNullException.ThrowIfNull(foreignKey);
+            ArgumentNullException.ThrowIfNull(key);
+
+            _getChildren = children.Compile();
+            _setChildren = Setter<TParent, List<TChild>>(children, nameof(children));
+            _foreignKey = foreignKey;
+            _setForeignKey = Setter<TChild, TKey>(foreignKey, nameof(foreignKey));
+            _childKey = key.Compile();
+            _onLoaded = onLoaded;
+        }
+
+        public async Task SaveAsync(IEntityStore store, TParent parent, TKey key, CancellationToken ct)
+        {
+            var current = _getChildren(parent)?.ToList() ?? [];
+            foreach (var child in current)
+                _setForeignKey(child, key);
+
+            var before = await store.SelectAsync(ForeignKeyEquals(key), ct);
+            await store.SyncChildrenAsync(before, current,
+                child => IsDefault(_childKey(child)),
+                (a, b) => EqualityComparer<TChildKey>.Default.Equals(_childKey(a), _childKey(b)),
+                ct);
+        }
+
+        public async Task RemoveAsync(IEntityStore store, TKey key, CancellationToken ct)
+        {
+            foreach (var child in await store.SelectAsync(ForeignKeyEquals(key), ct))
+                await store.DeleteAsync(child, ct);
+        }
+
+        public async Task LoadAsync(IEntityStore store, TParent parent, TKey? key, CancellationToken ct)
+        {
+            var children = key is null || IsDefault(key)
+                ? []
+                : (await store.SelectAsync(ForeignKeyEquals(key), ct)).ToList();
+            _setChildren(parent, children);
+            _onLoaded?.Invoke(parent, children);
+        }
+
+        /// <summary><c>c => c.ForeignKey == key</c>: translatable by Dommel, EF and the remote filters.</summary>
+        private Expression<Func<TChild, bool>> ForeignKeyEquals(TKey key)
+            => Expression.Lambda<Func<TChild, bool>>(
+                Expression.Equal(_foreignKey.Body, Expression.Constant(key, typeof(TKey))),
+                _foreignKey.Parameters);
+    }
+
+    /// <summary>Compiles an assignment to the property selected by <paramref name="selector"/>.</summary>
+    private static Action<TOwner, TValue> Setter<TOwner, TValue>(LambdaExpression selector, string argument)
+    {
+        var body = selector.Body;
+        while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } convert)
+            body = convert.Operand;
+
+        if (body is not MemberExpression { Member: PropertyInfo { CanWrite: true } property } member
+            || member.Expression != selector.Parameters[0])
+            throw new ArgumentException($"{selector} doit désigner une propriété modifiable, par exemple x => x.Propriete.", argument);
+
+        if (!property.PropertyType.IsAssignableFrom(typeof(TValue))
+            && Nullable.GetUnderlyingType(property.PropertyType) != typeof(TValue))
+            throw new ArgumentException(
+                $"La propriété {property.Name} ({property.PropertyType.Name}) doit accepter une valeur de type {typeof(TValue).Name}.", argument);
+
+        var owner = Expression.Parameter(typeof(TOwner), "owner");
+        var value = Expression.Parameter(typeof(TValue), "value");
+        var assign = Expression.Assign(Expression.Property(owner, property), Expression.Convert(value, property.PropertyType));
+        return Expression.Lambda<Action<TOwner, TValue>>(assign, owner, value).Compile();
+    }
+}

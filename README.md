@@ -1,5 +1,7 @@
 # Queryeables
 
+[![CI](https://github.com/cedric56/Queryeables/actions/workflows/ci.yml/badge.svg)](https://github.com/cedric56/Queryeables/actions/workflows/ci.yml)
+
 **A modular data-access and synchronization toolkit for .NET.**
 
 Queryeables provides a common abstraction over data stores, with
@@ -250,6 +252,33 @@ if (!result.Successful)
 `CreateStore`, `order`, and `previousLines` are application-defined.
 Check the actual store interface for the available overloads and
 signatures.
+
+## Example: aggregate service
+
+An aggregate describes a parent entity and its children once; `AggregateService`
+then saves, removes and loads them together, with any store.
+
+``` csharp
+var persons = Aggregate.For<Person, long>(p => p.Id)
+    .HasMany(p => p.Contacts, foreignKey: c => c.IdPerson, key: c => c.Id,
+             onLoaded: (person, contacts) => { /* set navigation properties */ });
+
+// Local: parent and children in one transaction.
+IDbTransaction<Person> local = new AggregateService<Person, long>(
+    () => DommelEntityStore.Create(factory), persons);
+
+// Remote: the server's EntityHandler (with aggregate:) saves the children.
+IDbTransaction<Person> remote = new AggregateService<Person, long>(
+    () => new MagicOnionEntityStore(layer, session), persons, childrenSavedByServer: true);
+
+DBResult result = await local.SaveAsync(person);   // insert or update, children aligned
+```
+
+Saving inserts or updates the parent, writes its key into the children's
+foreign key, then deletes, inserts and updates children to match the
+collection. Removing deletes the children before the parent.
+`LoadChildrenAsync` reads the children back. For a single entity,
+`store.SaveAsync(entity, e => e.Id)` inserts or updates it.
 
 ## Security considerations
 

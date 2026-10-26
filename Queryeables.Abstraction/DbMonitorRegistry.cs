@@ -4,7 +4,7 @@ namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Set of active monitors. The change source (SQLite hook, trigger...) only calls
-/// <see cref="Publish"/>, and each monitor filters the tables it cares about.
+/// <see cref="Publish(ChangeType, string, string, string?)"/>, and each monitor filters the tables it cares about.
 /// </summary>
 /// <example>
 /// <code>

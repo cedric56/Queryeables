@@ -1,0 +1,24 @@
+<Project>
+
+  <!-- Package metadata shared by every project. Versions come from the build: -p:Version=0.1.0 -->
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">0.1.0-dev</Version>
+    <Authors>cedric56</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/cedric56/Queryeables</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/cedric56/Queryeables</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>data-access;dommel;efcore;magiconion;signalr;sqlite;cache;sync</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Missing or partial XML comments on public members are not reported. -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

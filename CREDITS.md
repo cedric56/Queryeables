@@ -11,10 +11,3 @@ Dommel, EF Core, MagicOnion). Licenses are listed for information.
 | [ActualLab.Fusion](https://github.com/ActualLab/Fusion/wiki) | MIT | Invalidation coalescing: a burst of changes triggers a single recomputation | Notification coalescing in `EntityCache` |
 | [ABP Framework — repositories](https://abp.io/docs/10.1/framework/architecture/domain-driven-design/repositories) | LGPL-3.0 | API ideas only: `GetAsync` that throws when nothing matches (next to `FindAsync`/`FirstOrDefaultAsync`), bulk operations `InsertMany`/`UpdateMany`/`DeleteMany` | `EntityStoreExtensions.GetAsync`, `InsertManyAsync`, `UpdateManyAsync`, `DeleteManyAsync` |
 | [Breeze](https://www.nuget.org/packages/Breeze.Persistence/7.3.1) | MIT | Saving all of a client's changes in a single transaction | Remote batches (`ExecuteBatchAsync`, `MagicOnionEntityStore` transactions) |
-
-## Considered but not adopted
-
-| Project | License | Why |
-|---|---|---|
-| [Remote.Linq](https://github.com/6bee/Remote.Linq/wiki) | MIT | Runs arbitrary LINQ queries sent by the client on the server. Queryeables keeps a whitelist of conditions (`FilterCondition`) so that a client cannot execute anything else. |
-| [Dotmim.Sync](https://dotmimsync.readthedocs.io/Overview.html) | MIT | Synchronizes whole databases through triggers and tracking tables: a different level than Queryeables entities. Useful when a full copy of the database is wanted on the client. |
