@@ -19,7 +19,7 @@ namespace Queryeables.Onion;
 /// <code>
 /// var layer = MagicOnionClient.Create&lt;IMagicOnionLayer&gt;(channel);
 /// var cache = new EntityCache&lt;Client, long&gt;(
-///     () => new MagicOnionEntityStore(layer, session), c => c.Id, monitor, rowId => rowId);
+///     () => new MagicOnionEntityStore(layer, session), c => c.Id, monitor, RecordKey.Parse&lt;long&gt;);
 /// </code>
 /// </example>
 public sealed class MagicOnionEntityStore(
@@ -99,7 +99,7 @@ public sealed class MagicOnionEntityStore(
     }
 
     /// <summary>Nom sous lequel le serveur enregistre le type (voir <see cref="EntityHandlerRegistry.Register(EntityHandler)"/>).</summary>
-    private static string Name<TEntity>() => typeof(TEntity).Name;
+    private static string Name<TEntity>() => EntityName.Of<TEntity>();
 
     private string? ConnectionId<TEntity>()
         => session is not null && session.TryGetSession(typeof(TEntity), out var current) ? current.session : null;

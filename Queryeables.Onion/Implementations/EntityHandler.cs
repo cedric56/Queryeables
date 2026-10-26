@@ -40,7 +40,7 @@ public abstract class EntityHandler
 
 /// <example>
 /// <code>
-/// registry.Register(nameof(Client), new EntityHandler&lt;Client&gt;(() => DommelEntityStore.Create(factory)));
+/// registry.Register(new EntityHandler&lt;Client&gt;(() => DommelEntityStore.Create(factory)));
 /// </code>
 /// </example>
 public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(

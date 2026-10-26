@@ -11,6 +11,17 @@ namespace Queryeables.Abstraction;
 /// Une instance = une unité de travail (une connexion / un DbContext).
 /// Les implémentations gèrent elles-mêmes la connexion et la transaction en cours.
 /// </summary>
+/// <remarks>
+/// <para><b>Faire évoluer cette interface sans casser les implémentations existantes :</b></para>
+/// <list type="bullet">
+/// <item>une opération composée d'opérations existantes va dans une méthode d'extension
+/// (voir <see cref="EntityStoreExtensions"/>) ;</item>
+/// <item>une nouvelle opération est ajoutée avec une implémentation par défaut, construite sur les membres existants
+/// (voir <see cref="CountAsync{TEntity}"/>). Chaque store la remplace ensuite par une version optimisée, quand il le peut ;</item>
+/// <item>un membre sans implémentation par défaut ne s'ajoute qu'avec une nouvelle version majeure.</item>
+/// </list>
+/// Toute nouvelle implémentation doit passer la suite de tests <c>EntityStoreContractTests</c>.
+/// </remarks>
 public interface IEntityStore : IAsyncDisposable
 {
     // Lecture
@@ -30,6 +41,16 @@ public interface IEntityStore : IAsyncDisposable
         int pageNumber,
         int pageSize,
         CancellationToken ct = default) where TEntity : class;
+
+    /// <summary>Nombre d'entités qui vérifient le prédicat.</summary>
+    /// <remarks>
+    /// L'implémentation par défaut charge les entités pour les compter ; les stores qui savent compter
+    /// côté base (Dommel, EF) la remplacent.
+    /// </remarks>
+    async Task<long> CountAsync<TEntity>(
+        Expression<Func<TEntity, bool>> predicate,
+        CancellationToken ct = default) where TEntity : class
+        => (await SelectAsync(predicate, ct)).Count;
 
     // Écriture
     /// <summary>Insère l'entité. Une clé générée par la base est réinjectée dans l'entité.</summary>

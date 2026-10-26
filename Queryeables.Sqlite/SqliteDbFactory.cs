@@ -1,4 +1,3 @@
-using Dommel;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
@@ -33,9 +32,6 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _notifyOnCommit = isTransaction;
-
-        // Dialecte SQLite pour la connexion journalisée, sans dépendre de la détection automatique.
-        DommelMapper.AddSqlBuilder(typeof(DbLogConnection), new SqliteSqlBuilder());
     }
 
     public override DbConnection CreateConnection()

@@ -7,19 +7,19 @@ namespace Queryeables.Abstraction;
 /// Cache en mémoire alimenté par un <see cref="IEntityStore"/>, quel que soit le framework (Dommel, EF Core...).
 /// Thread-safe : les lectures ne bloquent jamais, les rechargements sont sérialisés.
 /// Si un <see cref="IDbMonitor{TEntity}"/> est fourni, le cache se met à jour à chaque changement signalé :
-/// ligne par ligne quand <c>keyFromRowId</c> est fourni, sinon par rechargement complet.
+/// ligne par ligne quand <c>parseKey</c> est fourni, sinon par rechargement complet.
 /// </summary>
 /// <example>
 /// <code>
 /// // Dommel
 /// var cache = new EntityCache&lt;Client, long&gt;(
 ///     () => DommelEntityStore.Create(SqliteFactory.Instance, connectionString),
-///     c => c.Id, monitor, rowId => rowId);
+///     c => c.Id, monitor, RecordKey.Parse&lt;long&gt;);
 ///
-/// // EF Core
-/// var cache = new EntityCache&lt;Client, long&gt;(
+/// // EF Core, clé Guid
+/// var cache = new EntityCache&lt;Produit, Guid&gt;(
 ///     () => new EfEntityStore(new AppDbContext(options)),
-///     c => c.Id, monitor, rowId => rowId);
+///     p => p.Id, monitor, RecordKey.Parse&lt;Guid&gt;);
 ///
 /// await cache.LoadAsync();
 /// </code>
@@ -31,7 +31,7 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
     private readonly Func<IEntityStore> _storeFactory;
     private readonly Expression<Func<TEntity, TKey>> _keyExpression;
     private readonly Func<TEntity, TKey> _key;
-    private readonly Func<long, TKey>? _keyFromRowId;
+    private readonly Func<string, TKey>? _parseKey;
     private readonly IDbMonitor<TEntity>? _monitor;
 
     // Un seul rechargement à la fois ; les écritures sur le dictionnaire passent par _writeLock.
@@ -43,24 +43,25 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
     /// <param name="storeFactory">Crée un store pour chaque chargement ; le cache le dispose ensuite.</param>
     /// <param name="key">Clé de l'entité, par exemple <c>c => c.Id</c>.</param>
     /// <param name="monitor">Source de notifications de changements, facultative.</param>
-    /// <param name="keyFromRowId">
-    /// Convertit le RowId d'un <see cref="Record{T}"/> en clé, pour une mise à jour ligne par ligne.
-    /// Pour une table SQLite avec <c>INTEGER PRIMARY KEY</c> : <c>rowId => rowId</c>.
+    /// <param name="parseKey">
+    /// Relit la clé d'un <see cref="Record{T}"/> (<see cref="Record{T}.EntityKey"/>), pour une mise à jour ligne par ligne.
+    /// En général <c>RecordKey.Parse&lt;TKey&gt;</c>. La source de changements doit publier la clé de l'entité :
+    /// avec SQLite, le rowid n'est la clé que pour une table en <c>INTEGER PRIMARY KEY</c>.
     /// Si absent, chaque changement recharge toute la table.
     /// </param>
     public EntityCache(
         Func<IEntityStore> storeFactory,
         Expression<Func<TEntity, TKey>> key,
         IDbMonitor<TEntity>? monitor = null,
-        Func<long, TKey>? keyFromRowId = null)
+        Func<string, TKey>? parseKey = null)
     {
         _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
         _keyExpression = key ?? throw new ArgumentNullException(nameof(key));
         _key = key.Compile();
-        _keyFromRowId = keyFromRowId;
+        _parseKey = parseKey;
         _monitor = monitor;
 
-        if (_keyFromRowId != null)
+        if (_parseKey != null)
             EnsureKeyIsComparable();
 
         if (_monitor != null)
@@ -142,13 +143,13 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
         if (record.ChangeType == ChangeType.None)
             return;
 
-        if (_keyFromRowId is null)
+        if (_parseKey is null)
         {
             await LoadAsync();
             return;
         }
 
-        var key = _keyFromRowId(record.RowId);
+        var key = _parseKey(record.EntityKey);
 
         await _refreshLock.WaitAsync();
         try
@@ -198,8 +199,8 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
         {
             throw new ArgumentException(
                 $"La mise à jour ligne par ligne exige une clé comparable avec == ({typeof(TKey).Name} ne l'est pas). " +
-                "Pour une clé composite, omettez keyFromRowId : le cache se rechargera entièrement à chaque changement.",
-                "keyFromRowId", ex);
+                "Pour une clé composite, omettez parseKey : le cache se rechargera entièrement à chaque changement.",
+                "parseKey", ex);
         }
     }
 }

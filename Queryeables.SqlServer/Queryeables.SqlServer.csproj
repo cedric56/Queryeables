@@ -7,14 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SqlTableDependencyCore" Version="1.0.0" />
+    <PackageReference Include="SqlTableDependencyCore" />
   </ItemGroup>
-
-  <!--
-    À COMPLÉTER : référence qui fournit TableDependencyCore.SqlClient (SqlTableDependencyCore).
-    Ce fork n'est pas publié sur NuGet sous ce nom : ajoutez ici votre PackageReference, ProjectReference
-    ou Reference vers la DLL.
-  -->
 
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />

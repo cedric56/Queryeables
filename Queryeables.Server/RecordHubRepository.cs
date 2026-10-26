@@ -6,90 +6,47 @@ using Queryeables.Onion;
 namespace Queryeables.Server;
 
 /// <summary>
-/// Suit les connexions abonnées aux changements d'un type d'entité et leur transmet les changements :
-/// ceux de la base du serveur (via le moniteur) et ceux que les clients signalent. À enregistrer en singleton.
+/// Diffuse aux clients MagicOnion les changements d'un type d'entité (voir <see cref="ChangeBroadcaster{TObject}"/>).
+/// À enregistrer en singleton.
 /// </summary>
-public sealed class RecordHubRepository<TObject> : IDisposable where TObject : class
+public sealed class RecordHubRepository<TObject>(
+    IDbMonitor<TObject> monitor,
+    DbMonitorRegistry? registry = null,
+    ILogger<RecordHubRepository<TObject>>? logger = null)
+    : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
 {
-    private readonly HashSet<Guid> _subscribers = new();
-    private readonly object _gate = new();
-
-    private readonly IDbMonitor<TObject> _monitor;
-    private readonly DbMonitorRegistry? _registry;
-    private readonly ILogger? _logger;
-
     // Groupe de diffusion partagé, capturé à la première inscription.
-    private IGroup<IRecordHubReceiver<TObject>>? _group;
-
-    /// <param name="registry">Si fourni, le moniteur y est ajouté pour recevoir les changements de la base du serveur.</param>
-    public RecordHubRepository(
-        IDbMonitor<TObject> monitor,
-        DbMonitorRegistry? registry = null,
-        ILogger<RecordHubRepository<TObject>>? logger = null)
-    {
-        _monitor = monitor;
-        _registry = registry;
-        _logger = logger;
-
-        _registry?.Add(monitor);
-        _monitor.RecordChanged += OnRecordChanged;
-    }
+    private volatile IGroup<IRecordHubReceiver<TObject>>? _group;
 
     public void RegisterGroup(IGroup<IRecordHubReceiver<TObject>> group, Guid contextId)
     {
-        lock (_gate)
-        {
-            _group ??= group;
-            _subscribers.Add(contextId);
-        }
-        _logger?.LogInformation("Abonnement de {ContextId}", contextId);
+        _group ??= group;
+        if (AddSubscriber(contextId.ToString()))
+            logger?.LogInformation("Abonnement de {ContextId}", contextId);
     }
 
     public void Unregister(Guid contextId)
     {
-        bool removed;
-        lock (_gate)
-            removed = _subscribers.Remove(contextId);
-
-        if (removed)
-            _logger?.LogInformation("Désabonnement de {ContextId}", contextId);
+        if (RemoveSubscriber(contextId.ToString()))
+            logger?.LogInformation("Désabonnement de {ContextId}", contextId);
     }
 
-    /// <summary>Diffuse un changement à tous les abonnés, sauf ceux listés dans <see cref="Record{T}.Connections"/>.</summary>
-    public void Raise(Record<TObject> record)
+    /// <summary>Diffuse un changement signalé par un client.</summary>
+    public void Raise(Record<TObject> record) => Relay(record);
+
+    protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
-        // Les identifiants qui ne sont pas des connexions MagicOnion (session SignalR...) sont ignorés au lieu de faire échouer la diffusion.
-        var excluded = (record.Connections ?? [])
+        // Les identifiants qui ne sont pas des connexions MagicOnion (session SignalR...) sont ignorés.
+        var excluded = excludedConnections
             .Select(id => Guid.TryParse(id, out var guid) ? guid : (Guid?)null)
             .OfType<Guid>()
             .ToList();
 
-        IGroup<IRecordHubReceiver<TObject>>? group;
-        lock (_gate)
-        {
-            group = _group;
-            if (_logger?.IsEnabled(LogLevel.Debug) == true)
-            {
-                foreach (var id in _subscribers.Where(id => !excluded.Contains(id)))
-                    _logger.LogDebug("Notification de {Record} à {ContextId}", record, id);
-            }
-        }
-
-        try
-        {
-            group?.Except(excluded).OnChanged(record);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Échec de la diffusion du changement {Record}.", record);
-        }
+        logger?.LogDebug("Diffusion de {Record}", record);
+        _group?.Except(excluded).OnChanged(record);
+        return Task.CompletedTask;
     }
 
-    private void OnRecordChanged(object? sender, Record<TObject> record) => Raise(record);
-
-    public void Dispose()
-    {
-        _monitor.RecordChanged -= OnRecordChanged;
-        _registry?.Remove(_monitor);
-    }
+    protected override void OnError(Exception exception)
+        => logger?.LogError(exception, "Échec de la diffusion d'un changement.");
 }

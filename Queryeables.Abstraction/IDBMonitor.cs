@@ -9,7 +9,8 @@ public interface IDbMonitor
     /// <summary>
     /// Signale qu'une ligne a changé. Le moniteur ignore les tables qui ne le concernent pas.
     /// </summary>
-    void Publish(ChangeType type, string table, long rowId, string? connectionId);
+    /// <param name="entityKey">Clé de la ligne, au format de <see cref="RecordKey.Format"/>.</param>
+    void Publish(ChangeType type, string table, string entityKey, string? connectionId);
 }
 
 /// <summary>Moniteur d'un type d'entité : ses abonnés (par exemple <see cref="EntityCache{TEntity, TKey}"/>) réagissent aux changements.</summary>
@@ -20,7 +21,7 @@ public interface IDbMonitor<TEntity> : IDbMonitor where TEntity : class
 
 /// <summary>
 /// Implémentation standard. Côté serveur, la source de changements appelle
-/// <see cref="Publish(ChangeType, string, long, string?)"/> ; côté client, le récepteur du hub appelle
+/// <see cref="Publish(ChangeType, string, string, string?)"/> ; côté client, le récepteur du hub appelle
 /// <see cref="Publish(Record{TEntity})"/>.
 /// </summary>
 public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : class
@@ -39,12 +40,12 @@ public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : cla
         RecordChanged?.Invoke(this, record);
     }
 
-    public void Publish(ChangeType type, string table, long rowId, string? connectionId)
+    public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
     {
         if (!string.Equals(table, Table, StringComparison.OrdinalIgnoreCase))
             return;
 
         List<string> connections = string.IsNullOrWhiteSpace(connectionId) ? [] : [connectionId];
-        Publish(new Record<TEntity>(rowId, type, connections));
+        Publish(new Record<TEntity>(entityKey, type, connections));
     }
 }

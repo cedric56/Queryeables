@@ -1,4 +1,3 @@
-﻿using Dommel;
 using Microsoft.Extensions.Logging;
 using Queryeables.Dommel.Logging;
 using System.Data.Common;
@@ -45,12 +44,7 @@ public class DbFactory<TDbConnection> : DbProviderFactory where TDbConnection : 
         _logCommands = options?.LogCommands == true && logger != null;
 
         if (_logCommands)
-        {
-            // Dommel choisit son dialecte SQL d'après le type de la connexion. Sans cela, il ne reconnaîtrait
-            // pas DbLogConnection et produirait du SQL Server, même sur SQLite.
-            using var probe = new TDbConnection();
-            DommelMapper.AddSqlBuilder(typeof(DbLogConnection), DommelMapper.GetSqlBuilder(probe));
-        }
+            DbLogConnection.UseDialectOf<TDbConnection>();
     }
 
     public override DbConnection CreateConnection()

@@ -93,6 +93,15 @@ public sealed class DommelEntityStore : IEntityStore
         return result.AsList();
     }
 
+    public async Task<long> CountAsync<TEntity>(
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+    {
+        await EnsureOpenAsync(ct);
+        // Le CountAsync de Dommel n'accepte pas de jeton d'annulation : on ne peut annuler qu'avant l'appel.
+        ct.ThrowIfCancellationRequested();
+        return await _connection.CountAsync(predicate, _transaction);
+    }
+
     // ---------- Écriture ----------
 
     public async Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class

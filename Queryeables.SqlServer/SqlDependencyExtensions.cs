@@ -10,24 +10,25 @@ public static class SqlDependencyExtensions
     /// Surveille la table de <typeparamref name="TObject"/> avec SQL Server (Service Broker)
     /// et publie chaque changement sur le moniteur.
     /// </summary>
-    /// <param name="getId">Identifiant de ligne transmis aux abonnés (le RowId de <see cref="Record{T}"/>).</param>
+    /// <param name="getKey">Clé de l'entité transmise aux abonnés (long, Guid, string, tuple...).</param>
     /// <param name="unsubscribe">Arrête la surveillance.</param>
     /// <param name="onError">Appelé si le traitement d'un changement échoue ; la surveillance continue.</param>
     /// <remarks>
     /// SQL Server ne dit pas qui a fait la modification : le client à l'origine d'un changement
     /// en est aussi notifié.
     /// </remarks>
-    public static SqlTableDependencyCore<TObject> AddTableDependency<TObject>(
+    public static SqlTableDependencyCore<TObject> AddTableDependency<TObject, TKey>(
         this DbMonitor<TObject> monitor,
         string connectionString,
-        Func<TObject, long> getId,
+        Func<TObject, TKey> getKey,
         out Action unsubscribe,
         Action<Exception>? onError = null)
         where TObject : class, new()
+        where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(monitor);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-        ArgumentNullException.ThrowIfNull(getId);
+        ArgumentNullException.ThrowIfNull(getKey);
 
         var dependency = new SqlTableDependencyCore<TObject>(connectionString);
         dependency.OnChanged += OnChanged;
@@ -49,7 +50,7 @@ public static class SqlDependencyExtensions
                 if (!Enum.TryParse<ChangeType>(e.ChangeType.ToString(), out var type) || type == ChangeType.None)
                     return;
 
-                monitor.Publish(new Record<TObject>(getId(e.Entity), type, []));
+                monitor.Publish(new Record<TObject>(RecordKey.Format(getKey(e.Entity)), type, []));
             }
             catch (Exception ex)
             {

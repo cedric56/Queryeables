@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using System;
 using System.Collections.Generic;
@@ -16,17 +17,45 @@ namespace Queryeables.EntityFramework;
 /// Chaque appel crée un DbContext léger sur la connexion (et la transaction) fournie ;
 /// le modèle EF de chaque type d'entité est construit une seule fois puis mis en cache.
 ///
-/// Au démarrage de l'application :
-///     EfConnectionExtensions.UseProvider((b, c) => b.UseSqlite(c));
-///     // ou b.UseSqlServer(c), b.UseNpgsql(c), ...
+/// Au démarrage de l'application, un fournisseur par type de connexion :
+///     EfConnectionExtensions.UseProvider&lt;SqliteConnection&gt;((b, c) => b.UseSqlite(c));
+///     EfConnectionExtensions.UseProvider&lt;NpgsqlConnection&gt;((b, c) => b.UseNpgsql(c));
 /// </summary>
 public static class EfConnectionExtensions
 {
-    private static Action<DbContextOptionsBuilder, DbConnection>? _configureProvider;
+    private static readonly ConcurrentDictionary<Type, Action<DbContextOptionsBuilder, DbConnection>> _providers = new();
+    private static Action<DbContextOptionsBuilder, DbConnection>? _defaultProvider;
 
-    /// <summary>Indique quel fournisseur EF utiliser pour une connexion donnée.</summary>
+    /// <summary>
+    /// Fournisseur EF des connexions de type <typeparamref name="TConnection"/>. Plusieurs fournisseurs
+    /// peuvent coexister dans la même application : chacun est choisi d'après le type de la connexion.
+    /// </summary>
+    public static void UseProvider<TConnection>(Action<DbContextOptionsBuilder, TConnection> configure)
+        where TConnection : DbConnection
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _providers[typeof(TConnection)] = (builder, connection) => configure(builder, (TConnection)connection);
+    }
+
+    /// <summary>
+    /// Fournisseur EF utilisé quand aucun fournisseur n'est enregistré pour le type de la connexion.
+    /// Préférez <see cref="UseProvider{TConnection}"/> si l'application utilise plusieurs bases.
+    /// </summary>
     public static void UseProvider(Action<DbContextOptionsBuilder, DbConnection> configure)
-        => _configureProvider = configure ?? throw new ArgumentNullException(nameof(configure));
+        => _defaultProvider = configure ?? throw new ArgumentNullException(nameof(configure));
+
+    private static Action<DbContextOptionsBuilder, DbConnection> ProviderFor(DbConnection connection)
+    {
+        for (var type = connection.GetType(); type is not null && type != typeof(DbConnection); type = type.BaseType)
+        {
+            if (_providers.TryGetValue(type, out var configure))
+                return configure;
+        }
+
+        return _defaultProvider ?? throw new InvalidOperationException(
+            $"Aucun fournisseur EF pour {connection.GetType().Name} : " +
+            $"appelez EfConnectionExtensions.UseProvider<{connection.GetType().Name}>(...) au démarrage.");
+    }
 
     // ---------- Lecture ----------
 
@@ -114,9 +143,7 @@ public static class EfConnectionExtensions
     {
         var dbConnection = connection as DbConnection
             ?? throw new ArgumentException("EF Core nécessite un DbConnection.", nameof(connection));
-        var configure = _configureProvider
-            ?? throw new InvalidOperationException(
-                "Fournisseur EF non configuré : appelez EfConnectionExtensions.UseProvider(...) au démarrage.");
+        var configure = ProviderFor(dbConnection);
 
         var builder = new DbContextOptionsBuilder();
         configure(builder, dbConnection); // EF ne dispose pas une connexion qu'on lui prête

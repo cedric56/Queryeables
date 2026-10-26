@@ -53,6 +53,10 @@ public sealed class EfEntityStore : IEntityStore
             .ToListAsync(ct);
     }
 
+    public Task<long> CountAsync<TEntity>(
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+        => _context.Set<TEntity>().LongCountAsync(predicate, ct);
+
     // ---------- Écriture ----------
 
     public async Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Dommel;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Data;
 using System.Data.Common;
@@ -16,6 +17,36 @@ public sealed class DbLogConnection : DbConnection
 {
     /// <summary>Connexion réelle du fournisseur (SqliteConnection, SqlConnection...).</summary>
     public DbConnection Inner { get; }
+
+    private static readonly object _dialectGate = new();
+    private static Type? _dialectProvider;
+
+    /// <summary>
+    /// Indique à Dommel le dialecte SQL des connexions journalisées : celui de <typeparamref name="TDbConnection"/>.
+    /// </summary>
+    /// <remarks>
+    /// Dommel choisit son dialecte d'après le type de la connexion, réglage global à l'application.
+    /// Toutes les connexions journalisées ont le même type, donc un seul fournisseur peut être journalisé à la fois :
+    /// un second fournisseur différent lève une exception, au lieu de recevoir silencieusement le mauvais SQL.
+    /// </remarks>
+    public static void UseDialectOf<TDbConnection>() where TDbConnection : DbConnection, new()
+    {
+        lock (_dialectGate)
+        {
+            if (_dialectProvider == typeof(TDbConnection))
+                return;
+
+            if (_dialectProvider is not null)
+                throw new InvalidOperationException(
+                    $"La journalisation SQL est déjà active pour {_dialectProvider.Name} : " +
+                    $"elle ne peut pas l'être aussi pour {typeof(TDbConnection).Name}. " +
+                    "Désactivez LogCommands pour l'un des deux fournisseurs.");
+
+            using var probe = new TDbConnection();
+            DommelMapper.AddSqlBuilder(typeof(DbLogConnection), DommelMapper.GetSqlBuilder(probe));
+            _dialectProvider = typeof(TDbConnection);
+        }
+    }
     private readonly ILogger _logger;
     private readonly LogLevel _level;
     private bool _disposed;

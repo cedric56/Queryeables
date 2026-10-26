@@ -8,9 +8,9 @@
 
   <!-- Côté serveur MagicOnion : service d'accès aux entités et hub de changements. -->
   <ItemGroup>
-    <PackageReference Include="MagicOnion.Server" Version="7.11.0" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.84.0" />
-    <PackageReference Include="GrpcWebSocketBridge.AspNetCore" Version="1.4.0" />
+    <PackageReference Include="MagicOnion.Server" />
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="GrpcWebSocketBridge.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>

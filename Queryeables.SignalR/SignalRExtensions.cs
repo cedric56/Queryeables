@@ -8,9 +8,6 @@ namespace Queryeables.SignalR;
 
 public static class SignalRExtensions
 {
-    // Vrai pendant qu'un changement reçu du hub est publié localement : il ne doit pas repartir vers le serveur.
-    private static readonly AsyncLocal<bool> _publishingFromHub = new();
-
     /// <summary>
     /// Relie un moniteur à un hub SignalR :
     /// les changements reçus du hub sont publiés sur le moniteur, et les changements locaux sont envoyés au hub.
@@ -56,24 +53,19 @@ public static class SignalRExtensions
             .WithAutomaticReconnect(policy)
             .Build();
 
-        hub.On<Record<TObject>>(SignalRContract.DbChanged, record =>
-        {
-            if (record.Contains(hub.ConnectionId))
-                return;
+        // Logique commune aux transports : ignorer ses propres changements, ne pas renvoyer ceux reçus du hub.
+        var relay = new ChangeRelay<TObject>(monitor,
+            connectionId: () => hub.State == HubConnectionState.Connected ? hub.ConnectionId : null,
+            send: record => hub.InvokeAsync(SignalRContract.OnRecordChanged, record, stop.Token),
+            onError: ex =>
+            {
+                if (!stop.IsCancellationRequested)
+                    logger?.LogWarning(ex, "Impossible d'envoyer le changement de {Type} au hub.", typeof(TObject).Name);
+            });
 
-            _publishingFromHub.Value = true;
-            try
-            {
-                monitor.Publish(record);
-            }
-            finally
-            {
-                _publishingFromHub.Value = false;
-            }
-        });
+        hub.On<Record<TObject>>(SignalRContract.DbChanged, relay.Receive);
 
         registry?.Add(monitor);
-        monitor.RecordChanged += OnLocalChange;
         hub.Reconnected += OnReconnected;
 
         var error = await TryStartAsync();
@@ -85,7 +77,7 @@ public static class SignalRExtensions
         async Task UnsubscribeAsync()
         {
             stop.Cancel();
-            monitor.RecordChanged -= OnLocalChange;
+            relay.Dispose();
             hub.Reconnected -= OnReconnected;
             registry?.Remove(monitor);
             session.RemoveSession(typeof(TObject));
@@ -96,30 +88,6 @@ public static class SignalRExtensions
             finally
             {
                 await hub.DisposeAsync();
-            }
-        }
-
-        // async void imposé par l'événement : aucune exception ne doit en sortir.
-        async void OnLocalChange(object? sender, Record<TObject> record)
-        {
-            // Un changement qui vient du hub n'y retourne pas : sinon il rebondirait de client en client.
-            if (_publishingFromHub.Value)
-                return;
-
-            try
-            {
-                if (hub.State != HubConnectionState.Connected)
-                    return;
-
-                if (!record.Contains(hub.ConnectionId))
-                    record.Add(hub.ConnectionId);
-
-                await hub.InvokeAsync(SignalRContract.OnRecordChanged, record, stop.Token);
-            }
-            catch (Exception ex)
-            {
-                if (!stop.IsCancellationRequested)
-                    logger?.LogWarning(ex, "Impossible d'envoyer le changement de {Type} au hub.", typeof(TObject).Name);
             }
         }
 

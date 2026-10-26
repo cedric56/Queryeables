@@ -6,21 +6,19 @@ namespace Queryeables.Dommel;
 
 /// <summary>
 /// Fait ignorer à Dommel les propriétés marquées [NotMapped], comme le fait EF.
-/// Activé par <see cref="ServiceCollectionExtensions.UseFactory{TDbConnection}"/>,
-/// ou à la main avec <see cref="Register"/>.
+/// Il peut envelopper un résolveur existant, pour ne pas écraser un réglage personnalisé.
 /// </summary>
-public sealed class NotMappedPropertyResolver : DefaultPropertyResolver
+/// <example>
+/// <code>
+/// // Seul :
+/// DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver());
+/// // Avec votre propre résolveur :
+/// DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver(new MonResolveur()));
+/// </code>
+/// </example>
+public sealed class NotMappedPropertyResolver(IPropertyResolver? inner = null) : DefaultPropertyResolver
 {
-    private static int _registered;
-
     public override IEnumerable<ColumnPropertyInfo> ResolveProperties(Type type)
-        => base.ResolveProperties(type)
+        => (inner?.ResolveProperties(type) ?? base.ResolveProperties(type))
             .Where(p => p.Property.GetCustomAttribute<NotMappedAttribute>() is null);
-
-    /// <summary>Enregistre le résolveur auprès de Dommel (sans effet s'il l'est déjà).</summary>
-    public static void Register()
-    {
-        if (Interlocked.Exchange(ref _registered, 1) == 0)
-            DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver());
-    }
 }

@@ -30,10 +30,18 @@ public sealed class DbMonitorRegistry
     /// Client à l'origine du changement. Par défaut, celui de <see cref="ChangeContext.ConnectionId"/>,
     /// renseigné par le serveur pendant l'écriture.
     /// </param>
-    public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
+    public void Publish(ChangeType type, string table, string entityKey, string? connectionId = null)
     {
         connectionId ??= ChangeContext.ConnectionId;
         foreach (var monitor in _monitors.Keys)
-            monitor.Publish(type, table, rowId, connectionId);
+            monitor.Publish(type, table, entityKey, connectionId);
     }
+
+    /// <summary>Variante pour une clé numérique, par exemple le rowid SQLite.</summary>
+    public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
+        => Publish(type, table, RecordKey.Format(rowId), connectionId);
+
+    /// <summary>Variante pour une clé quelconque (Guid, string, tuple pour une clé composite...).</summary>
+    public void Publish<TKey>(ChangeType type, string table, TKey key, string? connectionId = null) where TKey : notnull
+        => Publish(type, table, RecordKey.Format(key), connectionId);
 }

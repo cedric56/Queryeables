@@ -2,15 +2,25 @@
 
 namespace Queryeables.Onion;
 
-/// <summary>Reçoit les changements du hub et les relaie au moniteur local, sauf ceux de ce client.</summary>
-public sealed partial class RecordHubReceiver<TObject>(DbMonitor<TObject> monitor, IDbSession session)
-    : IRecordHubReceiver<TObject> where TObject : class
+/// <summary>
+/// Reçoit les changements du hub MagicOnion et les publie sur le moniteur local, sauf ceux de ce client
+/// (voir <see cref="ChangeRelay{TObject}"/>).
+/// </summary>
+/// <param name="send">
+/// Si fourni, les changements locaux sont envoyés au hub, par exemple <c>r => { hub.OnRecordChanged(r); return Task.CompletedTask; }</c>.
+/// </param>
+public sealed partial class RecordHubReceiver<TObject>(
+    DbMonitor<TObject> monitor,
+    IDbSession session,
+    Func<Record<TObject>, Task>? send = null,
+    Action<Exception>? onError = null)
+    : IRecordHubReceiver<TObject>, IDisposable where TObject : class
 {
-    public void OnChanged(Record<TObject> record)
-    {
-        if (session.TryGetSession(typeof(TObject), out var current) && record.Contains(current.session))
-            return;
+    private readonly ChangeRelay<TObject> _relay = new(monitor,
+        () => session.TryGetSession(typeof(TObject), out var current) ? current.session : null,
+        send, onError);
 
-        monitor.Publish(record);
-    }
+    public void OnChanged(Record<TObject> record) => _relay.Receive(record);
+
+    public void Dispose() => _relay.Dispose();
 }
