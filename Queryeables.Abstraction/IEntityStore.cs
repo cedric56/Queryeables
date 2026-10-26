@@ -52,6 +52,15 @@ public interface IEntityStore : IAsyncDisposable
         CancellationToken ct = default) where TEntity : class
         => (await SelectAsync(predicate, ct)).Count;
 
+    /// <summary>
+    /// Lignes modifiées depuis <paramref name="sinceUtc"/> (inclus), y compris celles supprimées logiquement :
+    /// sert à la synchronisation incrémentale. Exige une propriété [LastModified].
+    /// </summary>
+    /// <exception cref="NotSupportedException">Le type n'a pas de propriété [LastModified].</exception>
+    Task<IReadOnlyList<TEntity>> SelectChangesAsync<TEntity>(DateTime sinceUtc, CancellationToken ct = default)
+        where TEntity : class
+        => SelectAsync(SyncMetadata.ModifiedSince<TEntity>(sinceUtc), ct);
+
     // Écriture
     /// <summary>Insère l'entité. Une clé générée par la base est réinjectée dans l'entité.</summary>
     Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;

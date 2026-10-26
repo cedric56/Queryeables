@@ -20,6 +20,12 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
 
     UnaryResult<DBResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize);
 
+    /// <summary>
+    /// Lignes modifiées depuis <paramref name="sinceUtc"/>, supprimées logiquement comprises (synchronisation incrémentale).
+    /// Exige une propriété [LastModified] sur le type.
+    /// </summary>
+    UnaryResult<DBResult> GetChangesAsync(string type, DateTime sinceUtc);
+
     /// <summary>Renvoie l'entité insérée, avec sa clé générée et sa version.</summary>
     UnaryResult<DBResult> InsertAsync(string type, byte[] entity, string? connectionId);
 

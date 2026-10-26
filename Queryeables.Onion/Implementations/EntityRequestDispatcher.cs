@@ -27,6 +27,9 @@ public sealed class EntityRequestDispatcher(
         EntityRequestContext context, CancellationToken ct = default)
         => Dispatch(type, h => h.SelectPagedAsync(conditions ?? [], any, pageNumber, pageSize, context, ct));
 
+    public Task<DBResult> GetChangesAsync(string type, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
+        => Dispatch(type, h => h.GetChangesAsync(sinceUtc, context, ct));
+
     public Task<DBResult> InsertAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
         => Dispatch(type, h => h.WriteAsync(BatchOperationKind.Insert, entity, context, ct));
 

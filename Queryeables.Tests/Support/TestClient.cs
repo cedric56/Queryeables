@@ -1,4 +1,5 @@
 using MessagePack;
+using Queryeables.Abstraction;
 using System.ComponentModel.DataAnnotations.Schema;
 using KeyAttribute = System.ComponentModel.DataAnnotations.KeyAttribute;
 
@@ -25,5 +26,16 @@ public class TestClient
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public long Version { get; set; }
 
-    public TestClient Copy() => new() { Id = Id, Nom = Nom, Actif = Actif, Parrain = Parrain, Version = Version };
+    /// <summary>Tenue à jour par <see cref="SyncConventionsStore"/>.</summary>
+    [LastModified]
+    public DateTime LastModified { get; set; }
+
+    /// <summary>Suppression logique, appliquée par <see cref="SyncConventionsStore"/>.</summary>
+    [SoftDelete]
+    public bool Deleted { get; set; }
+
+    public TestClient Copy() => new()
+    {
+        Id = Id, Nom = Nom, Actif = Actif, Parrain = Parrain, Version = Version, LastModified = LastModified, Deleted = Deleted
+    };
 }

@@ -19,13 +19,14 @@ namespace Queryeables.Server;
 /// {
 ///     var factory = sp.GetRequiredService&lt;DbProviderFactory&gt;();
 ///     var registry = new EntityHandlerRegistry();
-///     registry.Register(new EntityHandler&lt;Client&gt;(() => DommelEntityStore.Create(factory), EntityAccessPolicies.Authenticated));
+///     registry.Register(new EntityHandler&lt;Client&gt;(() => DommelEntityStore.Create(factory).WithSyncConventions(), EntityAccessPolicies.Authenticated));
 ///     return registry;
 /// });
+/// // WithSyncConventions applique [LastModified] et [SoftDelete] côté serveur.
 /// // Le store transactionnel active les lots (transactions distantes).
 /// builder.Services.AddSingleton(sp => new EntityRequestDispatcher(
 ///     sp.GetRequiredService&lt;IEntityHandlerRegistry&gt;(),
-///     () => DommelEntityStore.Create(sp.GetRequiredService&lt;DbProviderFactory&gt;())));
+///     () => DommelEntityStore.Create(sp.GetRequiredService&lt;DbProviderFactory&gt;()).WithSyncConventions()));
 ///
 /// // Authentification ASP.NET Core habituelle (JWT, cookies...) : l'utilisateur arrive dans les règles d'accès.
 /// builder.Services.AddAuthentication(...);
@@ -49,6 +50,9 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
 
     public UnaryResult<DBResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
         => new(dispatcher.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, Caller(), Aborted));
+
+    public UnaryResult<DBResult> GetChangesAsync(string type, DateTime sinceUtc)
+        => new(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
 
     public UnaryResult<DBResult> InsertAsync(string type, byte[] entity, string? connectionId)
         => new(dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));

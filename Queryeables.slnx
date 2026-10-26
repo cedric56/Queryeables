@@ -8,6 +8,6 @@
   <Project Path="Queryeables.SignalR.Server/Queryeables.SignalR.Server.csproj" />
   <Project Path="Queryeables.Sqlite/Queryeables.Sqlite.csproj" />
   <Project Path="Queryeables.PostgreSql/Queryeables.PostgreSql.csproj" />
-  <Project Path="Queryeables.SqlServer/Queryeables.SqlServer.csproj" />
+  <Project Path="Queryeables.SqlDependency/Queryeables.SqlDependency.csproj" />
   <Project Path="Queryeables.Tests/Queryeables.Tests.csproj" />
 </Solution>

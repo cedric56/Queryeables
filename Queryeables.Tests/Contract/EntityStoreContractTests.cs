@@ -17,8 +17,11 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     /// <summary>Crée un store sur la base du test. Le test le dispose.</summary>
     protected abstract IEntityStore CreateStore();
 
-    /// <summary>False pour un store qui ne prend pas en charge les transactions (le store distant).</summary>
+    /// <summary>False pour un store qui ne prend pas en charge les transactions.</summary>
     protected virtual bool SupportsTransactions => true;
+
+    /// <summary>True si le store applique [LastModified] et [SoftDelete] (<see cref="SyncConventionsStore"/>).</summary>
+    protected virtual bool UsesSyncConventions => false;
 
     private async Task<TestClient> InsertAsync(string nom, bool actif = true, int? parrain = null)
     {
@@ -239,6 +242,62 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.DeleteAsync(stale));
         Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
         Assert.Single(await store.GetAllAsync<TestClient>());
+    }
+
+    // ---------- Synchronisation incrémentale (stores avec SyncConventionsStore) ----------
+
+    [Fact]
+    public async Task Writes_set_LastModified()
+    {
+        if (!UsesSyncConventions)
+            return;
+
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        var client = await InsertAsync("Ana");
+        var inserted = client.LastModified;
+        Assert.True(inserted >= before);
+
+        await Task.Delay(20);
+        await using var store = CreateStore();
+        await store.UpdateAsync(client);
+
+        Assert.True(client.LastModified > inserted);
+    }
+
+    [Fact]
+    public async Task Soft_deleted_rows_are_hidden_but_reported_as_changes()
+    {
+        if (!UsesSyncConventions)
+            return;
+
+        var a = await InsertAsync("Ana");
+        await InsertAsync("Bob");
+
+        await using var store = CreateStore();
+        Assert.True(await store.DeleteAsync(a));
+
+        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
+        Assert.Equal(1, await store.CountAsync<TestClient>(x => x.Actif == true));
+        Assert.Null(await store.FirstOrDefaultAsync<TestClient>(x => x.Id == a.Id));
+
+        var changes = await store.SelectChangesAsync<TestClient>(DateTime.MinValue);
+        Assert.True(Assert.Single(changes, c => c.Id == a.Id).Deleted);
+    }
+
+    [Fact]
+    public async Task Changes_since_returns_only_recent_rows()
+    {
+        if (!UsesSyncConventions)
+            return;
+
+        await InsertAsync("Ancien");
+        await Task.Delay(20);
+        var recent = await InsertAsync("Récent");
+
+        await using var store = CreateStore();
+        var changes = await store.SelectChangesAsync<TestClient>(recent.LastModified);
+
+        Assert.Equal("Récent", Assert.Single(changes).Nom);
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace Queryeables.Abstraction;
 
 /// <summary>Opérations composées au-dessus de <see cref="IEntityStore"/>, valables pour Dommel comme pour EF.</summary>
@@ -67,5 +69,64 @@ public static class EntityStoreExtensions
             else
                 await store.UpdateAsync(child, ct);
         }
+    }
+
+    // ---------- Lecture stricte et opérations groupées (idées des repositories ABP, voir CREDITS.md) ----------
+
+    /// <summary>
+    /// Comme <see cref="IEntityStore.FirstOrDefaultAsync{TEntity}"/>, mais lève une erreur NotFound
+    /// au lieu de renvoyer null : pour le code qui considère l'absence comme anormale.
+    /// </summary>
+    public static async Task<TEntity> GetAsync<TEntity>(this IEntityStore store,
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        return await store.FirstOrDefaultAsync(predicate, ct)
+            ?? throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable.");
+    }
+
+    /// <summary>Insère toutes les entités dans une seule transaction (un seul appel avec le store distant).</summary>
+    public static Task InsertManyAsync<TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+        CancellationToken ct = default) where TEntity : class
+        => store.ForEachInTransactionAsync(entities, async (s, e) => { await s.InsertAsync(e, ct); }, ct);
+
+    /// <summary>
+    /// Met à jour toutes les entités dans une seule transaction. Si une ligne n'existe plus, rien n'est appliqué
+    /// (erreur NotFound).
+    /// </summary>
+    public static Task UpdateManyAsync<TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+        CancellationToken ct = default) where TEntity : class
+        => store.ForEachInTransactionAsync(entities, async (s, e) =>
+        {
+            if (!await s.UpdateAsync(e, ct))
+                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été mis à jour.");
+        }, ct);
+
+    /// <summary>
+    /// Supprime toutes les entités dans une seule transaction. Si une ligne n'existe plus, rien n'est supprimé
+    /// (erreur NotFound).
+    /// </summary>
+    public static Task DeleteManyAsync<TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+        CancellationToken ct = default) where TEntity : class
+        => store.ForEachInTransactionAsync(entities, async (s, e) =>
+        {
+            if (!await s.DeleteAsync(e, ct))
+                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} introuvable : rien n'a été supprimé.");
+        }, ct);
+
+    private static Task ForEachInTransactionAsync<TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+        Func<IEntityStore, TEntity, Task> action, CancellationToken ct) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(entities);
+        var list = entities.ToList();
+        if (list.Count == 0)
+            return Task.CompletedTask;
+
+        return store.RunInTransactionAsync(async s =>
+        {
+            foreach (var entity in list)
+                await action(s, entity);
+        }, ct);
     }
 }

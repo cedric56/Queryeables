@@ -28,7 +28,9 @@ public abstract class SqliteContractTests : EntityStoreContractTests
                 Nom     TEXT    NOT NULL,
                 Actif   INTEGER NOT NULL,
                 Parrain INTEGER NULL,
-                Version INTEGER NOT NULL DEFAULT 0
+                Version INTEGER NOT NULL DEFAULT 0,
+                LastModified TEXT NOT NULL DEFAULT '0001-01-01 00:00:00',
+                Deleted INTEGER NOT NULL DEFAULT 0
             );
             """;
         await command.ExecuteNonQueryAsync();
@@ -48,6 +50,13 @@ public sealed class DommelEntityStoreContractTests : SqliteContractTests
     protected override IEntityStore CreateStore() => CreateDommelStore();
 }
 
+/// <summary>Même contrat, à travers <see cref="SyncConventionsStore"/> : dates et suppression logique en plus.</summary>
+public sealed class DommelWithSyncConventionsContractTests : SqliteContractTests
+{
+    protected override bool UsesSyncConventions => true;
+    protected override IEntityStore CreateStore() => CreateDommelStore().WithSyncConventions();
+}
+
 public sealed class EfEntityStoreContractTests : SqliteContractTests
 {
     protected override IEntityStore CreateStore()
@@ -56,9 +65,20 @@ public sealed class EfEntityStoreContractTests : SqliteContractTests
         return new EfEntityStore(new TestDbContext(options));
     }
 
-    private sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
+    internal sealed class TestDbContext(DbContextOptions<TestDbContext> options) : DbContext(options)
     {
         protected override void OnModelCreating(ModelBuilder modelBuilder) => modelBuilder.Entity<TestClient>();
+    }
+}
+
+public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
+{
+    protected override bool UsesSyncConventions => true;
+
+    protected override IEntityStore CreateStore()
+    {
+        var options = new DbContextOptionsBuilder<EfEntityStoreContractTests.TestDbContext>().UseSqlite(ConnectionString).Options;
+        return new EfEntityStore(new EfEntityStoreContractTests.TestDbContext(options)).WithSyncConventions();
     }
 }
 
@@ -70,12 +90,41 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 {
     protected override IEntityStore CreateStore() => CreateRemoteStore(EntityAccessPolicies.AllowAll);
 
-    private IEntityStore CreateRemoteStore(IEntityAccessPolicy policy)
+    private IEntityStore CreateRemoteStore(IEntityAccessPolicy policy, bool syncConventions = false, int maxPageSize = 1000)
     {
+        Func<IEntityStore> serverStore = syncConventions
+            ? () => CreateDommelStore().WithSyncConventions()
+            : CreateDommelStore;
+
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(CreateDommelStore, policy));
-        var dispatcher = new EntityRequestDispatcher(registry, transactionStoreFactory: CreateDommelStore);
+        registry.Register(new EntityHandler<TestClient>(serverStore, policy, maxPageSize: maxPageSize));
+        var dispatcher = new EntityRequestDispatcher(registry, transactionStoreFactory: serverStore);
         return new MagicOnionEntityStore(new InProcessLayer(dispatcher));
+    }
+
+    [Fact]
+    public async Task Server_caps_the_page_size()
+    {
+        await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, maxPageSize: 2);
+        for (var i = 0; i < 5; i++)
+            await store.InsertAsync(new TestClient { Nom = $"C{i}" });
+
+        Assert.Equal(2, (await store.SelectPagedAsync<TestClient>(x => true, 1, 5000)).Count);
+    }
+
+    [Fact]
+    public async Task Remote_changes_include_soft_deleted_rows()
+    {
+        await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, syncConventions: true);
+        var a = new TestClient { Nom = "Ana" };
+        await store.InsertAsync(a);
+        await store.InsertAsync(new TestClient { Nom = "Bob" });
+
+        Assert.True(await store.DeleteAsync(a));
+
+        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
+        var changes = await store.SelectChangesAsync<TestClient>(DateTime.MinValue);
+        Assert.True(Assert.Single(changes, c => c.Nom == "Ana").Deleted);
     }
 
     [Fact]
@@ -153,6 +202,8 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             => new(dispatcher.SelectAsync(type, RoundTrip(conditions), any, Caller));
         public UnaryResult<DBResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
             => new(dispatcher.SelectPagedAsync(type, RoundTrip(conditions), any, pageNumber, pageSize, Caller));
+        public UnaryResult<DBResult> GetChangesAsync(string type, DateTime sinceUtc)
+            => new(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
         public UnaryResult<DBResult> InsertAsync(string type, byte[] entity, string? connectionId)
             => new(dispatcher.InsertAsync(type, entity, Caller.WithConnection(connectionId)));
         public UnaryResult<DBResult> UpdateAsync(string type, byte[] entity, string? connectionId)

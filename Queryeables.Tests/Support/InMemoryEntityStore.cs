@@ -17,17 +17,22 @@ public sealed class InMemoryEntityStore : IEntityStore
 
     public int SelectCalls { get; private set; }
 
-    public Task<IReadOnlyList<T>> GetAllAsync<T>(CancellationToken ct = default) where T : class
+    /// <summary>Simule une base lente, pour tester ce qui se passe pendant une lecture.</summary>
+    public TimeSpan Delay { get; set; }
+
+    public async Task<IReadOnlyList<T>> GetAllAsync<T>(CancellationToken ct = default) where T : class
     {
         _log?.Add("GETALL");
-        return Task.FromResult<IReadOnlyList<T>>(_rows.Select(r => (T)(object)r.Copy()).ToList());
+        if (Delay > TimeSpan.Zero) await Task.Delay(Delay, ct);
+        return _rows.Select(r => (T)(object)r.Copy()).ToList();
     }
 
-    public Task<IReadOnlyList<T>> SelectAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> SelectAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
         SelectCalls++;
+        if (Delay > TimeSpan.Zero) await Task.Delay(Delay, ct);
         var match = predicate.Compile();
-        return Task.FromResult<IReadOnlyList<T>>(_rows.Select(r => (T)(object)r.Copy()).Where(match).ToList());
+        return _rows.Select(r => (T)(object)r.Copy()).Where(match).ToList();
     }
 
     public async Task<T?> FirstOrDefaultAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class

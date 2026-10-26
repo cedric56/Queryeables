@@ -61,6 +61,12 @@ public sealed class MagicOnionEntityStore(
             await CallAsync(l => l.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize), ct), ct);
     }
 
+    /// <summary>Lignes modifiées depuis <paramref name="sinceUtc"/>, supprimées logiquement comprises.</summary>
+    public async Task<IReadOnlyList<TEntity>> SelectChangesAsync<TEntity>(DateTime sinceUtc, CancellationToken ct = default)
+        where TEntity : class
+        => DeserializeMany<TEntity>(
+            await CallAsync(l => l.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc)), ct), ct);
+
     // ---------- Écriture ----------
 
     public async Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class

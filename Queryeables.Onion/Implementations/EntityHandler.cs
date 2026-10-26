@@ -21,6 +21,8 @@ public abstract class EntityHandler
     public abstract Task<DBResult> SelectPagedAsync(FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default);
 
+    public abstract Task<DBResult> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
+
     /// <summary>Écriture isolée, dans son propre store.</summary>
     public abstract Task<DBResult> WriteAsync(BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct = default);
@@ -44,14 +46,19 @@ public abstract class EntityHandler
 /// <param name="storeFactory">Crée un store par appel ; le gestionnaire le dispose.</param>
 /// <param name="policy">Règle d'accès, obligatoire. <see cref="EntityAccessPolicies.AllowAll"/> pour tout permettre.</param>
 /// <param name="validate">Valide les entités (DataAnnotations) avant insertion et mise à jour. Vrai par défaut.</param>
+/// <param name="maxPageSize">
+/// Taille de page maximale : une page plus grande est ramenée à cette taille (idée reprise de Datasync, voir CREDITS.md).
+/// </param>
 public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
     Func<IEntityStore> storeFactory,
     IEntityAccessPolicy policy,
     MessagePackSerializerOptions? options = null,
-    bool validate = true) : EntityHandler where T : class
+    bool validate = true,
+    int maxPageSize = 1000) : EntityHandler where T : class
 {
     private readonly Func<IEntityStore> _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
     private readonly IEntityAccessPolicy _policy = policy ?? throw new ArgumentNullException(nameof(policy));
+    private readonly int _maxPageSize = maxPageSize > 0 ? maxPageSize : throw new ArgumentOutOfRangeException(nameof(maxPageSize));
 
     public override Type Type => typeof(T);
 
@@ -84,7 +91,15 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
             var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
-            return SerializeMany(await store.SelectPagedAsync(predicate, pageNumber, pageSize, ct), ct);
+            return SerializeMany(await store.SelectPagedAsync(predicate, pageNumber, Math.Min(pageSize, _maxPageSize), ct), ct);
+        });
+
+    public override Task<DBResult> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
+        => DBResult.RunAsync(async () =>
+        {
+            await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+            await using var store = _storeFactory();
+            return SerializeMany(await store.SelectChangesAsync<T>(sinceUtc, ct), ct);
         });
 
     // ---------- Écriture ----------
