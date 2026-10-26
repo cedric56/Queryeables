@@ -21,7 +21,7 @@ public static class SignalRExtensions
     /// it retries in the background according to <paramref name="retryPolicy"/>.
     /// </remarks>
     public static async Task<Func<Task>> AddSignalR<TObject>(
-        this DbMonitor<TObject> monitor,
+        this IDbMonitor<TObject> monitor,
         string url,
         IDbSession session,
         IRetryPolicy? retryPolicy = null,

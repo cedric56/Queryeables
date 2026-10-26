@@ -17,6 +17,9 @@ public interface IDbMonitor
 public interface IDbMonitor<TEntity> : IDbMonitor where TEntity : class
 {
     event EventHandler<Record<TEntity>>? RecordChanged;
+
+    /// <summary>Raises <see cref="RecordChanged"/> with a change received as is (for example from a hub).</summary>
+    void Publish(Record<TEntity> record);
 }
 
 /// <summary>

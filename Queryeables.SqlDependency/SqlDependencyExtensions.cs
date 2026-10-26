@@ -18,7 +18,7 @@ public static class SqlDependencyExtensions
     /// is notified of it too.
     /// </remarks>
     public static SqlTableDependencyCore<TObject> AddTableDependency<TObject, TKey>(
-        this DbMonitor<TObject> monitor,
+        this IDbMonitor<TObject> monitor,
         string connectionString,
         Func<TObject, TKey> getKey,
         out Action unsubscribe,

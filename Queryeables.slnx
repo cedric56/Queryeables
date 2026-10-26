@@ -3,6 +3,7 @@
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />
   <Project Path="Queryeables.Onion/Queryeables.Onion.csproj" Id="b02edfb3-6a85-4718-890e-8ca3bcd9459d" />
+  <Project Path="Queryeables.Onion.Client/Queryeables.Onion.Client.csproj" />
   <Project Path="Queryeables.SignalR/Queryeables.SignalR.csproj" />
   <Project Path="Queryeables.Server/Queryeables.Server.csproj" Id="e7f333d1-efa1-41ce-b759-f978acfa59e2" />
   <Project Path="Queryeables.SignalR.Server/Queryeables.SignalR.Server.csproj" />

@@ -20,7 +20,10 @@ namespace Queryeables.Onion;
 /// or nothing. Meanwhile, UpdateAsync and DeleteAsync return true, and an insert only gets its key on Commit;
 /// reads do not see the pending writes yet.
 /// </para>
-/// <para><b>Errors:</b> <see cref="EntityStoreException"/>, with the kind of error (permissions, validation, conflict...).</para>
+/// <para>
+/// <b>Errors:</b> reads and writes throw <see cref="EntityStoreException"/>; a transaction commit returns a
+/// <see cref="DBResult"/>. Both carry the kind of error (permissions, validation, conflict...).
+/// </para>
 /// </summary>
 /// <example>
 /// <code>
@@ -131,24 +134,37 @@ public sealed class MagicOnionEntityStore(
         return true;
     }
 
-    private async Task CommitAsync(RemoteTransaction transaction, CancellationToken ct)
+    private async Task<DBResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
     {
         if (!ReferenceEquals(_transaction, transaction))
-            throw new InvalidOperationException("Cette transaction n'est plus active.");
+            return DBResult.Failure(EntityErrorCode.InvalidRequest, "Cette transaction n'est plus active.");
         _transaction = null;
 
         if (transaction.Operations.Count == 0)
-            return;
+            return DBResult.Success();
 
         var operations = transaction.Operations.Select(o => o.Operation).ToArray();
-        var data = await CallAsync(l => l.ExecuteBatchAsync(operations), ct);
-        var results = data is { Length: > 0 }
-            ? MessagePackSerializer.Deserialize<byte[][]>(data, options, ct) ?? []
+        DBResultMessage response;
+        try
+        {
+            response = await layer.WithCancellationToken(ct).ExecuteBatchAsync(operations);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return DBResult.FromException(ex);
+        }
+
+        if (!response.Successful)
+            return response.ToDBResult();
+
+        var results = response.Data is { Length: > 0 }
+            ? MessagePackSerializer.Deserialize<byte[][]>(response.Data, options, ct) ?? []
             : [];
 
         // Generated keys and new versions copied back into the original entities.
         for (var i = 0; i < Math.Min(results.Length, transaction.Operations.Count); i++)
             transaction.Operations[i].ApplyResult(results[i]);
+        return DBResult.Success();
     }
 
     private void Abandon(RemoteTransaction transaction)
@@ -164,18 +180,19 @@ public sealed class MagicOnionEntityStore(
 
         public void Add(BatchOperation operation, Action<byte[]> applyResult) => Operations.Add((operation, applyResult));
 
-        public async Task CommitAsync(CancellationToken ct = default)
+        public Task<DBResult> CommitAsync(CancellationToken ct = default)
         {
-            if (_done) throw new InvalidOperationException("La transaction est déjà terminée.");
+            if (_done)
+                return Task.FromResult(DBResult.Failure(EntityErrorCode.InvalidRequest, "La transaction est déjà terminée."));
             _done = true;
-            await store.CommitAsync(this, ct);
+            return store.CommitAsync(this, ct);
         }
 
-        public Task RollbackAsync(CancellationToken ct = default)
+        public Task<DBResult> RollbackAsync(CancellationToken ct = default)
         {
             _done = true;
             store.Abandon(this); // nothing was sent: forgetting the writes is enough
-            return Task.CompletedTask;
+            return Task.FromResult(DBResult.Success());
         }
 
         public ValueTask DisposeAsync()
@@ -189,7 +206,7 @@ public sealed class MagicOnionEntityStore(
 
     // ---------- Internals ----------
 
-    private async Task<byte[]?> CallAsync(Func<IMagicOnionLayer, UnaryResult<DBResult>> call, CancellationToken ct)
+    private async Task<byte[]?> CallAsync(Func<IMagicOnionLayer, UnaryResult<DBResultMessage>> call, CancellationToken ct)
         => (await call(layer.WithCancellationToken(ct))).GetDataOrThrow();
 
     /// <summary>Name under which the server registers the type (see <see cref="EntityName"/>).</summary>

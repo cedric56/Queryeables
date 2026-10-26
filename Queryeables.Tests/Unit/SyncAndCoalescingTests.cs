@@ -177,7 +177,9 @@ public class SyncAndCoalescingTests
         var log = new List<string>();
         var store = new InMemoryEntityStore([], log);
 
-        await store.InsertManyAsync(new[] { new TestClient { Nom = "A" }, new TestClient { Nom = "B" } });
+        var result = await store.InsertManyAsync(new[] { new TestClient { Nom = "A" }, new TestClient { Nom = "B" } });
+
+        Assert.True(result.Successful);
 
         Assert.Equal(new[] { "BEGIN", "INSERT A", "INSERT B", "COMMIT", "DISPOSE" }, log);
     }
@@ -188,10 +190,9 @@ public class SyncAndCoalescingTests
         var log = new List<string>();
         var store = new InMemoryEntityStore([new() { Id = 1, Nom = "A" }], log);
 
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() =>
-            store.UpdateManyAsync(new[] { new TestClient { Id = 1, Nom = "A2" }, new TestClient { Id = 9, Nom = "?" } }));
+        var result = await store.UpdateManyAsync(new[] { new TestClient { Id = 1, Nom = "A2" }, new TestClient { Id = 9, Nom = "?" } });
 
-        Assert.Equal(EntityErrorCode.NotFound, error.ErrorCode);
+        Assert.Equal(EntityErrorCode.NotFound, result.ErrorCode);
         Assert.DoesNotContain("COMMIT", log);
     }
 
@@ -199,7 +200,8 @@ public class SyncAndCoalescingTests
     public async Task Empty_lists_do_nothing()
     {
         var log = new List<string>();
-        await new InMemoryEntityStore([], log).DeleteManyAsync(Array.Empty<TestClient>());
+        var result = await new InMemoryEntityStore([], log).DeleteManyAsync(Array.Empty<TestClient>());
+        Assert.True(result.Successful);
         Assert.Empty(log);
     }
 }

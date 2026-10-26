@@ -80,8 +80,12 @@ public interface IEntityStore : IAsyncDisposable
     Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default);
 }
 
+/// <summary>
+/// Transaction of an <see cref="IEntityStore"/>. Commit and rollback do not throw: they return a <see cref="DBResult"/>
+/// (a remote commit, for example, can fail on a conflict or a validation error).
+/// </summary>
 public interface IEntityTransaction : IAsyncDisposable
 {
-    Task CommitAsync(CancellationToken ct = default);
-    Task RollbackAsync(CancellationToken ct = default);
+    Task<DBResult> CommitAsync(CancellationToken ct = default);
+    Task<DBResult> RollbackAsync(CancellationToken ct = default);
 }

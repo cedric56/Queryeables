@@ -12,7 +12,7 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
 {
     // True while a change received from the server is being published locally.
     private readonly AsyncLocal<bool> _receiving = new();
-    private readonly DbMonitor<TObject> _monitor;
+    private readonly IDbMonitor<TObject> _monitor;
     private readonly Func<string?> _connectionId;
     private readonly Func<Record<TObject>, Task>? _send;
     private readonly Action<Exception>? _onError;
@@ -21,7 +21,7 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
     /// <param name="connectionId">Connection id of this client, or null when it is not connected.</param>
     /// <param name="send">Sends a local change to the server. When null, the relay only receives.</param>
     /// <param name="onError">Called when sending a change fails.</param>
-    public ChangeRelay(DbMonitor<TObject> monitor, Func<string?> connectionId,
+    public ChangeRelay(IDbMonitor<TObject> monitor, Func<string?> connectionId,
         Func<Record<TObject>, Task>? send = null, Action<Exception>? onError = null)
     {
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));

@@ -325,11 +325,12 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
 
         await using (var store = CreateStore())
         {
-            await store.RunInTransactionAsync(async s =>
+            var result = await store.RunInTransactionAsync(async s =>
             {
                 await s.InsertAsync(new TestClient { Nom = "Ana" });
                 await s.InsertAsync(new TestClient { Nom = "Bob" });
             });
+            Assert.True(result.Successful);
         }
 
         await using var check = CreateStore();

@@ -11,7 +11,7 @@ namespace Queryeables.Onion;
 /// <c>r => { hub.OnRecordChanged(RecordMessage.From(r)); return Task.CompletedTask; }</c>.
 /// </param>
 public sealed partial class RecordHubReceiver<TObject>(
-    DbMonitor<TObject> monitor,
+    IDbMonitor<TObject> monitor,
     IDbSession session,
     Func<Record<TObject>, Task>? send = null,
     Action<Exception>? onError = null)

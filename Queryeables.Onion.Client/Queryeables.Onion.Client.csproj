@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- MagicOnion client side: gRPC channel (WebSocket bridge for the browser) and change hub subscription. -->
+  <ItemGroup>
+    <PackageReference Include="MagicOnion.Client" />
+    <PackageReference Include="GrpcWebSocketBridge.Client" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
+  </ItemGroup>
+
+</Project>

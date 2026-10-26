@@ -42,27 +42,27 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
     private EntityRequestContext Caller(string? connectionId = null)
         => new(Context.CallContext.GetHttpContext().User, connectionId);
 
-    public UnaryResult<DBResult> GetAllAsync(string type)
+    public UnaryResult<DBResultMessage> GetAllAsync(string type)
         => new(dispatcher.GetAllAsync(type, Caller(), Aborted));
 
-    public UnaryResult<DBResult> SelectAsync(string type, FilterCondition[] conditions, bool any)
+    public UnaryResult<DBResultMessage> SelectAsync(string type, FilterCondition[] conditions, bool any)
         => new(dispatcher.SelectAsync(type, conditions, any, Caller(), Aborted));
 
-    public UnaryResult<DBResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
+    public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
         => new(dispatcher.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, Caller(), Aborted));
 
-    public UnaryResult<DBResult> GetChangesAsync(string type, DateTime sinceUtc)
+    public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
         => new(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
 
-    public UnaryResult<DBResult> InsertAsync(string type, byte[] entity, string? connectionId)
+    public UnaryResult<DBResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
         => new(dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
 
-    public UnaryResult<DBResult> UpdateAsync(string type, byte[] entity, string? connectionId)
+    public UnaryResult<DBResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
         => new(dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
 
-    public UnaryResult<DBResult> DeleteAsync(string type, byte[] entity, string? connectionId)
+    public UnaryResult<DBResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
         => new(dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
 
-    public UnaryResult<DBResult> ExecuteBatchAsync(BatchOperation[] operations)
+    public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperation[] operations)
         => new(dispatcher.ExecuteBatchAsync(operations, Caller(), Aborted));
 }

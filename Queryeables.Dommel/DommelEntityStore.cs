@@ -190,8 +190,8 @@ public sealed class DommelEntityStore : IEntityStore
             _inner = inner;
         }
 
-        public Task CommitAsync(CancellationToken ct = default) => _inner.CommitAsync(ct);
-        public Task RollbackAsync(CancellationToken ct = default) => _inner.RollbackAsync(ct);
+        public Task<DBResult> CommitAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.CommitAsync(ct));
+        public Task<DBResult> RollbackAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.RollbackAsync(ct));
 
         public async ValueTask DisposeAsync()
         {

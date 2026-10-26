@@ -7,24 +7,24 @@ namespace Queryeables.Onion;
 /// <summary>
 /// Handles, server side, the requests for one entity type through <see cref="IEntityStore"/>: it therefore works with
 /// Dommel as well as EF. Each call goes through the access policy, then validation for writes.
-/// Errors are returned in the <see cref="DBResult"/>, with their kind.
+/// Errors are returned in the <see cref="DBResultMessage"/>, with their kind.
 /// </summary>
 public abstract class EntityHandler
 {
     public abstract Type Type { get; }
 
-    public abstract Task<DBResult> GetAllAsync(EntityRequestContext context, CancellationToken ct = default);
+    public abstract Task<DBResultMessage> GetAllAsync(EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<DBResult> SelectAsync(FilterCondition[] conditions, bool any,
+    public abstract Task<DBResultMessage> SelectAsync(FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<DBResult> SelectPagedAsync(FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+    public abstract Task<DBResultMessage> SelectPagedAsync(FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<DBResult> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
+    public abstract Task<DBResultMessage> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>Standalone write, in its own store.</summary>
-    public abstract Task<DBResult> WriteAsync(BatchOperationKind kind, byte[] entity,
+    public abstract Task<DBResultMessage> WriteAsync(BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>
@@ -49,12 +49,20 @@ public abstract class EntityHandler
 /// <param name="maxPageSize">
 /// Maximum page size: a larger page is reduced to this size (idea taken from Datasync, see CREDITS.md).
 /// </param>
+/// <param name="aggregate">
+/// When provided, standalone writes go through this service instead of the store: insert and update call
+/// <see cref="IDbTransaction{TEntity}.SaveAsync"/>, delete calls <see cref="IDbTransaction{TEntity}.RemoveAsync"/>.
+/// Use it to save an entity together with its children (a person and its contacts) in one transaction.
+/// Access policy and validation still apply. Such a type cannot be part of a batch, since the service opens its
+/// own transaction.
+/// </param>
 public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
     Func<IEntityStore> storeFactory,
     IEntityAccessPolicy policy,
     MessagePackSerializerOptions? options = null,
     bool validate = true,
-    int maxPageSize = 1000) : EntityHandler where T : class
+    int maxPageSize = 1000,
+    IDbTransaction<T>? aggregate = null) : EntityHandler where T : class
 {
     private readonly Func<IEntityStore> _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
     private readonly IEntityAccessPolicy _policy = policy ?? throw new ArgumentNullException(nameof(policy));
@@ -64,19 +72,19 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
 
     // ---------- Read ----------
 
-    public override Task<DBResult> GetAllAsync(EntityRequestContext context, CancellationToken ct = default)
-        => DBResult.RunAsync(async () =>
+    public override Task<DBResultMessage> GetAllAsync(EntityRequestContext context, CancellationToken ct = default)
+        => DBResultMessage.RunAsync(async () =>
         {
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
             return SerializeMany(await store.GetAllAsync<T>(ct), ct);
         });
 
-    public override Task<DBResult> SelectAsync(FilterCondition[] conditions, bool any,
+    public override Task<DBResultMessage> SelectAsync(FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default)
         => (conditions?.Length ?? 0) == 0
             ? GetAllAsync(context, ct)
-            : DBResult.RunAsync(async () =>
+            : DBResultMessage.RunAsync(async () =>
             {
                 var predicate = Filters.ToPredicate<T>(conditions!, any);
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
@@ -84,9 +92,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
                 return SerializeMany(await store.SelectAsync(predicate, ct), ct);
             });
 
-    public override Task<DBResult> SelectPagedAsync(FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+    public override Task<DBResultMessage> SelectPagedAsync(FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default)
-        => DBResult.RunAsync(async () =>
+        => DBResultMessage.RunAsync(async () =>
         {
             var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
@@ -94,8 +102,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
             return SerializeMany(await store.SelectPagedAsync(predicate, pageNumber, Math.Min(pageSize, _maxPageSize), ct), ct);
         });
 
-    public override Task<DBResult> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
-        => DBResult.RunAsync(async () =>
+    public override Task<DBResultMessage> GetChangesAsync(DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
+        => DBResultMessage.RunAsync(async () =>
         {
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
@@ -104,10 +112,13 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
 
     // ---------- Write ----------
 
-    public override Task<DBResult> WriteAsync(BatchOperationKind kind, byte[] entity,
+    public override Task<DBResultMessage> WriteAsync(BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct = default)
-        => DBResult.RunAsync(async () =>
+        => DBResultMessage.RunAsync(async () =>
         {
+            if (aggregate is not null)
+                return await WriteThroughAggregateAsync(aggregate, kind, entity, context, ct);
+
             await using var store = _storeFactory();
             return await WriteAsync(store, kind, entity, context, requireEffect: false, ct);
         });
@@ -115,24 +126,11 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
     public override async Task<byte[]> WriteAsync(IEntityStore store, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, bool requireEffect, CancellationToken ct = default)
     {
-        var value = Deserialize(entity, ct);
+        if (aggregate is not null)
+            throw new EntityStoreException(EntityErrorCode.NotSupported,
+                $"{typeof(T).Name} est enregistré par son propre service transactionnel : il ne peut pas faire partie d'un lot.");
 
-        var operation = kind switch
-        {
-            BatchOperationKind.Insert => EntityOperation.Insert,
-            BatchOperationKind.Update => EntityOperation.Update,
-            BatchOperationKind.Delete => EntityOperation.Delete,
-            _ => throw new ArgumentException($"Opération inconnue : {kind}.")
-        };
-        await AuthorizeAsync(operation, value, context, ct);
-
-        if (validate && kind is BatchOperationKind.Insert or BatchOperationKind.Update)
-        {
-            var errors = EntityValidator.Validate(value).Select(e => e.ErrorMessage ?? "Valeur invalide.").ToList();
-            if (errors.Count > 0)
-                throw new EntityStoreException(EntityErrorCode.Validation,
-                    $"{typeof(T).Name} invalide : {string.Join(" ", errors)}", errors);
-        }
+        var value = await PrepareAsync(kind, entity, context, ct);
 
         // The client that initiated the change is passed on to the notification source.
         using (ChangeContext.Begin(context.ConnectionId))
@@ -155,6 +153,49 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccesse
                     return MessagePackSerializer.Serialize(deleted, options, ct);
             }
         }
+    }
+
+    private async Task<byte[]> WriteThroughAggregateAsync(IDbTransaction<T> service, BatchOperationKind kind, byte[] entity,
+        EntityRequestContext context, CancellationToken ct)
+    {
+        var value = await PrepareAsync(kind, entity, context, ct);
+
+        using (ChangeContext.Begin(context.ConnectionId))
+        {
+            if (kind == BatchOperationKind.Delete)
+            {
+                (await service.RemoveAsync(value, ct)).ThrowIfFailed();
+                return MessagePackSerializer.Serialize(true, options, ct);
+            }
+
+            (await service.SaveAsync(value, ct)).ThrowIfFailed();
+            return Serialize(value, ct); // generated keys, also those of the children
+        }
+    }
+
+    /// <summary>Deserializes the entity, checks the access policy and validates it for insert and update.</summary>
+    private async Task<T> PrepareAsync(BatchOperationKind kind, byte[] entity, EntityRequestContext context, CancellationToken ct)
+    {
+        var value = Deserialize(entity, ct);
+
+        var operation = kind switch
+        {
+            BatchOperationKind.Insert => EntityOperation.Insert,
+            BatchOperationKind.Update => EntityOperation.Update,
+            BatchOperationKind.Delete => EntityOperation.Delete,
+            _ => throw new ArgumentException($"Opération inconnue : {kind}.")
+        };
+        await AuthorizeAsync(operation, value, context, ct);
+
+        if (validate && kind is BatchOperationKind.Insert or BatchOperationKind.Update)
+        {
+            var errors = EntityValidator.Validate(value).Select(e => e.ErrorMessage ?? "Valeur invalide.").ToList();
+            if (errors.Count > 0)
+                throw new EntityStoreException(EntityErrorCode.Validation,
+                    $"{typeof(T).Name} invalide : {string.Join(" ", errors)}", errors);
+        }
+
+        return value;
     }
 
     // ---------- Internals ----------

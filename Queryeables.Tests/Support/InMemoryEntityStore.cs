@@ -86,8 +86,8 @@ public sealed class InMemoryEntityStore : IEntityStore
 
     private sealed class Transaction(List<string>? log) : IEntityTransaction
     {
-        public Task CommitAsync(CancellationToken ct = default) { log?.Add("COMMIT"); return Task.CompletedTask; }
-        public Task RollbackAsync(CancellationToken ct = default) { log?.Add("ROLLBACK"); return Task.CompletedTask; }
+        public Task<DBResult> CommitAsync(CancellationToken ct = default) { log?.Add("COMMIT"); return Task.FromResult(DBResult.Success()); }
+        public Task<DBResult> RollbackAsync(CancellationToken ct = default) { log?.Add("ROLLBACK"); return Task.FromResult(DBResult.Success()); }
         public ValueTask DisposeAsync() { log?.Add("DISPOSE"); return ValueTask.CompletedTask; }
     }
 }

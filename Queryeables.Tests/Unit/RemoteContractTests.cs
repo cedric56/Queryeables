@@ -53,7 +53,7 @@ public class RemoteContractTests
     [Fact]
     public void Store_errors_keep_their_code_and_messages()
     {
-        var result = DBResult.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalide", ["a", "b"]));
+        var result = DBResultMessage.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalide", ["a", "b"]));
 
         var error = Assert.Throws<EntityStoreException>(() => result.GetDataOrThrow());
         Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
@@ -62,15 +62,29 @@ public class RemoteContractTests
 
     [Fact]
     public void Bad_requests_are_reported_as_such()
-        => Assert.Equal(EntityErrorCode.InvalidRequest, DBResult.FromException(new ArgumentException("filtre")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.InvalidRequest, DBResultMessage.FromException(new ArgumentException("filtre")).ErrorCode);
 
     [Fact]
     public void Unexpected_errors_are_unknown()
-        => Assert.Equal(EntityErrorCode.Unknown, DBResult.FromException(new InvalidOperationException("base")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.Unknown, DBResultMessage.FromException(new InvalidOperationException("base")).ErrorCode);
 
     [Fact]
     public void Success_returns_the_data()
-        => Assert.Equal(new byte[] { 1, 2 }, DBResult.Success([1, 2]).GetDataOrThrow());
+        => Assert.Equal(new byte[] { 1, 2 }, DBResultMessage.Success([1, 2]).GetDataOrThrow());
+
+    [Fact]
+    public void DBResult_survives_the_wire_form()
+    {
+        var original = DBResult.Failure(EntityErrorCode.Conflict, "modifiée entre-temps", ["v1"]);
+
+        var back = DBResultMessage.From(original).ToDBResult();
+
+        Assert.False(back.Successful);
+        Assert.Equal(EntityErrorCode.Conflict, back.ErrorCode);
+        Assert.Equal("modifiée entre-temps", back.Exception);
+        Assert.Equal(new[] { "v1" }, back.Errors);
+        Assert.True(DBResultMessage.From(DBResult.Success()).ToDBResult().Successful);
+    }
 
     [Fact]
     public async Task Unknown_types_are_reported()

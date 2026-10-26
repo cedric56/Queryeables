@@ -166,8 +166,8 @@ public sealed class EfEntityStore : IEntityStore
         private readonly IDbContextTransaction _inner;
         public Transaction(IDbContextTransaction inner) => _inner = inner;
 
-        public Task CommitAsync(CancellationToken ct = default) => _inner.CommitAsync(ct);
-        public Task RollbackAsync(CancellationToken ct = default) => _inner.RollbackAsync(ct);
+        public Task<DBResult> CommitAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.CommitAsync(ct));
+        public Task<DBResult> RollbackAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.RollbackAsync(ct));
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
     }
 }
