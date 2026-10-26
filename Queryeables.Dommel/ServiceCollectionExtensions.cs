@@ -24,6 +24,8 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
+        NotMappedPropertyResolver.Register();
+
         var options = new DbFactoryOptions
         {
             LogCommands = logCommands,

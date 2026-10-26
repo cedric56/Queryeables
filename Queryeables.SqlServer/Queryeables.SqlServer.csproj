@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="SqlTableDependencyCore" Version="1.0.0" />
+  </ItemGroup>
+
   <!--
     À COMPLÉTER : référence qui fournit TableDependencyCore.SqlClient (SqlTableDependencyCore).
     Ce fork n'est pas publié sur NuGet sous ce nom : ajoutez ici votre PackageReference, ProjectReference
