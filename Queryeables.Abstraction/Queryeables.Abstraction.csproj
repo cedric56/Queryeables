@@ -7,6 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Implementations\**" />
+    <EmbeddedResource Remove="Implementations\**" />
+    <None Remove="Implementations\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="IDBSession.cs" />
+    <Compile Remove="IDbTransaction{T}.cs" />
+    <Compile Remove="Record.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MessagePack.Annotations" Version="3.1.12" />
   </ItemGroup>
 

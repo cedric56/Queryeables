@@ -23,6 +23,17 @@ public sealed class DommelEntityStore : IEntityStore
         _ownsConnection = ownsConnection;
     }
 
+    /// <summary>
+    /// Crée un store à partir d'une fabrique qui fournit des connexions déjà configurées,
+    /// par exemple <see cref="DbFactory{TDbConnection}"/>.
+    /// </summary>
+    public static DommelEntityStore Create(DbProviderFactory factory)
+    {
+        var connection = factory.CreateConnection()
+            ?? throw new InvalidOperationException("La fabrique n'a pas pu créer de connexion.");
+        return new DommelEntityStore(connection);
+    }
+
     /// <summary>Crée un store à partir d'une fabrique ADO.NET et d'une chaîne de connexion.</summary>
     public static DommelEntityStore Create(DbProviderFactory factory, string connectionString)
     {
