@@ -143,7 +143,7 @@ internal sealed class DbLogCommand : DbCommand
     }
 
     /// <summary>
-    /// Remplace le paramètre seulement en mot entier : @Id ne doit pas toucher @IdClient.
+    /// Replaces the parameter only as a whole word: @Id must not touch @IdCustomer.
     /// </summary>
     private static string ReplaceParameter(string sql, string token, string value)
         => Regex.Replace(sql, $@"(?<![\w@:?]){Regex.Escape(token)}(?!\w)", _ => value);

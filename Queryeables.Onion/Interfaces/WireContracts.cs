@@ -11,20 +11,20 @@ public enum FilterOperator
     LessThan,
     LessThanOrEqual,
 
-    /// <summary>La propriété vaut l'une des valeurs (Value est une liste).</summary>
+    /// <summary>The property equals one of the values (Value is a list).</summary>
     In,
 
-    /// <summary>Texte qui commence par Value.</summary>
+    /// <summary>Text that starts with Value.</summary>
     StartsWith,
 
-    /// <summary>Texte qui se termine par Value.</summary>
+    /// <summary>Text that ends with Value.</summary>
     EndsWith,
 
-    /// <summary>Texte qui contient Value.</summary>
+    /// <summary>Text that contains Value.</summary>
     Contains,
 }
 
-/// <summary>Une condition « propriété opérateur valeur » transmise au serveur.</summary>
+/// <summary>A "property operator value" condition sent to the server.</summary>
 [MessagePackObject]
 public sealed class FilterCondition
 {
@@ -58,7 +58,7 @@ public enum BatchOperationKind
     Delete,
 }
 
-/// <summary>Une écriture d'un lot exécuté dans une seule transaction côté serveur.</summary>
+/// <summary>One write of a batch executed in a single server-side transaction.</summary>
 [MessagePackObject]
 public sealed class BatchOperation
 {
@@ -74,7 +74,7 @@ public sealed class BatchOperation
         ConnectionId = connectionId;
     }
 
-    /// <summary>Nom du type d'entité (voir <see cref="EntityName"/>).</summary>
+    /// <summary>Name of the entity type (see <see cref="EntityName"/>).</summary>
     [Key(0)]
     public string Type { get; set; } = string.Empty;
 
@@ -84,7 +84,7 @@ public sealed class BatchOperation
     [Key(2)]
     public byte[] Entity { get; set; } = [];
 
-    /// <summary>Session de notification du client pour ce type d'entité.</summary>
+    /// <summary>Notification session of the client for this entity type.</summary>
     [Key(3)]
     public string? ConnectionId { get; set; }
 }

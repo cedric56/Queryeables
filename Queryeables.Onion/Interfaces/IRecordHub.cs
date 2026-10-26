@@ -1,11 +1,10 @@
 ﻿using MagicOnion;
-using Queryeables.Abstraction;
 
 namespace Queryeables.Onion;
 
 public interface IRecordHubReceiver<TObject> where TObject : class
 {
-    void OnChanged(Record<TObject> record);
+    void OnChanged(RecordMessage record);
 }
 
 public interface IRecordHub<TObject> :
@@ -14,5 +13,5 @@ public interface IRecordHub<TObject> :
 {
     Task<Guid> AddReceiverAsync();
     Task RemoveAsync();
-    void OnRecordChanged(Record<TObject> e);
+    void OnRecordChanged(RecordMessage e);
 }

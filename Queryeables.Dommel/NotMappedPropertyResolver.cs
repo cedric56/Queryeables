@@ -5,15 +5,15 @@ using System.Reflection;
 namespace Queryeables.Dommel;
 
 /// <summary>
-/// Fait ignorer à Dommel les propriétés marquées [NotMapped], comme le fait EF.
-/// Il peut envelopper un résolveur existant, pour ne pas écraser un réglage personnalisé.
+/// Makes Dommel ignore properties marked [NotMapped], as EF does.
+/// It can wrap an existing resolver, so as not to overwrite a custom setting.
 /// </summary>
 /// <example>
 /// <code>
-/// // Seul :
+/// // Alone:
 /// DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver());
-/// // Avec votre propre résolveur :
-/// DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver(new MonResolveur()));
+/// // With your own resolver:
+/// DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver(new MyResolver()));
 /// </code>
 /// </example>
 public sealed class NotMappedPropertyResolver(IPropertyResolver? inner = null) : DefaultPropertyResolver

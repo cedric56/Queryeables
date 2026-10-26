@@ -10,14 +10,14 @@ namespace Queryeables.PostgreSql;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Enregistre une fabrique de connexions PostgreSQL (<see cref="DbProviderFactory"/>),
-    /// et une <see cref="IDbConnection"/> transitoire pour le code qui l'injecte directement.
+    /// Registers a PostgreSQL connection factory (<see cref="DbProviderFactory"/>),
+    /// and a transient <see cref="IDbConnection"/> for code that injects it directly.
     /// </summary>
     /// <remarks>
-    /// Dommel reconnaît <see cref="NpgsqlConnection"/> et génère du SQL PostgreSQL, y compris avec
-    /// <paramref name="logCommands"/> : une fabrique dérivée n'est plus nécessaire.
-    /// Dommel met les noms de tables et de colonnes entre guillemets, ce qui les rend sensibles à la casse.
-    /// Si la base utilise des noms en minuscules, déclarez-les avec [Table] et [Column] sur les entités.
+    /// Dommel recognizes <see cref="NpgsqlConnection"/> and generates PostgreSQL SQL, including with
+    /// <paramref name="logCommands"/>: a derived factory is no longer needed.
+    /// Dommel quotes table and column names, which makes them case-sensitive.
+    /// If the database uses lowercase names, declare them with [Table] and [Column] on the entities.
     /// </remarks>
     public static IServiceCollection UseNpgsqlFactory(this IServiceCollection services,
         string connectionString,

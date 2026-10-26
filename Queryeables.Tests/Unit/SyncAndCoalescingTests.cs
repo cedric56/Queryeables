@@ -39,9 +39,9 @@ public class SyncAndCoalescingTests
         await store.InsertAsync(new TestClient { Nom = "Bob" });
 
         Assert.True(await store.DeleteAsync(ana));
-        Assert.False(await store.DeleteAsync(ana)); // déjà supprimée
+        Assert.False(await store.DeleteAsync(ana)); // already deleted
 
-        Assert.Equal(2, rows.Count);                 // toujours en base
+        Assert.Equal(2, rows.Count);                 // still in the database
         Assert.True(rows.Single(r => r.Nom == "Ana").Deleted);
         Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Nom);
         Assert.Null(await store.FirstOrDefaultAsync<TestClient>(c => c.Nom == "Ana"));
@@ -88,7 +88,7 @@ public class SyncAndCoalescingTests
 
         await cache.SyncAsync();
 
-        Assert.DoesNotContain("GETALL", log); // pas de rechargement complet
+        Assert.DoesNotContain("GETALL", log); // no full reload
         Assert.Equal("Ana modifiée", cache.Find(1)?.Nom);
         Assert.Null(cache.Find(2));
         Assert.Equal("Dan", cache.Find(4)?.Nom);
@@ -110,7 +110,7 @@ public class SyncAndCoalescingTests
         Assert.Equal("Ana", Assert.Single(cache.Entities).Nom);
     }
 
-    // ---------- Regroupement des notifications ----------
+    // ---------- Notification coalescing ----------
 
     [Fact]
     public async Task A_burst_of_notifications_triggers_few_refreshes()
@@ -133,7 +133,7 @@ public class SyncAndCoalescingTests
         await Task.Delay(600);
 
         Assert.InRange(refreshes, 1, 2);
-        Assert.InRange(storesCreated, 2, 3); // chargement initial + une ou deux synchronisations, pas vingt
+        Assert.InRange(storesCreated, 2, 3); // initial load + one or two synchronizations, not twenty
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class SyncAndCoalescingTests
         Assert.InRange(rowReads, 1, 2);
     }
 
-    // ---------- GetAsync et opérations groupées ----------
+    // ---------- GetAsync and bulk operations ----------
 
     [Fact]
     public async Task GetAsync_throws_NotFound()

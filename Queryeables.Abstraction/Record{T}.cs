@@ -1,11 +1,9 @@
-﻿using MessagePack;
-using System.Globalization;
-using KeyAttribute = MessagePack.KeyAttribute;
+﻿namespace Queryeables.Abstraction;
 
-namespace Queryeables.Abstraction;
-
-/// <summary>Changement d'une ligne : quelle entité, quel type de changement, et quels clients en sont déjà informés.</summary>
-[MessagePackObject]
+/// <summary>
+/// A row change: which entity, what kind of change, and which clients already know about it.
+/// Serializer-agnostic: each transport (MagicOnion, SignalR...) maps it to its own wire message.
+/// </summary>
 public class Record<T> where T : class
 {
     public Record()
@@ -13,7 +11,7 @@ public class Record<T> where T : class
         ChangeType = ChangeType.None;
     }
 
-    /// <param name="entityKey">Clé de l'entité au format de <see cref="RecordKey.Format"/>.</param>
+    /// <param name="entityKey">Entity key, formatted with <see cref="RecordKey.Format"/>.</param>
     public Record(string entityKey, ChangeType changeType, List<string>? connections = null)
     {
         EntityKey = entityKey;
@@ -26,25 +24,16 @@ public class Record<T> where T : class
     {
     }
 
-    /// <summary>Clé de l'entité modifiée, au format de <see cref="RecordKey.Format"/> ; relue avec <see cref="RecordKey.Parse{TKey}"/>.</summary>
-    [Key(0)]
+    /// <summary>Key of the changed entity, formatted with <see cref="RecordKey.Format"/>; read it back with <see cref="RecordKey.Parse{TKey}(string)"/>.</summary>
     public string EntityKey { get; set; } = string.Empty;
 
-    /// <summary>Ancienne clé numérique, pour le code qui l'utilise encore.</summary>
-    [IgnoreMember]
-    [Obsolete("Utilisez EntityKey avec RecordKey.Parse<TKey>.")]
-    public long RowId => long.Parse(EntityKey, CultureInfo.InvariantCulture);
-
-    [Key(1)]
     public ChangeType ChangeType { get; set; }
 
-    [Key(2)]
+    /// <summary>Connections already aware of the change (typically its author): they are not notified again.</summary>
     public List<string>? Connections { get; set; }
 
     public override string ToString()
-    {
-        return $"{typeof(T).Name} : {EntityKey} {ChangeType} {string.Join(",", Connections ?? [])}";
-    }
+        => $"{typeof(T).Name} : {EntityKey} {ChangeType} {string.Join(",", Connections ?? [])}";
 
     public void Add(string? connectionId)
     {
@@ -56,10 +45,5 @@ public class Record<T> where T : class
     }
 
     public bool Contains(string? connectionId)
-    {
-        if (string.IsNullOrWhiteSpace(connectionId))
-            return false;
-
-        return (Connections ?? []).Contains(connectionId);
-    }
+        => !string.IsNullOrWhiteSpace(connectionId) && (Connections ?? []).Contains(connectionId);
 }

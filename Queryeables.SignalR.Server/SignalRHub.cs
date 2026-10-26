@@ -24,11 +24,13 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
         return base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>Un client signale un changement : il est relayé aux autres clients.</summary>
+    /// <summary>A client reports a change: it is relayed to the other clients.</summary>
     [HubMethodName(SignalRContract.OnRecordChanged)]
-    public void OnRecordChanged(Record<TObject> record)
+    public void OnRecordChanged(SignalRRecord message)
     {
-        // L'émetteur est toujours exclu, même s'il ne s'est pas ajouté lui-même.
+        var record = message.ToRecord<TObject>();
+
+        // The sender is always excluded, even if it did not add itself.
         if (!record.Contains(Context.ConnectionId))
             record.Add(Context.ConnectionId);
 

@@ -4,9 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
-  <!-- Côté client : utilisable sur Android, iOS, navigateur (WebAssembly) et desktop. -->
+  <!-- Client side: usable on Android, iOS, browser (WebAssembly) and desktop. -->
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" />

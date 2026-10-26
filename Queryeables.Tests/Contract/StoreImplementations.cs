@@ -9,7 +9,7 @@ using Queryeables.Onion;
 
 namespace Queryeables.Tests.Contract;
 
-/// <summary>Base SQLite en mémoire, propre à chaque test, conservée tant qu'une connexion reste ouverte.</summary>
+/// <summary>In-memory SQLite database, private to each test, kept while a connection stays open.</summary>
 public abstract class SqliteContractTests : EntityStoreContractTests
 {
     protected string ConnectionString { get; } = $"Data Source=contract_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
@@ -50,7 +50,7 @@ public sealed class DommelEntityStoreContractTests : SqliteContractTests
     protected override IEntityStore CreateStore() => CreateDommelStore();
 }
 
-/// <summary>Même contrat, à travers <see cref="SyncConventionsStore"/> : dates et suppression logique en plus.</summary>
+/// <summary>Same contract, through <see cref="SyncConventionsStore"/>: timestamps and soft delete on top.</summary>
 public sealed class DommelWithSyncConventionsContractTests : SqliteContractTests
 {
     protected override bool UsesSyncConventions => true;
@@ -83,8 +83,8 @@ public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Store distant : <see cref="MagicOnionEntityStore"/> → sérialisation MessagePack → <see cref="EntityRequestDispatcher"/>
-/// → <see cref="EntityHandler{T}"/> → Dommel. Seul le réseau est remplacé par un appel direct.
+/// Remote store: <see cref="MagicOnionEntityStore"/> → MessagePack serialization → <see cref="EntityRequestDispatcher"/>
+/// → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
 /// </summary>
 public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 {
@@ -138,7 +138,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         {
             await s.InsertAsync(a);
             await s.InsertAsync(b);
-            Assert.Equal(0, a.Id); // rien n'est envoyé avant le Commit
+            Assert.Equal(0, a.Id); // nothing is sent before Commit
         });
 
         Assert.True(a.Id > 0);
@@ -153,11 +153,11 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.RunInTransactionAsync(async s =>
         {
             await s.InsertAsync(new TestClient { Nom = "Ana" });
-            await s.UpdateAsync(new TestClient { Id = 999, Nom = "Fantôme" }); // ligne inexistante
+            await s.UpdateAsync(new TestClient { Id = 999, Nom = "Fantôme" }); // nonexistent row
         }));
 
         Assert.Equal(EntityErrorCode.NotFound, error.ErrorCode);
-        Assert.Empty(await store.GetAllAsync<TestClient>()); // l'insertion a été annulée aussi
+        Assert.Empty(await store.GetAllAsync<TestClient>()); // the insert was rolled back too
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Nom.Length > 3));
     }
 
-    /// <summary>Le service MagicOnion sans le réseau : chaque appel va directement au dispatcher.</summary>
+    /// <summary>The MagicOnion service without the network: each call goes straight to the dispatcher.</summary>
     private sealed class InProcessLayer(EntityRequestDispatcher dispatcher) : IMagicOnionLayer
     {
         private static readonly EntityRequestContext Caller = EntityRequestContext.Anonymous;
@@ -213,7 +213,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         public UnaryResult<DBResult> ExecuteBatchAsync(BatchOperation[] operations)
             => new(dispatcher.ExecuteBatchAsync(RoundTrip(operations), Caller));
 
-        // Les arguments passent par MessagePack comme sur le réseau : les nombres reviennent avec le plus petit type possible.
+        // Arguments go through MessagePack as on the network: numbers come back with the smallest possible type.
         private static T RoundTrip<T>(T value)
             => MessagePack.MessagePackSerializer.Deserialize<T>(MessagePack.MessagePackSerializer.Serialize(value));
 

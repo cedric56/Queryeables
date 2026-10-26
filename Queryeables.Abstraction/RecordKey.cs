@@ -1,27 +1,27 @@
-using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Représentation texte d'une clé d'entité, transportée par <see cref="Record{T}"/> :
-/// fonctionne pour tout type de clé (long, int, Guid, string, enum, date) et pour les clés composites en tuple.
+/// Text representation of an entity key, carried by <see cref="Record{T}"/>:
+/// works for any key type (long, int, Guid, string, enum, date) and for composite keys as tuples.
 /// </summary>
 /// <example>
 /// <code>
-/// RecordKey.Format(42L);                    // "42"
-/// RecordKey.Format((CommandeId: 7, Ligne: 2)); // clé composite
+/// RecordKey.Format(42L);                       // "42"
+/// RecordKey.Format((OrderId: 7, Line: 2));     // composite key
 /// RecordKey.Parse&lt;long&gt;("42");             // 42
-/// RecordKey.Parse&lt;(int, int)&gt;(texte);      // (7, 2)
+/// RecordKey.Parse&lt;(int, int)&gt;(text);       // (7, 2)
 /// </code>
 /// </example>
 public static class RecordKey
 {
-    // Séparateur des parties d'une clé composite : caractère de contrôle, absent des valeurs ordinaires.
+    // Separator of the parts of a composite key: a control character, absent from ordinary values.
     private const char Separator = '\u001F';
 
-    /// <summary>Convertit une clé en texte, indépendamment de la culture.</summary>
+    /// <summary>Converts a key to text, independently of the culture.</summary>
     public static string Format(object key)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -40,12 +40,13 @@ public static class RecordKey
         return FormatPart(key);
     }
 
-    /// <summary>Relit une clé produite par <see cref="Format"/>.</summary>
-    public static TKey Parse<TKey>(string text) where TKey : notnull
+    /// <summary>Reads back a key produced by <see cref="Format"/>.</summary>
+    public static TKey Parse<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(string text)
+        where TKey : notnull
         => (TKey)Parse(text, typeof(TKey));
 
     /// <inheritdoc cref="Parse{TKey}(string)"/>
-    public static object Parse(string text, Type type)
+    public static object Parse(string text, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type type)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(type);
@@ -76,21 +77,40 @@ public static class RecordKey
         _ => value.ToString() ?? throw new ArgumentException($"Clé de type {value.GetType().Name} non convertible en texte.")
     };
 
+    /// <summary>
+    /// Explicit list of supported key types rather than TypeDescriptor converters: compatible with trimming and Native AOT.
+    /// </summary>
     private static object ParsePart(string text, Type type)
     {
         var target = Nullable.GetUnderlyingType(type) ?? type;
         var invariant = CultureInfo.InvariantCulture;
 
-        if (target == typeof(string))
-            return text;
-        if (target == typeof(DateTime))
-            return DateTime.Parse(text, invariant, DateTimeStyles.RoundtripKind);
-        if (target == typeof(DateTimeOffset))
-            return DateTimeOffset.Parse(text, invariant, DateTimeStyles.RoundtripKind);
+        if (target.IsEnum)
+            return Enum.Parse(target, text);
 
-        // Entiers, Guid, enums, décimaux... : convertisseur standard du type.
-        return TypeDescriptor.GetConverter(target).ConvertFromInvariantString(text)
-            ?? throw new FormatException($"Clé « {text} » invalide pour le type {type.Name}.");
+        return Type.GetTypeCode(target) switch
+        {
+            TypeCode.String => text,
+            TypeCode.Int64 => long.Parse(text, invariant),
+            TypeCode.Int32 => int.Parse(text, invariant),
+            TypeCode.Int16 => short.Parse(text, invariant),
+            TypeCode.SByte => sbyte.Parse(text, invariant),
+            TypeCode.UInt64 => ulong.Parse(text, invariant),
+            TypeCode.UInt32 => uint.Parse(text, invariant),
+            TypeCode.UInt16 => ushort.Parse(text, invariant),
+            TypeCode.Byte => byte.Parse(text, invariant),
+            TypeCode.Decimal => decimal.Parse(text, invariant),
+            TypeCode.Double => double.Parse(text, invariant),
+            TypeCode.Single => float.Parse(text, invariant),
+            TypeCode.Boolean => bool.Parse(text),
+            TypeCode.Char => char.Parse(text),
+            TypeCode.DateTime => DateTime.Parse(text, invariant, DateTimeStyles.RoundtripKind),
+            _ when target == typeof(Guid) => Guid.Parse(text),
+            _ when target == typeof(DateTimeOffset) => DateTimeOffset.Parse(text, invariant, DateTimeStyles.RoundtripKind),
+            _ when target == typeof(TimeSpan) => TimeSpan.Parse(text, invariant),
+            _ when target == typeof(DateOnly) => DateOnly.Parse(text, invariant),
+            _ => throw new NotSupportedException($"Type de clé non pris en charge : {type.Name}.")
+        };
     }
 
     private static bool IsValueTuple(Type type)

@@ -1,35 +1,35 @@
 ﻿namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Moniteur de changements, sans type d'entité : c'est ce que voit la source de notifications
-/// (hook de mise à jour SQLite, trigger...), via <see cref="DbMonitorRegistry"/>.
+/// Change monitor without an entity type: this is what the notification source sees
+/// (SQLite update hook, trigger...), through <see cref="DbMonitorRegistry"/>.
 /// </summary>
 public interface IDbMonitor
 {
     /// <summary>
-    /// Signale qu'une ligne a changé. Le moniteur ignore les tables qui ne le concernent pas.
+    /// Reports that a row changed. The monitor ignores the tables it does not care about.
     /// </summary>
-    /// <param name="entityKey">Clé de la ligne, au format de <see cref="RecordKey.Format"/>.</param>
+    /// <param name="entityKey">Row key, in the <see cref="RecordKey.Format"/> format.</param>
     void Publish(ChangeType type, string table, string entityKey, string? connectionId);
 }
 
-/// <summary>Moniteur d'un type d'entité : ses abonnés (par exemple <see cref="EntityCache{TEntity, TKey}"/>) réagissent aux changements.</summary>
+/// <summary>Monitor of one entity type: its subscribers (for example <see cref="EntityCache{TEntity, TKey}"/>) react to changes.</summary>
 public interface IDbMonitor<TEntity> : IDbMonitor where TEntity : class
 {
     event EventHandler<Record<TEntity>>? RecordChanged;
 }
 
 /// <summary>
-/// Implémentation standard. Côté serveur, la source de changements appelle
-/// <see cref="Publish(ChangeType, string, string, string?)"/> ; côté client, le récepteur du hub appelle
+/// Standard implementation. Server side, the change source calls
+/// <see cref="Publish(ChangeType, string, string, string?)"/>; client side, the hub receiver calls
 /// <see cref="Publish(Record{TEntity})"/>.
 /// </summary>
 public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : class
 {
-    /// <param name="table">Nom de la table surveillée. Par défaut, le nom du type d'entité.</param>
+    /// <param name="table">Name of the monitored table. Defaults to the entity type name.</param>
     public DbMonitor(string? table = null) => Table = table ?? typeof(TEntity).Name;
 
-    /// <summary>Nom de la table surveillée.</summary>
+    /// <summary>Name of the monitored table.</summary>
     public string Table { get; }
 
     public event EventHandler<Record<TEntity>>? RecordChanged;

@@ -5,14 +5,14 @@ using Queryeables.Onion;
 namespace Queryeables.Server;
 
 /// <summary>
-/// Hub MagicOnion qui diffuse aux clients abonnés les changements d'un type d'entité,
-/// via le <see cref="RecordHubRepository{TObject}"/> partagé.
+/// MagicOnion hub that broadcasts the changes of one entity type to subscribed clients,
+/// through the shared <see cref="RecordHubRepository{TObject}"/>.
 /// </summary>
 public class RecordHub<TObject>(RecordHubRepository<TObject> repository) :
     StreamingHubBase<IRecordHub<TObject>, IRecordHubReceiver<TObject>>,
     IRecordHub<TObject> where TObject : class
 {
-    /// <summary>Abonne la connexion aux notifications et renvoie son identifiant, à garder comme session côté client.</summary>
+    /// <summary>Subscribes the connection to notifications and returns its id, to keep as the client-side session.</summary>
     public async Task<Guid> AddReceiverAsync()
     {
         var group = await Group.AddAsync("customers");
@@ -26,15 +26,17 @@ public class RecordHub<TObject>(RecordHubRepository<TObject> repository) :
         return Task.CompletedTask;
     }
 
-    /// <summary>Un client signale un changement : il est relayé aux autres clients.</summary>
-    public void OnRecordChanged(Record<TObject> e)
+    /// <summary>A client reports a change: it is relayed to the other clients.</summary>
+    public void OnRecordChanged(RecordMessage e)
     {
-        // L'émetteur est toujours exclu, même s'il ne s'est pas ajouté lui-même.
-        var self = Context.ContextId.ToString();
-        if (!e.Contains(self))
-            e.Add(self);
+        var record = e.ToRecord<TObject>();
 
-        repository.Raise(e);
+        // The sender is always excluded, even if it did not add itself.
+        var self = Context.ContextId.ToString();
+        if (!record.Contains(self))
+            record.Add(self);
+
+        repository.Raise(record);
     }
 
     protected override ValueTask OnDisconnected()

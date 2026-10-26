@@ -3,12 +3,12 @@ using System.Threading.Channels;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Côté serveur, commun à tous les transports (SignalR, MagicOnion...) : reçoit les changements d'un type d'entité,
-/// ceux de la base via le moniteur et ceux que les clients signalent, et les diffuse aux clients abonnés,
-/// sauf à ceux qui en sont déjà informés.
+/// Server side, shared by every transport (SignalR, MagicOnion...): receives the changes of one entity type,
+/// both those of the database (through the monitor) and those reported by clients, and broadcasts them to the
+/// subscribed clients, except those already aware of them.
 /// <para>
-/// Les diffusions passent par une file : l'ordre est conservé, et la source de changements (hook SQLite...)
-/// n'attend jamais le réseau. Un transport n'a qu'à implémenter <see cref="SendAsync"/>.
+/// Broadcasts go through a queue: order is preserved, and the change source (SQLite hook...)
+/// never waits for the network. A transport only has to implement <see cref="SendAsync"/>.
 /// </para>
 /// </summary>
 public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : class
@@ -25,7 +25,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     private readonly Task _loop;
     private int _disposed;
 
-    /// <param name="registry">Si fourni, le moniteur y est ajouté pour recevoir les changements de la base du serveur.</param>
+    /// <param name="registry">When provided, the monitor is added to it to receive the server database changes.</param>
     protected ChangeBroadcaster(IDbMonitor<TObject> monitor, DbMonitorRegistry? registry = null)
     {
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
@@ -36,13 +36,13 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         _loop = ProcessAsync(_disposeCts.Token);
     }
 
-    /// <summary>Connexions abonnées (copie).</summary>
+    /// <summary>Subscribed connections (snapshot).</summary>
     public IReadOnlyCollection<string> Subscribers
     {
         get { lock (_gate) return _subscribers.ToArray(); }
     }
 
-    /// <returns>true si la connexion n'était pas déjà abonnée.</returns>
+    /// <returns>true if the connection was not already subscribed.</returns>
     public bool AddSubscriber(string connectionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
@@ -50,14 +50,14 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
             return _subscribers.Add(connectionId);
     }
 
-    /// <returns>true si la connexion était abonnée.</returns>
+    /// <returns>true if the connection was subscribed.</returns>
     public bool RemoveSubscriber(string connectionId)
     {
         lock (_gate)
             return _subscribers.Remove(connectionId);
     }
 
-    /// <summary>Met un changement en file pour diffusion (par exemple un changement signalé par un client).</summary>
+    /// <summary>Queues a change for broadcasting (for example a change reported by a client).</summary>
     public void Relay(Record<TObject> record)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -68,10 +68,10 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
             OnError(new InvalidOperationException($"Impossible de mettre en file le changement {record}."));
     }
 
-    /// <summary>Envoie le changement à tous les clients, sauf <paramref name="excludedConnections"/>.</summary>
+    /// <summary>Sends the change to every client except <paramref name="excludedConnections"/>.</summary>
     protected abstract Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct);
 
-    /// <summary>Appelé quand une diffusion échoue ; la diffusion des changements suivants continue.</summary>
+    /// <summary>Called when a broadcast fails; broadcasting of the following changes goes on.</summary>
     protected virtual void OnError(Exception exception)
     {
     }
@@ -121,7 +121,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         _monitor.RecordChanged -= OnRecordChanged;
         _registry?.Remove(_monitor);
 
-        // Plus rien n'entre dans la file ; ce qui y est déjà part encore.
+        // Nothing enters the queue anymore; what is already in it still goes out.
         _queue.Writer.TryComplete();
         try
         {

@@ -3,78 +3,79 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Point d'accès unique aux données, indépendant du framework (Dommel, EF Core, ...).
-/// Une instance = une unité de travail (une connexion / un DbContext).
-/// Les implémentations gèrent elles-mêmes la connexion et la transaction en cours.
+/// Single data access point, independent of the framework (Dommel, EF Core, ...).
+/// One instance = one unit of work (one connection / one DbContext).
+/// Implementations manage the connection and the current transaction themselves.
 /// </summary>
 /// <remarks>
-/// <para><b>Faire évoluer cette interface sans casser les implémentations existantes :</b></para>
+/// <para><b>Evolving this interface without breaking existing implementations:</b></para>
 /// <list type="bullet">
-/// <item>une opération composée d'opérations existantes va dans une méthode d'extension
-/// (voir <see cref="EntityStoreExtensions"/>) ;</item>
-/// <item>une nouvelle opération est ajoutée avec une implémentation par défaut, construite sur les membres existants
-/// (voir <see cref="CountAsync{TEntity}"/>). Chaque store la remplace ensuite par une version optimisée, quand il le peut ;</item>
-/// <item>un membre sans implémentation par défaut ne s'ajoute qu'avec une nouvelle version majeure.</item>
+/// <item>an operation composed of existing operations goes into an extension method
+/// (see <see cref="EntityStoreExtensions"/>);</item>
+/// <item>a new operation is added with a default implementation built on existing members
+/// (see <see cref="CountAsync{TEntity}"/>). Each store then overrides it with an optimized version when it can;</item>
+/// <item>a member without a default implementation is only added in a new major version.</item>
 /// </list>
-/// Toute nouvelle implémentation doit passer la suite de tests <c>EntityStoreContractTests</c>.
+/// Every new implementation must pass the <c>EntityStoreContractTests</c> test suite.
 /// </remarks>
 public interface IEntityStore : IAsyncDisposable
 {
-    // Lecture
-    Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class;
+    // Read
+    Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class;
 
-    Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
+    Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate,
         CancellationToken ct = default) where TEntity : class;
 
-    Task<TEntity?> FirstOrDefaultAsync<TEntity>(
+    Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate,
         CancellationToken ct = default) where TEntity : class;
 
-    /// <param name="pageNumber">Numéro de page, commence à 1.</param>
-    Task<IReadOnlyList<TEntity>> SelectPagedAsync<TEntity>(
+    /// <param name="pageNumber">Page number, starting at 1.</param>
+    Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate,
         int pageNumber,
         int pageSize,
         CancellationToken ct = default) where TEntity : class;
 
-    /// <summary>Nombre d'entités qui vérifient le prédicat.</summary>
+    /// <summary>Number of entities matching the predicate.</summary>
     /// <remarks>
-    /// L'implémentation par défaut charge les entités pour les compter ; les stores qui savent compter
-    /// côté base (Dommel, EF) la remplacent.
+    /// The default implementation loads the entities to count them; stores that can count
+    /// in the database (Dommel, EF) override it.
     /// </remarks>
-    async Task<long> CountAsync<TEntity>(
+    async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate,
         CancellationToken ct = default) where TEntity : class
         => (await SelectAsync(predicate, ct)).Count;
 
     /// <summary>
-    /// Lignes modifiées depuis <paramref name="sinceUtc"/> (inclus), y compris celles supprimées logiquement :
-    /// sert à la synchronisation incrémentale. Exige une propriété [LastModified].
+    /// Rows modified since <paramref name="sinceUtc"/> (inclusive), soft-deleted ones included:
+    /// used for incremental synchronization. Requires a [LastModified] property.
     /// </summary>
-    /// <exception cref="NotSupportedException">Le type n'a pas de propriété [LastModified].</exception>
-    Task<IReadOnlyList<TEntity>> SelectChangesAsync<TEntity>(DateTime sinceUtc, CancellationToken ct = default)
+    /// <exception cref="NotSupportedException">The type has no [LastModified] property.</exception>
+    Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc, CancellationToken ct = default)
         where TEntity : class
         => SelectAsync(SyncMetadata.ModifiedSince<TEntity>(sinceUtc), ct);
 
-    // Écriture
-    /// <summary>Insère l'entité. Une clé générée par la base est réinjectée dans l'entité.</summary>
-    Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
+    // Write
+    /// <summary>Inserts the entity. A key generated by the database is written back into the entity.</summary>
+    Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
 
-    /// <returns>true si une ligne a été modifiée.</returns>
-    Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
+    /// <returns>true if a row was updated.</returns>
+    Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
 
-    /// <returns>true si une ligne a été supprimée.</returns>
-    Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
+    /// <returns>true if a row was deleted.</returns>
+    Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class;
 
     // Transactions
     /// <summary>
-    /// Démarre une transaction. Toutes les opérations du store passent par elle
-    /// jusqu'à son Commit/Rollback/Dispose. Sans Commit, le Dispose annule.
+    /// Starts a transaction. Every operation of the store goes through it
+    /// until its Commit/Rollback/Dispose. Without Commit, Dispose rolls back.
     /// </summary>
     Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default);
 }

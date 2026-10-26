@@ -9,8 +9,8 @@ namespace Queryeables.Sqlite;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Enregistre une <see cref="SqliteDbFactory"/> : les changements de la base sont signalés aux moniteurs
-    /// de <see cref="DbMonitorRegistry"/>.
+    /// Registers a <see cref="SqliteDbFactory"/>: database changes are reported to the monitors
+    /// of <see cref="DbMonitorRegistry"/>.
     /// </summary>
     public static IServiceCollection UseSqliteFactory(this IServiceCollection services,
         string connectionString,

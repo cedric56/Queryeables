@@ -4,9 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
-  <!-- Côté serveur MagicOnion : service d'accès aux entités et hub de changements. -->
+  <!-- MagicOnion server side: entity access service and change hub. -->
   <ItemGroup>
     <PackageReference Include="MagicOnion.Server" />
     <PackageReference Include="Grpc.AspNetCore" />

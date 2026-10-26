@@ -1,10 +1,10 @@
 <Project>
-  <!-- Versions des paquets NuGet, pour toute la solution. Les .csproj référencent les paquets sans version. -->
+  <!-- NuGet package versions for the whole solution. The .csproj files reference packages without a version. -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
-  <!-- Base de données -->
+  <!-- Databases -->
   <ItemGroup>
     <PackageVersion Include="Dommel" Version="3.5.3" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
@@ -14,7 +14,7 @@
     <PackageVersion Include="SqlTableDependencyCore" Version="1.0.0" />
   </ItemGroup>
 
-  <!-- Sérialisation et transport -->
+  <!-- Serialization and transport -->
   <ItemGroup>
     <PackageVersion Include="MessagePack.Annotations" Version="3.1.12" />
     <PackageVersion Include="MagicOnion.Abstractions" Version="7.11.0" />

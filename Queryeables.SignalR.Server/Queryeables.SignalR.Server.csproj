@@ -4,11 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <!--
-    Côté serveur : Hub et IHubContext font partie d'ASP.NET Core, fourni avec .NET.
-    Le paquet NuGet Microsoft.AspNetCore.SignalR.Core est une ancienne version 1.x obsolète : ne pas l'utiliser.
+    Server side: Hub and IHubContext are part of ASP.NET Core, shipped with .NET.
+    The Microsoft.AspNetCore.SignalR.Core NuGet package is an old, obsolete 1.x version: do not use it.
   -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

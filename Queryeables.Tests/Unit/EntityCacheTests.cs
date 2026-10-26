@@ -19,7 +19,7 @@ public class EntityCacheTests
         return store;
     }
 
-    /// <summary>Les notifications du moniteur sont traitées en arrière-plan : on attend l'événement.</summary>
+    /// <summary>Monitor notifications are handled in the background: wait for the event.</summary>
     private static async Task WaitForChangeAsync(IEntityCache<TestClient, long> cache, Action trigger)
     {
         var changed = new TaskCompletionSource();
@@ -53,8 +53,8 @@ public class EntityCacheTests
         await WaitForChangeAsync(cache, () => monitor.Publish(new Record<TestClient>(2L, ChangeType.Update)));
 
         Assert.Equal("Bob modifié", cache.Find(2)?.Nom);
-        Assert.Equal(0, _stores[0].SelectCalls);       // chargement complet : pas de requête filtrée
-        Assert.Equal(1, _stores[1].SelectCalls);       // mise à jour : une seule ligne demandée
+        Assert.Equal(0, _stores[0].SelectCalls);       // full load: no filtered query
+        Assert.Equal(1, _stores[1].SelectCalls);       // update: a single row requested
     }
 
     [Fact]

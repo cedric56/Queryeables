@@ -6,8 +6,8 @@ using Queryeables.Onion;
 namespace Queryeables.Server;
 
 /// <summary>
-/// Diffuse aux clients MagicOnion les changements d'un type d'entité (voir <see cref="ChangeBroadcaster{TObject}"/>).
-/// À enregistrer en singleton.
+/// Broadcasts the changes of one entity type to MagicOnion clients (see <see cref="ChangeBroadcaster{TObject}"/>).
+/// Register it as a singleton.
 /// </summary>
 public sealed class RecordHubRepository<TObject>(
     IDbMonitor<TObject> monitor,
@@ -15,7 +15,7 @@ public sealed class RecordHubRepository<TObject>(
     ILogger<RecordHubRepository<TObject>>? logger = null)
     : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
 {
-    // Groupe de diffusion partagé, capturé à la première inscription.
+    // Shared broadcast group, captured on the first subscription.
     private volatile IGroup<IRecordHubReceiver<TObject>>? _group;
 
     public void RegisterGroup(IGroup<IRecordHubReceiver<TObject>> group, Guid contextId)
@@ -31,19 +31,19 @@ public sealed class RecordHubRepository<TObject>(
             logger?.LogInformation("Désabonnement de {ContextId}", contextId);
     }
 
-    /// <summary>Diffuse un changement signalé par un client.</summary>
+    /// <summary>Broadcasts a change reported by a client.</summary>
     public void Raise(Record<TObject> record) => Relay(record);
 
     protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
-        // Les identifiants qui ne sont pas des connexions MagicOnion (session SignalR...) sont ignorés.
+        // Ids that are not MagicOnion connections (SignalR session...) are ignored.
         var excluded = excludedConnections
             .Select(id => Guid.TryParse(id, out var guid) ? guid : (Guid?)null)
             .OfType<Guid>()
             .ToList();
 
         logger?.LogDebug("Diffusion de {Record}", record);
-        _group?.Except(excluded).OnChanged(record);
+        _group?.Except(excluded).OnChanged(RecordMessage.From(record));
         return Task.CompletedTask;
     }
 

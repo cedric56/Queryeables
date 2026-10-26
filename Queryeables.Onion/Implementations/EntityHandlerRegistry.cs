@@ -16,8 +16,8 @@ public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
         => _handlers.TryGetValue(name, out handler!);
 
     /// <summary>
-    /// Enregistre un gestionnaire sous un nom. Remplacer le gestionnaire d'un même type est permis ;
-    /// réutiliser le nom d'un autre type lève une exception, au lieu d'exposer silencieusement la mauvaise table.
+    /// Registers a handler under a name. Replacing the handler of the same type is allowed;
+    /// reusing the name of another type throws, instead of silently exposing the wrong table.
     /// </summary>
     public void Register(string name, EntityHandler handler)
     {
@@ -32,7 +32,7 @@ public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
                     $"Donnez un nom distinct à {handler.Type.FullName} avec [RemoteName]."));
     }
 
-    /// <summary>Enregistre le gestionnaire sous le nom de son type, celui qu'utilise <see cref="MagicOnionEntityStore"/>.</summary>
+    /// <summary>Registers the handler under its type name, the one used by <see cref="MagicOnionEntityStore"/>.</summary>
     public void Register(EntityHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);

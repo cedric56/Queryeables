@@ -1,16 +1,16 @@
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Côté client, commun à tous les transports (SignalR, MagicOnion...) : publie sur le moniteur local les changements
-/// reçus du serveur, et envoie au serveur les changements locaux.
+/// Client side, shared by every transport (SignalR, MagicOnion...): publishes the changes received from the server
+/// on the local monitor, and sends local changes to the server.
 /// <para>
-/// Il ignore les changements que ce client a lui-même signalés, et ne renvoie jamais au serveur un changement
-/// qui en vient : sans cela, un changement rebondirait de client en client.
+/// It ignores the changes this client reported itself, and never sends back to the server a change
+/// that came from it: otherwise a change would bounce from client to client.
 /// </para>
 /// </summary>
 public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
 {
-    // Vrai pendant la publication locale d'un changement reçu du serveur.
+    // True while a change received from the server is being published locally.
     private readonly AsyncLocal<bool> _receiving = new();
     private readonly DbMonitor<TObject> _monitor;
     private readonly Func<string?> _connectionId;
@@ -18,9 +18,9 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
     private readonly Action<Exception>? _onError;
     private int _disposed;
 
-    /// <param name="connectionId">Identifiant de connexion de ce client, ou null s'il n'est pas connecté.</param>
-    /// <param name="send">Envoie un changement local au serveur. Si null, le relais ne fait que recevoir.</param>
-    /// <param name="onError">Appelé si l'envoi d'un changement échoue.</param>
+    /// <param name="connectionId">Connection id of this client, or null when it is not connected.</param>
+    /// <param name="send">Sends a local change to the server. When null, the relay only receives.</param>
+    /// <param name="onError">Called when sending a change fails.</param>
     public ChangeRelay(DbMonitor<TObject> monitor, Func<string?> connectionId,
         Func<Record<TObject>, Task>? send = null, Action<Exception>? onError = null)
     {
@@ -33,7 +33,7 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
             _monitor.RecordChanged += OnLocalChange;
     }
 
-    /// <summary>Changement reçu du serveur : publié localement, sauf s'il vient de ce client.</summary>
+    /// <summary>Change received from the server: published locally, unless it comes from this client.</summary>
     public void Receive(Record<TObject> record)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -51,7 +51,7 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
         }
     }
 
-    // async void imposé par l'événement : aucune exception ne doit en sortir.
+    // async void is required by the event: no exception may escape.
     private async void OnLocalChange(object? sender, Record<TObject> record)
     {
         if (_receiving.Value || _send is null)
@@ -61,7 +61,7 @@ public sealed class ChangeRelay<TObject> : IDisposable where TObject : class
         {
             var connectionId = _connectionId();
             if (connectionId is null)
-                return; // pas connecté : rien à envoyer
+                return; // not connected: nothing to send
 
             if (!record.Contains(connectionId))
                 record.Add(connectionId);

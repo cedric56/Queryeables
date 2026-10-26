@@ -10,14 +10,14 @@ namespace Queryeables.Dommel;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Enregistre la fabrique de connexions (<see cref="DbProviderFactory"/>), ainsi que
-    /// <see cref="DbMonitorRegistry"/> et <see cref="IDbSession"/> s'ils ne le sont pas déjà.
+    /// Registers the connection factory (<see cref="DbProviderFactory"/>), as well as
+    /// <see cref="DbMonitorRegistry"/> and <see cref="IDbSession"/> when they are not registered yet.
     /// </summary>
-    /// <param name="logCommands">Journalise chaque commande SQL (catégorie « Queryeables.SQL »).</param>
-    /// <param name="factory">Fabrique personnalisée, par exemple une <c>SqliteDbFactory</c>. Par défaut : <see cref="DbFactory{TDbConnection}"/>.</param>
+    /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL").</param>
+    /// <param name="factory">Custom factory, for example a <c>SqliteDbFactory</c>. Default: <see cref="DbFactory{TDbConnection}"/>.</param>
     /// <param name="ignoreNotMapped">
-    /// Fait ignorer à Dommel les propriétés [NotMapped]. Ce réglage de Dommel est global : passez false si vous
-    /// avez votre propre résolveur, et enveloppez-le dans <see cref="NotMappedPropertyResolver"/>.
+    /// Makes Dommel ignore [NotMapped] properties. This Dommel setting is global: pass false if you
+    /// have your own resolver, and wrap it in <see cref="NotMappedPropertyResolver"/>.
     /// </param>
     public static IServiceCollection UseFactory<TDbConnection>(this IServiceCollection services,
         string connectionString,

@@ -1,6 +1,6 @@
 ﻿namespace Queryeables.Onion;
 
-/// <summary>Types d'entités exposés par le serveur. Un type non enregistré est inaccessible à distance.</summary>
+/// <summary>Entity types exposed by the server. A type that is not registered cannot be reached remotely.</summary>
 public interface IEntityHandlerRegistry
 {
     bool TryGet(string name, out EntityHandler handler);

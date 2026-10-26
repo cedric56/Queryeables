@@ -3,12 +3,12 @@ using System.Collections.Concurrent;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Ensemble des moniteurs actifs. La source de changements (hook SQLite, trigger...) n'appelle que
-/// <see cref="Publish"/>, et chaque moniteur filtre les tables qui le concernent.
+/// Set of active monitors. The change source (SQLite hook, trigger...) only calls
+/// <see cref="Publish"/>, and each monitor filters the tables it cares about.
 /// </summary>
 /// <example>
 /// <code>
-/// // Dans le hook de mise à jour SQLite, pour chaque ligne modifiée :
+/// // In the SQLite update hook, for each modified row:
 /// registry.Publish(ChangeType.Update, table, rowId);
 /// </code>
 /// </example>
@@ -27,8 +27,8 @@ public sealed class DbMonitorRegistry
     public IReadOnlyList<IDbMonitor> GetAll() => _monitors.Keys.ToArray();
 
     /// <param name="connectionId">
-    /// Client à l'origine du changement. Par défaut, celui de <see cref="ChangeContext.ConnectionId"/>,
-    /// renseigné par le serveur pendant l'écriture.
+    /// Client that initiated the change. Defaults to <see cref="ChangeContext.ConnectionId"/>,
+    /// set by the server during the write.
     /// </param>
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId = null)
     {
@@ -37,11 +37,11 @@ public sealed class DbMonitorRegistry
             monitor.Publish(type, table, entityKey, connectionId);
     }
 
-    /// <summary>Variante pour une clé numérique, par exemple le rowid SQLite.</summary>
+    /// <summary>Overload for a numeric key, for example the SQLite rowid.</summary>
     public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
         => Publish(type, table, RecordKey.Format(rowId), connectionId);
 
-    /// <summary>Variante pour une clé quelconque (Guid, string, tuple pour une clé composite...).</summary>
+    /// <summary>Overload for any key (Guid, string, tuple for a composite key...).</summary>
     public void Publish<TKey>(ChangeType type, string table, TKey key, string? connectionId = null) where TKey : notnull
         => Publish(type, table, RecordKey.Format(key), connectionId);
 }

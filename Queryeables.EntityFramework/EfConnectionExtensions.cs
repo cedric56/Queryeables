@@ -13,11 +13,11 @@ using System.Threading.Tasks;
 namespace Queryeables.EntityFramework;
 
 /// <summary>
-/// CRUD EF Core directement sur IDbConnection, avec la même forme que Dommel.
-/// Chaque appel crée un DbContext léger sur la connexion (et la transaction) fournie ;
-/// le modèle EF de chaque type d'entité est construit une seule fois puis mis en cache.
+/// EF Core CRUD directly on IDbConnection, with the same shape as Dommel.
+/// Each call creates a lightweight DbContext on the given connection (and transaction);
+/// the EF model of each entity type is built once and then cached.
 ///
-/// Au démarrage de l'application, un fournisseur par type de connexion :
+/// At application startup, one provider per connection type:
 ///     EfConnectionExtensions.UseProvider&lt;SqliteConnection&gt;((b, c) => b.UseSqlite(c));
 ///     EfConnectionExtensions.UseProvider&lt;NpgsqlConnection&gt;((b, c) => b.UseNpgsql(c));
 /// </summary>
@@ -27,8 +27,8 @@ public static class EfConnectionExtensions
     private static Action<DbContextOptionsBuilder, DbConnection>? _defaultProvider;
 
     /// <summary>
-    /// Fournisseur EF des connexions de type <typeparamref name="TConnection"/>. Plusieurs fournisseurs
-    /// peuvent coexister dans la même application : chacun est choisi d'après le type de la connexion.
+    /// EF provider for connections of type <typeparamref name="TConnection"/>. Several providers
+    /// can coexist in the same application: each one is picked from the connection type.
     /// </summary>
     public static void UseProvider<TConnection>(Action<DbContextOptionsBuilder, TConnection> configure)
         where TConnection : DbConnection
@@ -38,8 +38,8 @@ public static class EfConnectionExtensions
     }
 
     /// <summary>
-    /// Fournisseur EF utilisé quand aucun fournisseur n'est enregistré pour le type de la connexion.
-    /// Préférez <see cref="UseProvider{TConnection}"/> si l'application utilise plusieurs bases.
+    /// EF provider used when no provider is registered for the connection type.
+    /// Prefer <see cref="UseProvider{TConnection}"/> when the application uses several databases.
     /// </summary>
     public static void UseProvider(Action<DbContextOptionsBuilder, DbConnection> configure)
         => _defaultProvider = configure ?? throw new ArgumentNullException(nameof(configure));
@@ -57,14 +57,14 @@ public static class EfConnectionExtensions
             $"appelez EfConnectionExtensions.UseProvider<{connection.GetType().Name}>(...) au démarrage.");
     }
 
-    // ---------- Lecture ----------
+    // ---------- Read ----------
 
     public static async Task<IEnumerable<TEntity>> SelectAsync<TEntity>(this IDbConnection connection,
         Expression<Func<TEntity, bool>> predicate, IDbTransaction? transaction = null,
         CancellationToken cancellationToken = default) where TEntity : class
     {
         await using var ctx = await CreateContextAsync<TEntity>(connection, transaction, cancellationToken);
-        // Matérialisé avant la fermeture du contexte.
+        // Materialized before the context is closed.
         return await ctx.Set<TEntity>().Where(predicate).ToListAsync(cancellationToken);
     }
 
@@ -76,7 +76,7 @@ public static class EfConnectionExtensions
         return await ctx.Set<TEntity>().FirstOrDefaultAsync(predicate, cancellationToken);
     }
 
-    /// <param name="pageNumber">Commence à 1, comme Dommel.</param>
+    /// <param name="pageNumber">Starts at 1, like Dommel.</param>
     public static async Task<IEnumerable<TEntity>> SelectPagedAsync<TEntity>(this IDbConnection connection,
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize,
         IDbTransaction? transaction = null, CancellationToken cancellationToken = default) where TEntity : class
@@ -91,9 +91,9 @@ public static class EfConnectionExtensions
             .ToListAsync(cancellationToken);
     }
 
-    // ---------- Écriture ----------
+    // ---------- Write ----------
 
-    /// <summary>Insère l'entité et renvoie l'ID (également réinjecté dans l'entité par EF).</summary>
+    /// <summary>Inserts the entity and returns the id (also written back into the entity by EF).</summary>
     public static async Task<object?> InsertAsync<TEntity>(this IDbConnection connection, TEntity entity,
         IDbTransaction? transaction = null, CancellationToken cancellationToken = default) where TEntity : class
     {
@@ -106,7 +106,7 @@ public static class EfConnectionExtensions
         var key = entry.Metadata.FindPrimaryKey();
         return key is { Properties.Count: 1 }
             ? entry.Property(key.Properties[0].Name).CurrentValue
-            : null; // clé composite : les valeurs sont dans l'entité
+            : null; // composite key: the values are in the entity
     }
 
     public static async Task InsertAllAsync<TEntity>(this IDbConnection connection, IEnumerable<TEntity> entities,
@@ -136,7 +136,7 @@ public static class EfConnectionExtensions
         return await SaveAffectsRowsAsync(ctx, cancellationToken);
     }
 
-    // ---------- Interne ----------
+    // ---------- Internals ----------
 
     private static async Task<EntityContext> CreateContextAsync<TEntity>(IDbConnection connection,
         IDbTransaction? transaction, CancellationToken ct) where TEntity : class
@@ -146,7 +146,7 @@ public static class EfConnectionExtensions
         var configure = ProviderFor(dbConnection);
 
         var builder = new DbContextOptionsBuilder();
-        configure(builder, dbConnection); // EF ne dispose pas une connexion qu'on lui prête
+        configure(builder, dbConnection); // EF does not dispose a connection lent to it
         builder.ReplaceService<IModelCacheKeyFactory, EntityModelCacheKeyFactory>();
         builder.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
 
@@ -170,11 +170,11 @@ public static class EfConnectionExtensions
         }
         catch (DbUpdateConcurrencyException)
         {
-            return false; // ligne introuvable : même résultat que Dommel
+            return false; // row not found: same result as Dommel
         }
     }
 
-    /// <summary>Skip/Take exige un ordre stable : tri par clé primaire.</summary>
+    /// <summary>Skip/Take requires a stable order: sort by primary key.</summary>
     private static IQueryable<TEntity> OrderByKey<TEntity>(DbContext ctx, IQueryable<TEntity> query)
         where TEntity : class
     {
@@ -192,7 +192,7 @@ public static class EfConnectionExtensions
         return ordered!;
     }
 
-    /// <summary>DbContext dont le modèle ne contient que le type demandé (+ ce qu'EF découvre via ses navigations).</summary>
+    /// <summary>DbContext whose model only contains the requested type (+ what EF discovers through its navigations).</summary>
     private sealed class EntityContext : DbContext
     {
         public Type EntityType { get; }
@@ -201,10 +201,10 @@ public static class EfConnectionExtensions
             => EntityType = entityType;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
-            => modelBuilder.Entity(EntityType); // [Table], [Key], [Column]... sont respectés comme avec Dommel
+            => modelBuilder.Entity(EntityType); // [Table], [Key], [Column]... are honored, as with Dommel
     }
 
-    /// <summary>Un modèle mis en cache par type d'entité, au lieu d'un seul par type de DbContext.</summary>
+    /// <summary>One model cached per entity type, instead of one per DbContext type.</summary>
     private sealed class EntityModelCacheKeyFactory : IModelCacheKeyFactory
     {
         public object Create(DbContext context, bool designTime)

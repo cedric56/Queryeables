@@ -1,9 +1,9 @@
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Client à l'origine de l'écriture en cours (remplace l'ancien DBContext.CurrentConnectionId).
-/// Le serveur l'ouvre autour de chaque écriture ; la source de changements le lit pour que le client
-/// puisse ignorer ses propres modifications.
+/// Client that initiated the current write (replaces the former DBContext.CurrentConnectionId).
+/// The server opens it around each write; the change source reads it so that the client
+/// can ignore its own changes.
 /// </summary>
 /// <example>
 /// <code>
@@ -15,10 +15,10 @@ public static class ChangeContext
 {
     private static readonly AsyncLocal<string?> _connectionId = new();
 
-    /// <summary>Client à l'origine de l'écriture en cours, ou null.</summary>
+    /// <summary>Client that initiated the current write, or null.</summary>
     public static string? ConnectionId => _connectionId.Value;
 
-    /// <summary>Définit le client courant jusqu'au Dispose, qui restaure la valeur précédente.</summary>
+    /// <summary>Sets the current client until Dispose, which restores the previous value.</summary>
     public static IDisposable Begin(string? connectionId)
     {
         var previous = _connectionId.Value;

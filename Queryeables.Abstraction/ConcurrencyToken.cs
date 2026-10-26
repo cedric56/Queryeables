@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Concurrence optimiste : une propriété entière marquée [ConcurrencyCheck] sert de numéro de version.
-/// Les stores vérifient qu'elle n'a pas changé en base avant une mise à jour ou une suppression,
-/// puis l'incrémentent. Sinon, <see cref="EntityStoreException"/> avec <see cref="EntityErrorCode.Conflict"/>.
+/// Optimistic concurrency: an integer property marked [ConcurrencyCheck] acts as a version number.
+/// Stores check that it did not change in the database before an update or a delete, then increment it.
+/// Otherwise they throw <see cref="EntityStoreException"/> with <see cref="EntityErrorCode.Conflict"/>.
 /// </summary>
 /// <example>
 /// <code>
@@ -22,18 +23,22 @@ public static class ConcurrencyToken
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> _properties = new();
 
-    /// <summary>Propriété de version du type, ou null s'il n'en a pas.</summary>
-    public static PropertyInfo? Find(Type type) => _properties.GetOrAdd(type, static t =>
+    /// <summary>Version property of the type, or null if it has none.</summary>
+    public static PropertyInfo? Find([DynamicallyAccessedMembers(EntityMembers.Required)] Type type)
     {
-        var property = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        if (_properties.TryGetValue(type, out var cached))
+            return cached;
+
+        var property = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .SingleOrDefault(p => p.GetCustomAttribute<ConcurrencyCheckAttribute>() is not null);
 
         if (property is not null && property.PropertyType != typeof(long) && property.PropertyType != typeof(int))
             throw new NotSupportedException(
-                $"{t.Name}.{property.Name} : [ConcurrencyCheck] n'est pris en charge que sur un int ou un long.");
+                $"{type.Name}.{property.Name} : [ConcurrencyCheck] n'est pris en charge que sur un int ou un long.");
 
+        _properties.TryAdd(type, property);
         return property;
-    });
+    }
 
     public static long Get(object entity, PropertyInfo property)
         => Convert.ToInt64(property.GetValue(entity));
@@ -41,8 +46,8 @@ public static class ConcurrencyToken
     public static void Set(object entity, PropertyInfo property, long value)
         => property.SetValue(entity, Box(property, value));
 
-    /// <summary>Valeur typée comme la propriété (int ou long), pour les API qui l'exigent.</summary>
-    /// <remarks>Les deux branches sont converties en object : avec « ? : », un int serait promu en long.</remarks>
+    /// <summary>Value typed like the property (int or long), for APIs that require it.</summary>
+    /// <remarks>Both branches are cast to object: with "? :", an int would be promoted to long.</remarks>
     public static object Box(PropertyInfo property, long value)
         => property.PropertyType == typeof(int) ? (object)checked((int)value) : (object)value;
 

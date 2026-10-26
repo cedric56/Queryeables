@@ -5,8 +5,8 @@ using Queryeables.Abstraction;
 namespace Queryeables.SignalR.Server;
 
 /// <summary>
-/// Diffuse aux clients SignalR les changements d'un type d'entité (voir <see cref="ChangeBroadcaster{TObject}"/>).
-/// À enregistrer en singleton.
+/// Broadcasts the changes of one entity type to SignalR clients (see <see cref="ChangeBroadcaster{TObject}"/>).
+/// Register it as a singleton.
 /// </summary>
 public sealed class ConnectionTracker<TObject>(
     IHubContext<SignalRHub<TObject>> hubContext,
@@ -30,7 +30,7 @@ public sealed class ConnectionTracker<TObject>(
     protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
         logger?.LogDebug("Diffusion de {Record}", record);
-        return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, record, ct);
+        return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRRecord.From(record), ct);
     }
 
     protected override void OnError(Exception exception)

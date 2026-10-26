@@ -15,19 +15,19 @@ namespace Queryeables.Dommel.Logging;
 /// </summary>
 public sealed class DbLogConnection : DbConnection
 {
-    /// <summary>Connexion réelle du fournisseur (SqliteConnection, SqlConnection...).</summary>
+    /// <summary>Actual provider connection (SqliteConnection, SqlConnection...).</summary>
     public DbConnection Inner { get; }
 
     private static readonly object _dialectGate = new();
     private static Type? _dialectProvider;
 
     /// <summary>
-    /// Indique à Dommel le dialecte SQL des connexions journalisées : celui de <typeparamref name="TDbConnection"/>.
+    /// Tells Dommel the SQL dialect of logged connections: the one of <typeparamref name="TDbConnection"/>.
     /// </summary>
     /// <remarks>
-    /// Dommel choisit son dialecte d'après le type de la connexion, réglage global à l'application.
-    /// Toutes les connexions journalisées ont le même type, donc un seul fournisseur peut être journalisé à la fois :
-    /// un second fournisseur différent lève une exception, au lieu de recevoir silencieusement le mauvais SQL.
+    /// Dommel picks its dialect from the connection type, an application-wide setting.
+    /// All logged connections share the same type, so only one provider can be logged at a time:
+    /// a second, different provider throws, instead of silently receiving the wrong SQL.
     /// </remarks>
     public static void UseDialectOf<TDbConnection>() where TDbConnection : DbConnection, new()
     {

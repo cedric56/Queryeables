@@ -4,7 +4,7 @@ namespace Queryeables.Tests.Unit;
 
 public class ChangePropagationTests
 {
-    // ---------- Côté client : ChangeRelay ----------
+    // ---------- Client side: ChangeRelay ----------
 
     [Fact]
     public void Relay_publishes_changes_from_other_clients()
@@ -69,7 +69,7 @@ public class ChangePropagationTests
         Assert.Equal(0, sent);
     }
 
-    // ---------- Côté serveur : ChangeBroadcaster ----------
+    // ---------- Server side: ChangeBroadcaster ----------
 
     private sealed class RecordingBroadcaster(IDbMonitor<TestClient> monitor, DbMonitorRegistry? registry = null)
         : ChangeBroadcaster<TestClient>(monitor, registry)
@@ -108,7 +108,7 @@ public class ChangePropagationTests
         var broadcaster = new RecordingBroadcaster(new DbMonitor<TestClient>("Clients"), registry);
 
         registry.Publish(ChangeType.Update, "Commandes", 7L);
-        broadcaster.Dispose(); // vide la file avant de vérifier
+        broadcaster.Dispose(); // drains the queue before checking
 
         Assert.Empty(broadcaster.Sent);
     }

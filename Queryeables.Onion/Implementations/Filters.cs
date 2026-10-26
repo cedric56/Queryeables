@@ -7,8 +7,8 @@ using System.Reflection;
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Conversion entre prédicats LINQ et conditions transportables par MagicOnion.
-/// Client : prédicat → conditions. Serveur : conditions → prédicat, sur une liste blanche d'opérations.
+/// Conversion between LINQ predicates and conditions that MagicOnion can carry.
+/// Client: predicate → conditions. Server: conditions → predicate, over a whitelist of operations.
 /// </summary>
 internal static class Filters
 {
@@ -17,19 +17,19 @@ internal static class Filters
     private static readonly MethodInfo StringContains = typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
 
     // =====================================================================
-    // Client : prédicat → conditions
+    // Client: predicate → conditions
     // =====================================================================
 
     /// <summary>
-    /// Traduit un prédicat en conditions. Formes acceptées, combinées toutes en ET ou toutes en OU :
+    /// Translates a predicate into conditions. Accepted forms, all combined with AND or all with OR:
     /// <list type="bullet">
-    /// <item>comparaisons entre une propriété et une valeur : ==, !=, &gt;, &gt;=, &lt;, &lt;= ;</item>
-    /// <item>propriété booléenne : <c>e.Actif</c>, <c>!e.Actif</c> ;</item>
-    /// <item>appartenance à une liste : <c>ids.Contains(e.Id)</c> ;</item>
-    /// <item>texte : <c>e.Nom.StartsWith(x)</c>, <c>EndsWith</c>, <c>Contains</c> ;</item>
+    /// <item>comparisons between a property and a value: ==, !=, &gt;, &gt;=, &lt;, &lt;=;</item>
+    /// <item>boolean property: <c>e.Active</c>, <c>!e.Active</c>;</item>
+    /// <item>membership in a list: <c>ids.Contains(e.Id)</c>;</item>
+    /// <item>text: <c>e.Name.StartsWith(x)</c>, <c>EndsWith</c>, <c>Contains</c>;</item>
     /// <item><c>e => true</c>.</item>
     /// </list>
-    /// Tout le reste lève <see cref="NotSupportedException"/>, avant tout appel au serveur.
+    /// Anything else throws <see cref="NotSupportedException"/>, before any server call.
     /// </summary>
     public static (FilterCondition[] Conditions, bool Any) FromPredicate<T>(Expression<Func<T, bool>> predicate)
     {
@@ -95,7 +95,7 @@ internal static class Filters
 
     private static FilterCondition? ParseMethodCall(MethodCallExpression call, ParameterExpression parameter)
     {
-        // e.Nom.StartsWith(x), EndsWith(x), Contains(x)
+        // e.Name.StartsWith(x), EndsWith(x), Contains(x)
         if (call.Method.DeclaringType == typeof(string) && !call.Method.IsStatic && call.Arguments.Count == 1
             && AsProperty(call.Object!, parameter) is { } text && !UsesParameter(call.Arguments[0], parameter))
         {
@@ -112,13 +112,13 @@ internal static class Filters
         if (call.Method.Name != "Contains")
             return null;
 
-        // liste.Contains(e.Id) : Enumerable.Contains(liste, e.Id), MemoryExtensions.Contains(span, e.Id)
-        // (forme produite par C# 14 pour un tableau) ou méthode d'instance d'une collection.
+        // list.Contains(e.Id): Enumerable.Contains(list, e.Id), MemoryExtensions.Contains(span, e.Id)
+        // (form produced by C# 14 for an array) or an instance method of a collection.
         var (source, item) = call.Object is null && call.Arguments.Count == 2
             ? (call.Arguments[0], call.Arguments[1])
             : (call.Object, call.Arguments.Count == 1 ? call.Arguments[0] : null);
 
-        // "abc".Contains(e.Nom) n'est pas une liste de valeurs : un texte n'est pas une collection ici.
+        // "abc".Contains(e.Name) is not a list of values: a string is not a collection here.
         if (source is null || item is null || source.Type == typeof(string)
             || AsProperty(item, parameter) is not { } member || UsesParameter(source, parameter))
             return null;
@@ -128,7 +128,7 @@ internal static class Filters
         return new FilterCondition(member.Name, FilterOperator.In, values.Cast<object?>().Select(Normalize).ToArray());
     }
 
-    /// <summary>Un tableau converti en ReadOnlySpan ne peut pas être évalué : on évalue le tableau d'origine.</summary>
+    /// <summary>An array converted to a ReadOnlySpan cannot be evaluated: evaluate the original array instead.</summary>
     private static Expression UnwrapSpan(Expression source)
     {
         while (true)
@@ -158,7 +158,7 @@ internal static class Filters
         _ => null
     };
 
-    /// <summary><c>5 &lt; e.Id</c> devient <c>e.Id &gt; 5</c>.</summary>
+    /// <summary><c>5 &lt; e.Id</c> becomes <c>e.Id &gt; 5</c>.</summary>
     private static FilterOperator Mirror(FilterOperator op) => op switch
     {
         FilterOperator.GreaterThan => FilterOperator.LessThan,
@@ -168,7 +168,7 @@ internal static class Filters
         _ => op
     };
 
-    /// <summary>Renvoie la propriété si l'expression est <c>e.Propriete</c> (éventuellement convertie).</summary>
+    /// <summary>Returns the property when the expression is <c>e.Property</c> (possibly converted).</summary>
     private static PropertyInfo? AsProperty(Expression expression, ParameterExpression parameter)
     {
         while (expression is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } convert)
@@ -194,7 +194,7 @@ internal static class Filters
             ? constant.Value
             : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile()();
 
-    /// <summary>Ramène la valeur à un type primitif que MessagePack transporte sans résolveur particulier.</summary>
+    /// <summary>Reduces the value to a primitive type that MessagePack carries without a special resolver.</summary>
     private static object? Normalize(object? value) => value switch
     {
         null => null,
@@ -224,10 +224,10 @@ internal static class Filters
     }
 
     // =====================================================================
-    // Serveur : conditions → prédicat
+    // Server: conditions → predicate
     // =====================================================================
 
-    /// <summary>Construit le prédicat, en refusant toute condition hors de la liste blanche.</summary>
+    /// <summary>Builds the predicate, rejecting any condition outside the whitelist.</summary>
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
         IReadOnlyList<FilterCondition> conditions, bool any)
     {
@@ -268,7 +268,7 @@ internal static class Filters
                 if (condition.Value is not IList values || condition.Value is byte[])
                     throw new ArgumentException($"« {name} » : l'opérateur In attend une liste de valeurs.");
                 if (values.Count == 0)
-                    return Expression.Constant(false); // aucune valeur : aucune ligne
+                    return Expression.Constant(false); // no value: no row
                 Expression? anyOf = null;
                 foreach (var value in values)
                 {
@@ -298,7 +298,7 @@ internal static class Filters
     private static ConstantExpression Constant(object? value, Type type, string name)
         => Expression.Constant(ConvertTo(value, type, name), type);
 
-    /// <summary>Comparaison, y compris pour les enums, que les arbres d'expressions ne comparent pas directement.</summary>
+    /// <summary>Comparison, including for enums, which expression trees do not compare directly.</summary>
     private static Expression Compare(Expression left, Expression right, FilterOperator op, string name)
     {
         var underlying = Nullable.GetUnderlyingType(left.Type);
@@ -306,7 +306,7 @@ internal static class Filters
         if (core.IsEnum)
         {
             var numeric = Enum.GetUnderlyingType(core);
-            var target = underlying is null ? numeric : typeof(Nullable<>).MakeGenericType(numeric);
+            var target = underlying is null ? numeric : NullableOf(numeric);
             left = Expression.Convert(left, target);
             right = Expression.Convert(right, target);
         }
@@ -326,14 +326,31 @@ internal static class Filters
         }
         catch (InvalidOperationException ex)
         {
-            // Par exemple « Nom > 'A' » : pas d'opérateur de comparaison sur le texte.
+            // For example "Name > 'A'": no comparison operator on strings.
             throw new ArgumentException($"« {name} » ({left.Type.Name}) ne peut pas être comparé avec {op}.", ex);
         }
     }
 
     /// <summary>
-    /// Convertit une valeur reçue vers le type de la propriété. MessagePack ne conserve pas le type exact
-    /// d'un nombre rangé dans un object (un 5 revient en byte) : sans conversion, Expression.Constant échoue.
+    /// Nullable form of an enum's underlying type. A fixed table rather than MakeGenericType, which requires
+    /// runtime code generation (not available with Native AOT).
+    /// </summary>
+    private static Type NullableOf(Type numeric) => Type.GetTypeCode(numeric) switch
+    {
+        TypeCode.Int32 => typeof(int?),
+        TypeCode.Int64 => typeof(long?),
+        TypeCode.Int16 => typeof(short?),
+        TypeCode.Byte => typeof(byte?),
+        TypeCode.SByte => typeof(sbyte?),
+        TypeCode.UInt32 => typeof(uint?),
+        TypeCode.UInt64 => typeof(ulong?),
+        TypeCode.UInt16 => typeof(ushort?),
+        _ => throw new NotSupportedException($"Type sous-jacent d'énumération inattendu : {numeric.Name}.")
+    };
+
+    /// <summary>
+    /// Converts a received value to the property type. MessagePack does not keep the exact type
+    /// of a number stored in an object (a 5 comes back as a byte): without conversion, Expression.Constant fails.
     /// </summary>
     public static object? ConvertTo(object? value, Type type, string name)
     {

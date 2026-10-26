@@ -1,14 +1,14 @@
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Nom sous lequel le type d'entité est échangé entre client et serveur.
-/// Par défaut, c'est son nom complet (namespace compris) ; cet attribut permet un nom plus court ou stable
-/// même si la classe change de namespace.
+/// Name under which the entity type is exchanged between client and server.
+/// Defaults to its full name (namespace included); this attribute allows a shorter or stable name
+/// even if the class changes namespace.
 /// </summary>
 /// <example>
 /// <code>
-/// [RemoteName("Client")]
-/// public class Client { ... }
+/// [RemoteName("Customer")]
+/// public class Customer { ... }
 /// </code>
 /// </example>
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]

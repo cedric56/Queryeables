@@ -25,7 +25,7 @@ public class FiltersTests
         new() { Id = 5, Nom = "Annabelle", Statut = Statut.Actif, Actif = true, Parrain = 1, Ref = Guid.Empty, Creation = new DateTime(2026, 9, 1) },
     ];
 
-    /// <summary>Simule MessagePack : les petits nombres reviennent en byte, y compris dans les listes.</summary>
+    /// <summary>Simulates MessagePack: small numbers come back as bytes, including in lists.</summary>
     private static FilterCondition[] OverTheWire(FilterCondition[] conditions)
     {
         static object? Shrink(object? v) => v is long l && l is >= 0 and <= 255 ? (byte)l : v;
@@ -33,7 +33,7 @@ public class FiltersTests
             c.Value is object?[] list ? list.Select(Shrink).ToArray() : Shrink(c.Value))).ToArray();
     }
 
-    /// <summary>Le prédicat traduit, transporté puis reconstruit doit sélectionner les mêmes lignes.</summary>
+    /// <summary>The translated, carried then rebuilt predicate must select the same rows.</summary>
     private static void AssertRoundTrip(Expression<Func<Row, bool>> predicate)
     {
         var (conditions, any) = Filters.FromPredicate(predicate);
@@ -42,7 +42,7 @@ public class FiltersTests
         Assert.Equal(Rows.Where(predicate.Compile()).Select(r => r.Id), Rows.Where(rebuilt).Select(r => r.Id));
     }
 
-    // ---------- Égalités et booléens ----------
+    // ---------- Equalities and booleans ----------
 
     [Fact] public void Captured_value() { long id = 5; AssertRoundTrip(c => c.Id == id); }
     [Fact] public void Constant_on_the_left() => AssertRoundTrip(c => 2 == c.Id);
@@ -65,7 +65,7 @@ public class FiltersTests
     [Fact] public void Enum_comparison() => AssertRoundTrip(c => c.Statut > Statut.Inactif);
     [Fact] public void Date_comparison() => AssertRoundTrip(c => c.Creation < new DateTime(2026, 7, 1));
 
-    // ---------- Listes et texte ----------
+    // ---------- Lists and text ----------
 
     [Fact] public void List_contains() { var ids = new List<long> { 1, 5 }; AssertRoundTrip(c => ids.Contains(c.Id)); }
     [Fact] public void Array_contains() { long[] ids = [2, 5]; AssertRoundTrip(c => ids.Contains(c.Id)); }
@@ -75,7 +75,7 @@ public class FiltersTests
     [Fact] public void Ends_with() => AssertRoundTrip(c => c.Nom.EndsWith("belle"));
     [Fact] public void Text_contains() => AssertRoundTrip(c => c.Nom.Contains("o"));
 
-    // ---------- Refus côté client ----------
+    // ---------- Client-side rejection ----------
 
     [Fact]
     public void Mixed_and_or_is_rejected()
@@ -97,7 +97,7 @@ public class FiltersTests
     public void Text_value_containing_a_property_is_not_a_list()
         => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => "Ana Bob".Contains(c.Nom)));
 
-    // ---------- Refus côté serveur (requête forgée) ----------
+    // ---------- Server-side rejection (forged request) ----------
 
     private static void AssertServerRejects(params FilterCondition[] conditions)
         => Assert.Throws<ArgumentException>(() => Filters.ToPredicate<Row>(conditions, false));

@@ -8,6 +8,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.Dommel;
 
@@ -24,8 +25,8 @@ public sealed class DommelEntityStore : IEntityStore
     }
 
     /// <summary>
-    /// Crée un store à partir d'une fabrique qui fournit des connexions déjà configurées,
-    /// par exemple <see cref="DbFactory{TDbConnection}"/>.
+    /// Creates a store from a factory that provides already configured connections,
+    /// for example <see cref="DbFactory{TDbConnection}"/>.
     /// </summary>
     public static DommelEntityStore Create(DbProviderFactory factory)
     {
@@ -34,7 +35,7 @@ public sealed class DommelEntityStore : IEntityStore
         return new DommelEntityStore(connection);
     }
 
-    /// <summary>Crée un store à partir d'une fabrique ADO.NET et d'une chaîne de connexion.</summary>
+    /// <summary>Creates a store from an ADO.NET factory and a connection string.</summary>
     public static DommelEntityStore Create(DbProviderFactory factory, string connectionString)
     {
         var connection = factory.CreateConnection()
@@ -43,7 +44,7 @@ public sealed class DommelEntityStore : IEntityStore
         return new DommelEntityStore(connection);
     }
 
-    /// <summary>Exécute un script de création de schéma (remplace l'ancien code du constructeur).</summary>
+    /// <summary>Runs a schema creation script (replaces the former constructor code).</summary>
     public static async Task EnsureSchemaAsync(DbProviderFactory factory, string connectionString,
         string createScript, CancellationToken ct = default)
     {
@@ -59,16 +60,16 @@ public sealed class DommelEntityStore : IEntityStore
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    // ---------- Lecture ----------
+    // ---------- Read ----------
 
-    public async Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class
+    public async Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
         var result = await _connection.GetAllAsync<TEntity>(_transaction, ct);
         return result.AsList();
     }
 
-    public async Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
+    public async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
@@ -76,14 +77,14 @@ public sealed class DommelEntityStore : IEntityStore
         return result.AsList();
     }
 
-    public async Task<TEntity?> FirstOrDefaultAsync<TEntity>(
+    public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
         return await _connection.FirstOrDefaultAsync(predicate, _transaction, ct);
     }
 
-    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<TEntity>(
+    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize,
         CancellationToken ct = default) where TEntity : class
     {
@@ -93,18 +94,18 @@ public sealed class DommelEntityStore : IEntityStore
         return result.AsList();
     }
 
-    public async Task<long> CountAsync<TEntity>(
+    public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
-        // Le CountAsync de Dommel n'accepte pas de jeton d'annulation : on ne peut annuler qu'avant l'appel.
+        // Dommel's CountAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
         return await _connection.CountAsync(predicate, _transaction);
     }
 
-    // ---------- Écriture ----------
+    // ---------- Write ----------
 
-    public async Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
@@ -112,8 +113,8 @@ public sealed class DommelEntityStore : IEntityStore
         AssignGeneratedKey(entity, id);
     }
 
-    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
-    public async Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
+    public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
@@ -123,8 +124,8 @@ public sealed class DommelEntityStore : IEntityStore
             : await _connection.UpdateAsync(entity, _transaction, ct);
     }
 
-    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
-    public async Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
+    public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
@@ -157,7 +158,7 @@ public sealed class DommelEntityStore : IEntityStore
             await _connection.DisposeAsync();
     }
 
-    // ---------- Interne ----------
+    // ---------- Internals ----------
 
     private async Task EnsureOpenAsync(CancellationToken ct)
     {
@@ -165,8 +166,8 @@ public sealed class DommelEntityStore : IEntityStore
             await _connection.OpenAsync(ct);
     }
 
-    /// <summary>Réinjecte la clé générée par la base dans l'entité (comportement identique à EF).</summary>
-    private static void AssignGeneratedKey<TEntity>(TEntity entity, object? id)
+    /// <summary>Writes the database-generated key back into the entity (same behavior as EF).</summary>
+    private static void AssignGeneratedKey<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, object? id)
     {
         if (id is null || id is DBNull) return;
 
@@ -194,7 +195,7 @@ public sealed class DommelEntityStore : IEntityStore
 
         public async ValueTask DisposeAsync()
         {
-            await _inner.DisposeAsync(); // annule si non validée
+            await _inner.DisposeAsync(); // rolls back when not committed
             if (ReferenceEquals(_store._transaction, _inner))
                 _store._transaction = null;
         }

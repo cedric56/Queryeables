@@ -10,9 +10,9 @@ public enum EntityOperation
     Delete,
 }
 
-/// <summary>Contexte d'un appel distant : qui appelle, et depuis quelle connexion de notification.</summary>
-/// <param name="User">Utilisateur authentifié par le serveur (null si l'appel n'est pas authentifié).</param>
-/// <param name="ConnectionId">Session de notification du client, pour qu'il ignore ses propres changements.</param>
+/// <summary>Context of a remote call: who is calling, and from which notification connection.</summary>
+/// <param name="User">User authenticated by the server (null when the call is not authenticated).</param>
+/// <param name="ConnectionId">Notification session of the client, so that it ignores its own changes.</param>
 public sealed record EntityRequestContext(ClaimsPrincipal? User = null, string? ConnectionId = null)
 {
     public static EntityRequestContext Anonymous { get; } = new();
@@ -20,12 +20,12 @@ public sealed record EntityRequestContext(ClaimsPrincipal? User = null, string? 
     public EntityRequestContext WithConnection(string? connectionId) => this with { ConnectionId = connectionId };
 }
 
-/// <param name="Entity">L'entité concernée pour une écriture ; null pour une lecture (contrôle au niveau du type).</param>
+/// <param name="Entity">The entity concerned by a write; null for a read (type-level check).</param>
 public sealed record EntityAccessRequest(EntityOperation Operation, Type EntityType, object? Entity, ClaimsPrincipal? User);
 
 /// <summary>
-/// Décide si un utilisateur peut faire une opération sur un type d'entité. Chaque <see cref="EntityHandler{T}"/>
-/// en exige une : un type exposé sans règle d'accès explicite n'est pas possible.
+/// Decides whether a user may perform an operation on an entity type. Every <see cref="EntityHandler{T}"/>
+/// requires one: exposing a type without an explicit access policy is not possible.
 /// </summary>
 public interface IEntityAccessPolicy
 {
@@ -34,7 +34,7 @@ public interface IEntityAccessPolicy
 
 /// <example>
 /// <code>
-/// // Lecture pour tout utilisateur connecté, écriture pour le rôle « admin » :
+/// // Read for any signed-in user, write for the "admin" role:
 /// var policy = EntityAccessPolicies.From(r =>
 ///     r.User?.Identity?.IsAuthenticated == true &amp;&amp;
 ///     (r.Operation == EntityOperation.Read || r.User.IsInRole("admin")));
@@ -42,13 +42,13 @@ public interface IEntityAccessPolicy
 /// </example>
 public static class EntityAccessPolicies
 {
-    /// <summary>Tout est permis, y compris sans authentification. Pour les tests ou un réseau fermé.</summary>
+    /// <summary>Everything is allowed, even without authentication. For tests or a closed network.</summary>
     public static IEntityAccessPolicy AllowAll { get; } = From(_ => true);
 
-    /// <summary>Tout est permis à un utilisateur authentifié.</summary>
+    /// <summary>Everything is allowed to an authenticated user.</summary>
     public static IEntityAccessPolicy Authenticated { get; } = From(r => r.User?.Identity?.IsAuthenticated == true);
 
-    /// <summary>Lecture pour un utilisateur authentifié, aucune écriture.</summary>
+    /// <summary>Read for an authenticated user, no write.</summary>
     public static IEntityAccessPolicy ReadOnly { get; } = From(r =>
         r.Operation == EntityOperation.Read && r.User?.Identity?.IsAuthenticated == true);
 

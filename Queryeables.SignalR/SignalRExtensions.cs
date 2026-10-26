@@ -9,16 +9,16 @@ namespace Queryeables.SignalR;
 public static class SignalRExtensions
 {
     /// <summary>
-    /// Relie un moniteur à un hub SignalR :
-    /// les changements reçus du hub sont publiés sur le moniteur, et les changements locaux sont envoyés au hub.
+    /// Connects a monitor to a SignalR hub:
+    /// changes received from the hub are published on the monitor, and local changes are sent to the hub.
     /// </summary>
-    /// <param name="session">Reçoit l'identifiant de connexion, qui change à chaque reconnexion.</param>
-    /// <param name="factory">Gestionnaire HTTP personnalisé, par exemple pour la validation SSL sur Android.</param>
-    /// <param name="registry">Si fourni, le moniteur y est ajouté pour recevoir les changements de la base locale.</param>
-    /// <returns>Fonction qui arrête la connexion et détache le moniteur.</returns>
+    /// <param name="session">Receives the connection id, which changes on every reconnection.</param>
+    /// <param name="factory">Custom HTTP handler, for example for SSL validation on Android.</param>
+    /// <param name="registry">When provided, the monitor is added to it to receive the local database changes.</param>
+    /// <returns>Function that stops the connection and detaches the monitor.</returns>
     /// <remarks>
-    /// Si le serveur est injoignable au démarrage, la méthode ne lève pas d'exception :
-    /// elle réessaie en arrière-plan selon <paramref name="retryPolicy"/>.
+    /// When the server is unreachable at startup, the method does not throw:
+    /// it retries in the background according to <paramref name="retryPolicy"/>.
     /// </remarks>
     public static async Task<Func<Task>> AddSignalR<TObject>(
         this DbMonitor<TObject> monitor,
@@ -44,7 +44,7 @@ public static class SignalRExtensions
                 if (OperatingSystem.IsBrowser())
                 {
                     options.Transports = HttpTransportType.WebSockets;
-                    options.SkipNegotiation = false; // garder la négociation, sauf certitude que WebSockets seul suffit
+                    options.SkipNegotiation = false; // keep negotiation, unless you are sure WebSockets alone is enough
                 }
 
                 if (factory != null)
@@ -53,17 +53,17 @@ public static class SignalRExtensions
             .WithAutomaticReconnect(policy)
             .Build();
 
-        // Logique commune aux transports : ignorer ses propres changements, ne pas renvoyer ceux reçus du hub.
+        // Logic shared by the transports: ignore our own changes, never send back those received from the hub.
         var relay = new ChangeRelay<TObject>(monitor,
             connectionId: () => hub.State == HubConnectionState.Connected ? hub.ConnectionId : null,
-            send: record => hub.InvokeAsync(SignalRContract.OnRecordChanged, record, stop.Token),
+            send: record => hub.InvokeAsync(SignalRContract.OnRecordChanged, SignalRRecord.From(record), stop.Token),
             onError: ex =>
             {
                 if (!stop.IsCancellationRequested)
                     logger?.LogWarning(ex, "Impossible d'envoyer le changement de {Type} au hub.", typeof(TObject).Name);
             });
 
-        hub.On<Record<TObject>>(SignalRContract.DbChanged, relay.Receive);
+        hub.On<SignalRRecord>(SignalRContract.DbChanged, message => relay.Receive(message.ToRecord<TObject>()));
 
         registry?.Add(monitor);
         hub.Reconnected += OnReconnected;
@@ -121,7 +121,7 @@ public static class SignalRExtensions
             }
         }
 
-        // WithAutomaticReconnect ne couvre que les coupures après une première connexion réussie.
+        // WithAutomaticReconnect only covers outages after a first successful connection.
         async Task RetryStartAsync(Exception firstError)
         {
             var started = DateTime.UtcNow;

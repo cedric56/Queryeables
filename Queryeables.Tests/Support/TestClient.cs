@@ -5,7 +5,7 @@ using KeyAttribute = System.ComponentModel.DataAnnotations.KeyAttribute;
 
 namespace Queryeables.Tests;
 
-/// <summary>Entité commune à tous les tests : utilisable par Dommel, EF et MessagePack.</summary>
+/// <summary>Entity shared by all tests: usable by Dommel, EF and MessagePack.</summary>
 [Table("Clients")]
 [MessagePackObject(keyAsPropertyName: true)]
 public class TestClient
@@ -22,15 +22,15 @@ public class TestClient
 
     public int? Parrain { get; set; }
 
-    /// <summary>Version pour la concurrence optimiste, gérée par les stores.</summary>
+    /// <summary>Version for optimistic concurrency, managed by the stores.</summary>
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public long Version { get; set; }
 
-    /// <summary>Tenue à jour par <see cref="SyncConventionsStore"/>.</summary>
+    /// <summary>Kept up to date by <see cref="SyncConventionsStore"/>.</summary>
     [LastModified]
     public DateTime LastModified { get; set; }
 
-    /// <summary>Suppression logique, appliquée par <see cref="SyncConventionsStore"/>.</summary>
+    /// <summary>Soft delete, applied by <see cref="SyncConventionsStore"/>.</summary>
     [SoftDelete]
     public bool Deleted { get; set; }
 

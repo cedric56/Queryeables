@@ -10,8 +10,8 @@ using System.Data.Common;
 namespace Queryeables.Sqlite;
 
 /// <summary>
-/// Fabrique de connexions SQLite qui signale chaque ligne modifiée aux moniteurs de <see cref="DbMonitorRegistry"/>.
-/// SQLite ne signale les changements que sur la connexion qui les fait : chaque connexion créée ici est surveillée.
+/// SQLite connection factory that reports each modified row to the monitors of <see cref="DbMonitorRegistry"/>.
+/// SQLite only reports changes on the connection that makes them: every connection created here is monitored.
 /// </summary>
 public class SqliteDbFactory : DbFactory<SqliteConnection>
 {
@@ -23,8 +23,8 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
     private readonly bool _notifyOnCommit;
 
     /// <param name="isTransaction">
-    /// true : les changements sont signalés après la validation de la transaction, et oubliés en cas d'annulation.
-    /// false : chaque ligne est signalée dès qu'elle change.
+    /// true: changes are reported after the transaction commits, and forgotten on rollback.
+    /// false: each row is reported as soon as it changes.
     /// </param>
     public SqliteDbFactory(string connectionString, DbMonitorRegistry registry, bool isTransaction = true,
         DbFactoryOptions? options = null, ILogger? logger = null)
@@ -40,7 +40,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         var sqlite = connection as SqliteConnection
             ?? (SqliteConnection)((DbLogConnection)connection).Inner;
 
-        // La connexion est rendue fermée : les hooks ne peuvent être posés qu'une fois le handle natif ouvert.
+        // The connection is returned closed: hooks can only be set once the native handle is open.
         sqlite.StateChange += (_, e) =>
         {
             if (e.CurrentState == ConnectionState.Open)
@@ -52,7 +52,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
 
     private void RegisterHooks(SqliteConnection sqlite)
     {
-        // Changements de cette connexion pas encore signalés (en attente de validation).
+        // Changes of this connection not reported yet (waiting for commit).
         var pending = new List<Change>();
         var gate = new object();
         var db = sqlite.Handle;
@@ -62,7 +62,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         raw.sqlite3_update_hook(db, (user_data, type, database, table, rowid) =>
         {
             string tableName = table;
-            // Le client à l'origine de l'écriture est lu maintenant, pendant l'écriture.
+            // The client that initiated the write is read now, during the write.
             var change = new Change(ToChangeType(type), tableName, rowid, ChangeContext.ConnectionId);
 
             if (_notifyOnCommit)
@@ -85,11 +85,11 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
                 pending.Clear();
             }
 
-            // Le hook s'exécute avant la fin de la validation : on publie après, hors du thread SQLite.
+            // The hook runs before the commit completes: publish afterwards, outside the SQLite thread.
             if (committed.Count > 0)
                 _ = Task.Run(() => Publish(committed));
 
-            return 0; // 0 = laisser la validation se faire
+            return 0; // 0 = let the commit proceed
         }, null);
 
         raw.sqlite3_rollback_hook(db, user_data =>
@@ -101,7 +101,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
 
     private void Publish(IReadOnlyList<Change> changes)
     {
-        // Une ligne modifiée plusieurs fois n'est signalée qu'une fois, avec son dernier état.
+        // A row modified several times is reported only once, with its last state.
         var latest = changes
             .GroupBy(c => (c.Table, c.RowId))
             .Select(g => g.Last());

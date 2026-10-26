@@ -1,23 +1,24 @@
 using System.Linq.Expressions;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Enveloppe n'importe quel <see cref="IEntityStore"/> (Dommel, EF...) pour appliquer, sur les types qui en ont :
+/// Wraps any <see cref="IEntityStore"/> (Dommel, EF...) to apply, on the types that have them:
 /// <list type="bullet">
-/// <item>[LastModified] : date mise à jour à chaque insertion, modification et suppression logique ;</item>
-/// <item>[SoftDelete] : DeleteAsync marque la ligne au lieu de la supprimer, et les lectures l'excluent.</item>
+/// <item>[LastModified]: timestamp updated on every insert, update and soft delete;</item>
+/// <item>[SoftDelete]: DeleteAsync flags the row instead of deleting it, and reads exclude it.</item>
 /// </list>
-/// <see cref="SelectChangesAsync{TEntity}"/> renvoie au contraire toutes les lignes modifiées, supprimées comprises :
-/// c'est ce dont un client a besoin pour se synchroniser.
-/// Les types sans ces attributs passent tels quels.
+/// <see cref="SelectChangesAsync{TEntity}"/>, on the contrary, returns every modified row, deleted ones included:
+/// that is what a client needs to synchronize.
+/// Types without these attributes pass through unchanged.
 /// </summary>
 /// <example>
 /// <code>
 /// var store = DommelEntityStore.Create(factory).WithSyncConventions();
 /// </code>
 /// </example>
-/// <remarks>Idée reprise de Datasync Community Toolkit (UpdatedAt, Deleted, synchronisation incrémentale), voir CREDITS.md.</remarks>
+/// <remarks>Idea taken from the Datasync Community Toolkit (UpdatedAt, Deleted, incremental synchronization), see CREDITS.md.</remarks>
 public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock = null) : IEntityStore
 {
     private readonly IEntityStore _inner = inner ?? throw new ArgumentNullException(nameof(inner));
@@ -25,60 +26,60 @@ public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock
 
     private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
 
-    // ---------- Lecture : les lignes supprimées logiquement sont exclues ----------
+    // ---------- Read: soft-deleted rows are excluded ----------
 
-    public Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class
+    public Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class
         => SyncMetadata.SoftDelete(typeof(TEntity)) is null
             ? _inner.GetAllAsync<TEntity>(ct)
             : _inner.SelectAsync(SyncMetadata.NotDeleted<TEntity>(null), ct);
 
-    public Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
+    public Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
         where TEntity : class
         => _inner.SelectAsync(SyncMetadata.NotDeleted(predicate), ct);
 
-    public Task<TEntity?> FirstOrDefaultAsync<TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
+    public Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
         where TEntity : class
         => _inner.FirstOrDefaultAsync(SyncMetadata.NotDeleted(predicate), ct);
 
-    public Task<IReadOnlyList<TEntity>> SelectPagedAsync<TEntity>(Expression<Func<TEntity, bool>> predicate,
+    public Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
         int pageNumber, int pageSize, CancellationToken ct = default) where TEntity : class
         => _inner.SelectPagedAsync(SyncMetadata.NotDeleted(predicate), pageNumber, pageSize, ct);
 
-    public Task<long> CountAsync<TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
+    public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
         where TEntity : class
         => _inner.CountAsync(SyncMetadata.NotDeleted(predicate), ct);
 
-    /// <summary>Lignes modifiées depuis <paramref name="sinceUtc"/>, y compris celles supprimées logiquement.</summary>
-    public Task<IReadOnlyList<TEntity>> SelectChangesAsync<TEntity>(DateTime sinceUtc, CancellationToken ct = default)
+    /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included.</summary>
+    public Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc, CancellationToken ct = default)
         where TEntity : class
         => _inner.SelectChangesAsync<TEntity>(sinceUtc, ct);
 
-    // ---------- Écriture ----------
+    // ---------- Write ----------
 
-    public Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         SyncMetadata.Touch(entity, UtcNow);
         return _inner.InsertAsync(entity, ct);
     }
 
-    public Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         SyncMetadata.Touch(entity, UtcNow);
         return _inner.UpdateAsync(entity, ct);
     }
 
-    public async Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         if (SyncMetadata.SoftDelete(typeof(TEntity)) is null)
             return await _inner.DeleteAsync(entity, ct);
 
         if (SyncMetadata.IsDeleted(entity))
-            return false; // déjà supprimée, comme un second DeleteAsync sur une ligne disparue
+            return false; // already deleted, like a second DeleteAsync on a vanished row
 
-        // Suppression logique : une mise à jour, donc avec contrôle de version si l'entité en a une.
+        // Soft delete: an update, hence with a version check when the entity has one.
         var previous = SyncMetadata.LastModifiedUtc(entity);
         SyncMetadata.SetDeleted(entity, true);
         SyncMetadata.Touch(entity, UtcNow);
@@ -113,7 +114,7 @@ public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock
 
 public static class SyncConventionsStoreExtensions
 {
-    /// <summary>Applique [LastModified] et [SoftDelete] (voir <see cref="SyncConventionsStore"/>).</summary>
+    /// <summary>Applies [LastModified] and [SoftDelete] (see <see cref="SyncConventionsStore"/>).</summary>
     public static IEntityStore WithSyncConventions(this IEntityStore store, TimeProvider? clock = null)
         => store as SyncConventionsStore ?? new SyncConventionsStore(store, clock);
 }

@@ -1,41 +1,42 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Date de dernière modification, tenue à jour par <see cref="SyncConventionsStore"/>.
-/// Permet la synchronisation incrémentale : un client ne récupère que ce qui a changé depuis sa dernière synchronisation.
-/// La propriété doit être un <see cref="DateTime"/> (UTC) ou un <see cref="DateTimeOffset"/>.
+/// Last modification date, kept up to date by <see cref="SyncConventionsStore"/>.
+/// Enables incremental synchronization: a client only fetches what changed since its last synchronization.
+/// The property must be a <see cref="DateTime"/> (UTC) or a <see cref="DateTimeOffset"/>.
 /// </summary>
-/// <remarks>Idée reprise de Datasync Community Toolkit (UpdatedAt), voir CREDITS.md.</remarks>
+/// <remarks>Idea taken from Datasync Community Toolkit (UpdatedAt), see CREDITS.md.</remarks>
 [AttributeUsage(AttributeTargets.Property, Inherited = true)]
 public sealed class LastModifiedAttribute : Attribute;
 
 /// <summary>
-/// Suppression logique : <see cref="SyncConventionsStore"/> met ce booléen à true au lieu de supprimer la ligne,
-/// et l'exclut des lectures. Les clients qui se synchronisent apprennent ainsi la suppression.
+/// Soft delete: <see cref="SyncConventionsStore"/> sets this boolean to true instead of deleting the row,
+/// and hides it from reads. Synchronizing clients learn about the deletion this way.
 /// </summary>
-/// <remarks>Idée reprise de Datasync Community Toolkit (Deleted), voir CREDITS.md.</remarks>
+/// <remarks>Idea taken from Datasync Community Toolkit (Deleted), see CREDITS.md.</remarks>
 [AttributeUsage(AttributeTargets.Property, Inherited = true)]
 public sealed class SoftDeleteAttribute : Attribute;
 
-/// <summary>Accès aux propriétés [LastModified] et [SoftDelete] d'un type d'entité.</summary>
+/// <summary>Access to the [LastModified] and [SoftDelete] properties of an entity type.</summary>
 public static class SyncMetadata
 {
     private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete);
 
     private static readonly ConcurrentDictionary<Type, Properties> _cache = new();
 
-    public static PropertyInfo? LastModified(Type type) => For(type).LastModified;
+    public static PropertyInfo? LastModified([DynamicallyAccessedMembers(EntityMembers.Required)] Type type) => For(type).LastModified;
 
-    public static PropertyInfo? SoftDelete(Type type) => For(type).SoftDelete;
+    public static PropertyInfo? SoftDelete([DynamicallyAccessedMembers(EntityMembers.Required)] Type type) => For(type).SoftDelete;
 
-    /// <summary>Met la date de modification à maintenant (sans effet si le type n'en a pas).</summary>
-    public static void Touch(object entity, DateTime utcNow)
+    /// <summary>Sets the modification date to now (no effect if the type has none).</summary>
+    public static void Touch<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, DateTime utcNow)
     {
-        if (LastModified(entity.GetType()) is not { } property)
+        if (LastModified(typeof(T)) is not { } property || entity is null)
             return;
 
         property.SetValue(entity, property.PropertyType == typeof(DateTimeOffset)
@@ -43,39 +44,43 @@ public static class SyncMetadata
             : (object)DateTime.SpecifyKind(utcNow, DateTimeKind.Utc));
     }
 
-    /// <summary>Date de modification en UTC, ou null si le type n'en a pas.</summary>
-    public static DateTime? LastModifiedUtc(object entity)
-        => LastModified(entity.GetType())?.GetValue(entity) switch
+    /// <summary>Modification date in UTC, or null if the type has none.</summary>
+    public static DateTime? LastModifiedUtc<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
+        => entity is null ? null : LastModified(typeof(T))?.GetValue(entity) switch
         {
             DateTimeOffset dto => dto.UtcDateTime,
             DateTime dt => dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : DateTime.SpecifyKind(dt, DateTimeKind.Utc),
             _ => null
         };
 
-    public static bool IsDeleted(object entity)
-        => SoftDelete(entity.GetType())?.GetValue(entity) is true;
+    public static bool IsDeleted<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
+        => entity is not null && SoftDelete(typeof(T))?.GetValue(entity) is true;
 
-    public static void SetDeleted(object entity, bool deleted)
-        => SoftDelete(entity.GetType())?.SetValue(entity, deleted);
+    public static void SetDeleted<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, bool deleted)
+    {
+        if (entity is not null)
+            SoftDelete(typeof(T))?.SetValue(entity, deleted);
+    }
 
-    /// <summary>Ajoute « non supprimé » au prédicat, si le type a une suppression logique.</summary>
-    public static Expression<Func<T, bool>> NotDeleted<T>(Expression<Func<T, bool>>? predicate)
+    /// <summary>Adds "not deleted" to the predicate when the type uses soft delete.</summary>
+    public static Expression<Func<T, bool>> NotDeleted<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(
+        Expression<Func<T, bool>>? predicate)
     {
         if (SoftDelete(typeof(T)) is not { } property)
             return predicate ?? (_ => true);
 
         var parameter = predicate?.Parameters[0] ?? Expression.Parameter(typeof(T), "e");
-        // « == false » plutôt que « ! » : forme comprise par Dommel, EF et les filtres distants.
+        // "== false" rather than "!": the form understood by Dommel, EF and remote filters.
         Expression notDeleted = Expression.Equal(Expression.Property(parameter, property), Expression.Constant(false));
         var body = predicate is null ? notDeleted : Expression.AndAlso(predicate.Body, notDeleted);
         return Expression.Lambda<Func<T, bool>>(body, parameter);
     }
 
     /// <summary>
-    /// <c>e => e.LastModified &gt;= since</c>. « &gt;= » plutôt que « &gt; » : deux modifications de la même milliseconde
-    /// ne sont jamais perdues ; une ligne déjà reçue peut revenir, ce qui est sans effet sur un cache.
+    /// <c>e => e.LastModified &gt;= since</c>. "&gt;=" rather than "&gt;": two changes within the same millisecond
+    /// are never lost; a row already received may come back, which is harmless for a cache.
     /// </summary>
-    public static Expression<Func<T, bool>> ModifiedSince<T>(DateTime sinceUtc)
+    public static Expression<Func<T, bool>> ModifiedSince<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(DateTime sinceUtc)
     {
         var property = LastModified(typeof(T))
             ?? throw new NotSupportedException(
@@ -90,18 +95,23 @@ public static class SyncMetadata
         return Expression.Lambda<Func<T, bool>>(body, parameter);
     }
 
-    private static Properties For(Type type) => _cache.GetOrAdd(type, static t =>
+    private static Properties For([DynamicallyAccessedMembers(EntityMembers.Required)] Type type)
     {
-        var all = t.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        if (_cache.TryGetValue(type, out var cached))
+            return cached;
+
+        var all = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
         var lastModified = all.SingleOrDefault(p => p.GetCustomAttribute<LastModifiedAttribute>() is not null);
         if (lastModified is not null && lastModified.PropertyType != typeof(DateTime) && lastModified.PropertyType != typeof(DateTimeOffset))
-            throw new NotSupportedException($"{t.Name}.{lastModified.Name} : [LastModified] attend un DateTime ou un DateTimeOffset.");
+            throw new NotSupportedException($"{type.Name}.{lastModified.Name} : [LastModified] attend un DateTime ou un DateTimeOffset.");
 
         var softDelete = all.SingleOrDefault(p => p.GetCustomAttribute<SoftDeleteAttribute>() is not null);
         if (softDelete is not null && softDelete.PropertyType != typeof(bool))
-            throw new NotSupportedException($"{t.Name}.{softDelete.Name} : [SoftDelete] attend un bool.");
+            throw new NotSupportedException($"{type.Name}.{softDelete.Name} : [SoftDelete] attend un bool.");
 
-        return new Properties(lastModified, softDelete);
-    });
+        var properties = new Properties(lastModified, softDelete);
+        _cache.TryAdd(type, properties);
+        return properties;
+    }
 }

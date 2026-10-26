@@ -1,20 +1,20 @@
-# Crédits et sources d'inspiration
+# Credits and sources of inspiration
 
-Queryeables reprend des **idées de conception** d'autres projets open source. Aucun code n'a été copié :
-chaque fonctionnalité a été réécrite pour s'adapter au modèle de Queryeables (`IEntityStore`, entités ordinaires,
-Dommel, EF Core, MagicOnion). Les licences sont citées pour information.
+Queryeables borrows **design ideas** from other open-source projects. No code was copied:
+each feature was rewritten to fit the Queryeables model (`IEntityStore`, plain entities,
+Dommel, EF Core, MagicOnion). Licenses are listed for information.
 
-| Projet | Licence | Ce qui a été repris (idée) | Où dans Queryeables |
+| Project | License | What was borrowed (idea) | Where in Queryeables |
 |---|---|---|---|
-| [Datasync Community Toolkit](https://github.com/CommunityToolkit/Datasync) (.NET Foundation, ex-Azure Mobile Apps) | MIT | Date de modification (`UpdatedAt`) et suppression logique (`Deleted`) pour une synchronisation incrémentale ; jeton « depuis la dernière ligne reçue » ; taille de page maximale imposée par le serveur (`PageSize`, `MaxTop`) ; concurrence optimiste par version | `[LastModified]`, `[SoftDelete]`, `SyncConventionsStore`, `IEntityStore.SelectChangesAsync`, `EntityCache.SyncAsync`, paramètre `maxPageSize` d'`EntityHandler`, `ConcurrencyToken` |
-| [Azure Mobile Apps — synchronisation hors ligne](https://azure.microsoft.com/en-gb/documentation/articles/app-service-mobile-offline-data-sync/) | Documentation Microsoft | Principe du jeton incrémental : on retient la date de la dernière ligne reçue, la synchronisation suivante ne demande que ce qui a changé depuis | `EntityCache.SyncAsync` |
-| [ActualLab.Fusion](https://github.com/ActualLab/Fusion/wiki) | MIT | Regroupement des invalidations : une rafale de changements ne déclenche qu'une seule recomputation | Regroupement des notifications dans `EntityCache` |
-| [ABP Framework — repositories](https://abp.io/docs/10.1/framework/architecture/domain-driven-design/repositories) | LGPL-3.0 | Idées d'API seulement : `GetAsync` qui lève une erreur quand rien ne correspond (à côté de `FindAsync`/`FirstOrDefaultAsync`), opérations groupées `InsertMany`/`UpdateMany`/`DeleteMany` | `EntityStoreExtensions.GetAsync`, `InsertManyAsync`, `UpdateManyAsync`, `DeleteManyAsync` |
-| [Breeze](https://www.nuget.org/packages/Breeze.Persistence/7.3.1) | MIT | Enregistrer toutes les modifications d'un client en une seule transaction | Lots distants (`ExecuteBatchAsync`, transactions de `MagicOnionEntityStore`) |
+| [Datasync Community Toolkit](https://github.com/CommunityToolkit/Datasync) (.NET Foundation, formerly Azure Mobile Apps) | MIT | Modification date (`UpdatedAt`) and soft delete (`Deleted`) for incremental synchronization; "since the last row received" token; maximum page size enforced by the server (`PageSize`, `MaxTop`); optimistic concurrency through a version | `[LastModified]`, `[SoftDelete]`, `SyncConventionsStore`, `IEntityStore.SelectChangesAsync`, `EntityCache.SyncAsync`, `maxPageSize` parameter of `EntityHandler`, `ConcurrencyToken` |
+| [Azure Mobile Apps — offline sync](https://azure.microsoft.com/en-gb/documentation/articles/app-service-mobile-offline-data-sync/) | Microsoft documentation | Incremental token principle: remember the date of the last row received; the next synchronization only asks for what changed since | `EntityCache.SyncAsync` |
+| [ActualLab.Fusion](https://github.com/ActualLab/Fusion/wiki) | MIT | Invalidation coalescing: a burst of changes triggers a single recomputation | Notification coalescing in `EntityCache` |
+| [ABP Framework — repositories](https://abp.io/docs/10.1/framework/architecture/domain-driven-design/repositories) | LGPL-3.0 | API ideas only: `GetAsync` that throws when nothing matches (next to `FindAsync`/`FirstOrDefaultAsync`), bulk operations `InsertMany`/`UpdateMany`/`DeleteMany` | `EntityStoreExtensions.GetAsync`, `InsertManyAsync`, `UpdateManyAsync`, `DeleteManyAsync` |
+| [Breeze](https://www.nuget.org/packages/Breeze.Persistence/7.3.1) | MIT | Saving all of a client's changes in a single transaction | Remote batches (`ExecuteBatchAsync`, `MagicOnionEntityStore` transactions) |
 
-## Considérés mais non repris
+## Considered but not adopted
 
-| Projet | Licence | Pourquoi |
+| Project | License | Why |
 |---|---|---|
-| [Remote.Linq](https://github.com/6bee/Remote.Linq/wiki) | MIT | Exécute côté serveur des requêtes LINQ arbitraires envoyées par le client. Queryeables garde une liste blanche de conditions (`FilterCondition`) pour qu'un client ne puisse rien exécuter d'autre. |
-| [Dotmim.Sync](https://dotmimsync.readthedocs.io/Overview.html) | MIT | Synchronise des bases entières par triggers et tables de suivi : autre niveau que les entités de Queryeables. Utile si l'on veut une copie complète de la base côté client. |
+| [Remote.Linq](https://github.com/6bee/Remote.Linq/wiki) | MIT | Runs arbitrary LINQ queries sent by the client on the server. Queryeables keeps a whitelist of conditions (`FilterCondition`) so that a client cannot execute anything else. |
+| [Dotmim.Sync](https://dotmimsync.readthedocs.io/Overview.html) | MIT | Synchronizes whole databases through triggers and tracking tables: a different level than Queryeables entities. Useful when a full copy of the database is wanted on the client. |

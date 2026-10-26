@@ -5,8 +5,8 @@ using System.Reflection;
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Nom d'un type d'entité sur le réseau : <see cref="RemoteNameAttribute"/> s'il est présent, sinon le nom complet.
-/// Client et serveur utilisent la même règle, ce qui évite les collisions entre deux classes de même nom.
+/// Network name of an entity type: <see cref="RemoteNameAttribute"/> when present, otherwise the full name.
+/// Client and server use the same rule, which avoids collisions between two classes with the same name.
 /// </summary>
 public static class EntityName
 {

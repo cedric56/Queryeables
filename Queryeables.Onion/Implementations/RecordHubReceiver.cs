@@ -3,11 +3,12 @@
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Reçoit les changements du hub MagicOnion et les publie sur le moniteur local, sauf ceux de ce client
-/// (voir <see cref="ChangeRelay{TObject}"/>).
+/// Receives changes from the MagicOnion hub and publishes them on the local monitor, except this client's own
+/// changes (see <see cref="ChangeRelay{TObject}"/>).
 /// </summary>
 /// <param name="send">
-/// Si fourni, les changements locaux sont envoyés au hub, par exemple <c>r => { hub.OnRecordChanged(r); return Task.CompletedTask; }</c>.
+/// If provided, local changes are sent to the hub, for example
+/// <c>r => { hub.OnRecordChanged(RecordMessage.From(r)); return Task.CompletedTask; }</c>.
 /// </param>
 public sealed partial class RecordHubReceiver<TObject>(
     DbMonitor<TObject> monitor,
@@ -20,7 +21,7 @@ public sealed partial class RecordHubReceiver<TObject>(
         () => session.TryGetSession(typeof(TObject), out var current) ? current.session : null,
         send, onError);
 
-    public void OnChanged(Record<TObject> record) => _relay.Receive(record);
+    public void OnChanged(RecordMessage record) => _relay.Receive(record.ToRecord<TObject>());
 
     public void Dispose() => _relay.Dispose();
 }

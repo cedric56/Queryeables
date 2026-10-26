@@ -4,7 +4,7 @@ using System.Security.Claims;
 
 namespace Queryeables.Tests.Unit;
 
-/// <summary>Règles d'accès, codes d'erreur et versions : ce qui ne demande ni base ni réseau.</summary>
+/// <summary>Access policies, error codes and versions: what needs neither database nor network.</summary>
 public class RemoteContractTests
 {
     private static ClaimsPrincipal User(params string[] roles)
@@ -15,7 +15,7 @@ public class RemoteContractTests
     private static ValueTask<bool> Allowed(IEntityAccessPolicy policy, EntityOperation operation, ClaimsPrincipal? user)
         => policy.IsAllowedAsync(new EntityAccessRequest(operation, typeof(TestClient), null, user));
 
-    // ---------- Règles d'accès ----------
+    // ---------- Access policies ----------
 
     [Fact]
     public async Task Authenticated_policy_rejects_anonymous_calls()
@@ -48,7 +48,7 @@ public class RemoteContractTests
     public void Handler_requires_a_policy()
         => Assert.Throws<ArgumentNullException>(() => new EntityHandler<TestClient>(() => throw new NotSupportedException(), null!));
 
-    // ---------- Codes d'erreur ----------
+    // ---------- Error codes ----------
 
     [Fact]
     public void Store_errors_keep_their_code_and_messages()

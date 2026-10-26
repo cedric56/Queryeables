@@ -4,13 +4,13 @@ using Queryeables.Abstraction;
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Aiguille chaque appel de <see cref="IMagicOnionLayer"/> vers le <see cref="EntityHandler"/> du type demandé.
-/// Le service MagicOnion côté serveur (<c>MagicOnionService</c>) n'a plus qu'à déléguer.
+/// Routes each <see cref="IMagicOnionLayer"/> call to the <see cref="EntityHandler"/> of the requested type.
+/// The server-side MagicOnion service (<c>MagicOnionService</c>) only has to delegate.
 /// </summary>
 /// <param name="transactionStoreFactory">
-/// Store utilisé pour les lots (<see cref="ExecuteBatchAsync"/>) : toutes leurs écritures passent par une seule
-/// transaction de ce store. Sans lui, les lots sont refusés (NotSupported). Les types d'un lot doivent vivre
-/// dans la base de ce store.
+/// Store used for batches (<see cref="ExecuteBatchAsync"/>): all their writes go through a single
+/// transaction of this store. Without it, batches are rejected (NotSupported). The types of a batch must live
+/// in this store's database.
 /// </param>
 public sealed class EntityRequestDispatcher(
     IEntityHandlerRegistry registry,
@@ -40,8 +40,8 @@ public sealed class EntityRequestDispatcher(
         => Dispatch(type, h => h.WriteAsync(BatchOperationKind.Delete, entity, context, ct));
 
     /// <summary>
-    /// Exécute toutes les opérations dans une seule transaction : si l'une échoue (droits, validation, conflit,
-    /// ligne disparue), aucune n'est appliquée. Renvoie un résultat sérialisé par opération.
+    /// Runs every operation in a single transaction: if one fails (permissions, validation, conflict,
+    /// vanished row), none is applied. Returns one serialized result per operation.
     /// </summary>
     public Task<DBResult> ExecuteBatchAsync(BatchOperation[] operations, EntityRequestContext context, CancellationToken ct = default)
     {
@@ -52,7 +52,7 @@ public sealed class EntityRequestDispatcher(
         if (operations is null || operations.Length == 0)
             return Task.FromResult(DBResult.Success(MessagePackSerializer.Serialize(Array.Empty<byte[]>(), cancellationToken: ct)));
 
-        // Tous les types sont vérifiés avant d'ouvrir la transaction.
+        // Every type is checked before opening the transaction.
         var handlers = new EntityHandler[operations.Length];
         for (var i = 0; i < operations.Length; i++)
         {

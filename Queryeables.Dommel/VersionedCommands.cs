@@ -7,16 +7,16 @@ using System.Reflection;
 namespace Queryeables.Dommel;
 
 /// <summary>
-/// UPDATE et DELETE avec vérification de version, pour les entités qui ont une propriété [ConcurrencyCheck]
-/// (Dommel ne gère pas la concurrence optimiste). Le SQL est construit avec les résolveurs et le dialecte de Dommel,
-/// donc mêmes noms de tables et de colonnes que ses propres requêtes.
+/// UPDATE and DELETE with a version check, for entities that have a [ConcurrencyCheck] property
+/// (Dommel does not handle optimistic concurrency). The SQL is built with Dommel's resolvers and dialect,
+/// hence the same table and column names as its own queries.
 /// </summary>
 internal static class VersionedCommands
 {
     private const string ExpectedVersion = "QueryeablesExpectedVersion";
 
-    /// <returns>true si la ligne a été mise à jour ; false si elle n'existe pas.</returns>
-    /// <exception cref="EntityStoreException">Conflict si la ligne existe avec une autre version.</exception>
+    /// <returns>true if the row was updated; false if it does not exist.</returns>
+    /// <exception cref="EntityStoreException">Conflict when the row exists with another version.</exception>
     public static async Task<bool> UpdateAsync<TEntity>(IDbConnection connection, IDbTransaction? transaction,
         TEntity entity, PropertyInfo version, CancellationToken ct) where TEntity : class
     {
@@ -50,8 +50,8 @@ internal static class VersionedCommands
             : false;
     }
 
-    /// <returns>true si la ligne a été supprimée ; false si elle n'existe pas.</returns>
-    /// <exception cref="EntityStoreException">Conflict si la ligne existe avec une autre version.</exception>
+    /// <returns>true if the row was deleted; false if it does not exist.</returns>
+    /// <exception cref="EntityStoreException">Conflict when the row exists with another version.</exception>
     public static async Task<bool> DeleteAsync<TEntity>(IDbConnection connection, IDbTransaction? transaction,
         TEntity entity, PropertyInfo version, CancellationToken ct) where TEntity : class
     {

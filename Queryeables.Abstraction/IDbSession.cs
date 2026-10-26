@@ -1,8 +1,8 @@
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Côté client : abonnement aux notifications de changements (MagicOnion ou SignalR) pour chaque type d'entité.
-/// L'identifiant de session accompagne les écritures, pour que le client ignore ses propres changements.
+/// Client side: subscription to change notifications (MagicOnion or SignalR) for each entity type.
+/// The session id accompanies writes, so that the client ignores its own changes.
 /// </summary>
 public interface IDbSession
 {

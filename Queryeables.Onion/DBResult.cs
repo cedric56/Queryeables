@@ -3,7 +3,7 @@ using Queryeables.Abstraction;
 
 namespace Queryeables.Onion;
 
-/// <summary>Réponse du serveur : données en cas de succès, nature et message de l'erreur sinon.</summary>
+/// <summary>Server response: data on success, otherwise the kind and message of the error.</summary>
 [MessagePackObject]
 public partial class DBResult
 {
@@ -19,7 +19,7 @@ public partial class DBResult
     [Key(3)]
     public EntityErrorCode ErrorCode { get; set; }
 
-    /// <summary>Messages de validation, un par règle non respectée.</summary>
+    /// <summary>Validation messages, one per broken rule.</summary>
     [Key(4)]
     public string[]? Errors { get; set; }
 
@@ -28,7 +28,7 @@ public partial class DBResult
     public static DBResult Failure(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
         => new() { Successful = false, ErrorCode = errorCode, Exception = message, Errors = errors?.ToArray() };
 
-    /// <summary>Convertit une exception côté serveur en réponse, avec la bonne nature d'erreur.</summary>
+    /// <summary>Converts a server-side exception into a response, with the right error kind.</summary>
     public static DBResult FromException(Exception exception) => exception switch
     {
         EntityStoreException store => Failure(store.ErrorCode, store.Message, store.Errors),
@@ -38,7 +38,7 @@ public partial class DBResult
             exception.InnerException is null ? exception.Message : $"{exception.Message}\n{exception.InnerException.Message}")
     };
 
-    /// <summary>Exécute une opération serveur et met son résultat ou son erreur dans une réponse.</summary>
+    /// <summary>Runs a server operation and puts its result or its error into a response.</summary>
     public static async Task<DBResult> RunAsync(Func<Task<byte[]?>> action)
     {
         try
@@ -51,7 +51,7 @@ public partial class DBResult
         }
     }
 
-    /// <summary>Côté client : renvoie les données, ou lève l'erreur du serveur sous forme d'<see cref="EntityStoreException"/>.</summary>
+    /// <summary>Client side: returns the data, or throws the server error as an <see cref="EntityStoreException"/>.</summary>
     public byte[]? GetDataOrThrow()
     {
         if (Successful)

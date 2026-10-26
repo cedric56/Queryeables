@@ -4,26 +4,26 @@ using System.Data.Common;
 
 namespace Queryeables.Dommel;
 
-/// <summary>Options de <see cref="DbFactory{TDbConnection}"/>.</summary>
+/// <summary>Options of <see cref="DbFactory{TDbConnection}"/>.</summary>
 public sealed class DbFactoryOptions
 {
     /// <summary>
-    /// Si true, chaque commande SQL est journalisée. À réserver au développement.
+    /// When true, every SQL command is logged. Meant for development only.
     /// </summary>
     public bool LogCommands { get; set; }
 
-    /// <summary>Niveau de log des lignes SQL. Par défaut : Information.</summary>
+    /// <summary>Log level of the SQL lines. Default: Information.</summary>
     public LogLevel CommandLogLevel { get; set; } = LogLevel.Information;
 }
 
 /// <summary>
-/// Fabrique de connexions ADO.NET préconfigurées (chaîne de connexion, journalisation SQL).
-/// Les connexions sont renvoyées fermées : c'est le store qui les ouvre.
+/// Factory of preconfigured ADO.NET connections (connection string, SQL logging).
+/// Connections are returned closed: the store opens them.
 /// </summary>
 /// <example>
 /// <code>
 /// var factory = new DbFactory&lt;SqliteConnection&gt;(connectionString);
-/// var cache = new EntityCache&lt;Client, long&gt;(() => DommelEntityStore.Create(factory), c => c.Id);
+/// var cache = new EntityCache&lt;Customer, long&gt;(() => DommelEntityStore.Create(factory), c => c.Id);
 /// </code>
 /// </example>
 public class DbFactory<TDbConnection> : DbProviderFactory where TDbConnection : DbConnection, new()
@@ -32,7 +32,7 @@ public class DbFactory<TDbConnection> : DbProviderFactory where TDbConnection : 
     private readonly bool _logCommands;
     private readonly LogLevel _logLevel;
 
-    /// <summary>Logger fourni au constructeur, utilisable par les classes dérivées.</summary>
+    /// <summary>Logger given to the constructor, available to derived classes.</summary>
     protected ILogger? Logger { get; }
 
     public DbFactory(string connectionString, DbFactoryOptions? options = null, ILogger? logger = null)

@@ -7,15 +7,15 @@ namespace Queryeables.SqlDependency;
 public static class SqlDependencyExtensions
 {
     /// <summary>
-    /// Surveille la table de <typeparamref name="TObject"/> avec SQL Server (Service Broker)
-    /// et publie chaque changement sur le moniteur.
+    /// Watches the <typeparamref name="TObject"/> table with SQL Server (Service Broker)
+    /// and publishes each change on the monitor.
     /// </summary>
-    /// <param name="getKey">Clé de l'entité transmise aux abonnés (long, Guid, string, tuple...).</param>
-    /// <param name="unsubscribe">Arrête la surveillance.</param>
-    /// <param name="onError">Appelé si le traitement d'un changement échoue ; la surveillance continue.</param>
+    /// <param name="getKey">Entity key passed to subscribers (long, Guid, string, tuple...).</param>
+    /// <param name="unsubscribe">Stops watching.</param>
+    /// <param name="onError">Called when handling a change fails; watching goes on.</param>
     /// <remarks>
-    /// SQL Server ne dit pas qui a fait la modification : le client à l'origine d'un changement
-    /// en est aussi notifié.
+    /// SQL Server does not tell who made the change: the client that initiated a change
+    /// is notified of it too.
     /// </remarks>
     public static SqlTableDependencyCore<TObject> AddTableDependency<TObject, TKey>(
         this DbMonitor<TObject> monitor,
@@ -46,7 +46,7 @@ public static class SqlDependencyExtensions
         {
             try
             {
-                // Les deux énumérations ont les mêmes noms (None, Delete, Insert, Update).
+                // Both enums have the same names (None, Delete, Insert, Update).
                 if (!Enum.TryParse<ChangeType>(e.ChangeType.ToString(), out var type) || type == ChangeType.None)
                     return;
 
@@ -54,7 +54,7 @@ public static class SqlDependencyExtensions
             }
             catch (Exception ex)
             {
-                // Une exception ici remonterait dans le thread de surveillance de la bibliothèque.
+                // An exception here would surface in the library's watcher thread.
                 onError?.Invoke(ex);
             }
         }

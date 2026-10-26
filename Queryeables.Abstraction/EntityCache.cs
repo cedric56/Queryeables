@@ -1,31 +1,32 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Cache en mémoire alimenté par un <see cref="IEntityStore"/>, quel que soit le framework (Dommel, EF Core, distant...).
-/// Thread-safe : les lectures ne bloquent jamais, les rechargements sont sérialisés.
+/// In-memory cache fed by an <see cref="IEntityStore"/>, whatever the framework (Dommel, EF Core, remote...).
+/// Thread-safe: reads never block, reloads are serialized.
 /// <para>
-/// Si un <see cref="IDbMonitor{TEntity}"/> est fourni, le cache se met à jour à chaque changement signalé :
-/// ligne par ligne quand <c>parseKey</c> est fourni ; sinon par synchronisation incrémentale si le type a une propriété
-/// [LastModified] ; sinon par rechargement complet. Une rafale de notifications ne déclenche qu'une mise à jour
-/// par ligne, ou qu'un seul rechargement.
+/// When an <see cref="IDbMonitor{TEntity}"/> is provided, the cache updates itself on every reported change:
+/// row by row when <c>parseKey</c> is provided; otherwise through incremental synchronization when the type has a
+/// [LastModified] property; otherwise through a full reload. A burst of notifications triggers only one update
+/// per row, or a single reload.
 /// </para>
 /// <para>
-/// Après une reconnexion, appelez <see cref="SyncAsync"/> : avec [LastModified], seules les lignes modifiées
-/// pendant la coupure sont relues, suppressions logiques ([SoftDelete]) comprises.
+/// After a reconnection, call <see cref="SyncAsync"/>: with [LastModified], only the rows modified
+/// during the outage are read again, soft deletes ([SoftDelete]) included.
 /// </para>
 /// </summary>
 /// <example>
 /// <code>
 /// // Dommel
-/// var cache = new EntityCache&lt;Client, long&gt;(
+/// var cache = new EntityCache&lt;Customer, long&gt;(
 ///     () => DommelEntityStore.Create(SqliteFactory.Instance, connectionString),
 ///     c => c.Id, monitor, RecordKey.Parse&lt;long&gt;);
 ///
-/// // EF Core, clé Guid
-/// var cache = new EntityCache&lt;Produit, Guid&gt;(
+/// // EF Core, Guid key
+/// var cache = new EntityCache&lt;Product, Guid&gt;(
 ///     () => new EfEntityStore(new AppDbContext(options)),
 ///     p => p.Id, monitor, RecordKey.Parse&lt;Guid&gt;);
 ///
@@ -33,10 +34,10 @@ namespace Queryeables.Abstraction;
 /// </code>
 /// </example>
 /// <remarks>
-/// Synchronisation incrémentale : idée reprise de Datasync Community Toolkit ; regroupement des invalidations :
-/// idée reprise d'ActualLab.Fusion. Voir CREDITS.md.
+/// Incremental synchronization: idea taken from the Datasync Community Toolkit; coalescing of invalidations:
+/// idea taken from ActualLab.Fusion. See CREDITS.md.
 /// </remarks>
-public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, IDisposable
+public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IDisposable
     where TEntity : class
     where TKey : notnull
 {
@@ -47,27 +48,27 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
     private readonly IDbMonitor<TEntity>? _monitor;
     private readonly bool _incremental = SyncMetadata.LastModified(typeof(TEntity)) is not null;
 
-    // Un seul rechargement à la fois ; les écritures sur le dictionnaire passent par _writeLock.
+    // One reload at a time; writes to the dictionary go through _writeLock.
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _writeLock = new();
     private volatile ConcurrentDictionary<TKey, TEntity> _byKey = new();
     private volatile bool _disposed;
 
-    // Date de la ligne la plus récente reçue : point de départ de la prochaine synchronisation (protégée par _writeLock).
+    // Timestamp of the most recent row received: starting point of the next synchronization (guarded by _writeLock).
     private DateTime? _syncedUpTo;
 
-    // Regroupement des notifications : une mise à jour complète en attente, et les clés déjà en attente.
+    // Notification coalescing: one pending full update, and the keys already pending.
     private int _fullRefreshQueued;
     private readonly ConcurrentDictionary<TKey, byte> _queuedKeys = new();
 
-    /// <param name="storeFactory">Crée un store pour chaque chargement ; le cache le dispose ensuite.</param>
-    /// <param name="key">Clé de l'entité, par exemple <c>c => c.Id</c>.</param>
-    /// <param name="monitor">Source de notifications de changements, facultative.</param>
+    /// <param name="storeFactory">Creates a store for each load; the cache disposes it afterwards.</param>
+    /// <param name="key">Entity key, for example <c>c => c.Id</c>.</param>
+    /// <param name="monitor">Optional source of change notifications.</param>
     /// <param name="parseKey">
-    /// Relit la clé d'un <see cref="Record{T}"/> (<see cref="Record{T}.EntityKey"/>), pour une mise à jour ligne par ligne.
-    /// En général <c>RecordKey.Parse&lt;TKey&gt;</c>. La source de changements doit publier la clé de l'entité :
-    /// avec SQLite, le rowid n'est la clé que pour une table en <c>INTEGER PRIMARY KEY</c>.
-    /// Si absent, chaque changement déclenche une synchronisation (ou un rechargement complet sans [LastModified]).
+    /// Reads back the key of a <see cref="Record{T}"/> (<see cref="Record{T}.EntityKey"/>), for row-by-row updates.
+    /// Usually <c>RecordKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
+    /// with SQLite, the rowid is the key only for an <c>INTEGER PRIMARY KEY</c> table.
+    /// When absent, each change triggers a synchronization (or a full reload without [LastModified]).
     /// </param>
     public EntityCache(
         Func<IEntityStore> storeFactory,
@@ -88,18 +89,18 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
             _monitor.RecordChanged += OnRecordChanged;
     }
 
-    /// <summary>Copie de l'état actuel : sûre à énumérer pendant que le cache se met à jour.</summary>
+    /// <summary>Snapshot of the current state: safe to enumerate while the cache updates.</summary>
     public IReadOnlyCollection<TEntity> Entities => _byKey.Values.ToArray();
 
     public event EventHandler? EntitiesChanged;
 
     /// <summary>
-    /// Levé quand une mise à jour déclenchée par le moniteur échoue (base indisponible, timeout...).
-    /// Le cache garde alors son contenu précédent.
+    /// Raised when an update triggered by the monitor fails (database unavailable, timeout...).
+    /// The cache then keeps its previous content.
     /// </summary>
     public event EventHandler<Exception>? RefreshFailed;
 
-    /// <summary>Recharge tout le cache.</summary>
+    /// <summary>Reloads the whole cache.</summary>
     public async Task LoadAsync(CancellationToken ct = default)
     {
         await _refreshLock.WaitAsync(ct);
@@ -116,8 +117,8 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
     }
 
     /// <summary>
-    /// Met le cache à jour avec ce qui a changé depuis la dernière synchronisation (type avec [LastModified]),
-    /// ou le recharge entièrement sinon. À appeler après une reconnexion.
+    /// Updates the cache with what changed since the last synchronization (type with [LastModified]),
+    /// or reloads it entirely otherwise. Call it after a reconnection.
     /// </summary>
     public async Task SyncAsync(CancellationToken ct = default)
     {
@@ -158,7 +159,7 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
             _monitor.RecordChanged -= OnRecordChanged;
     }
 
-    // ---------- Chargement et synchronisation (appelés sous _refreshLock) ----------
+    // ---------- Loading and synchronization (called under _refreshLock) ----------
 
     private async Task LoadCoreAsync(CancellationToken ct)
     {
@@ -171,7 +172,7 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
         foreach (var entity in entities)
         {
             latest = Latest(latest, entity);
-            // Un store sans SyncConventionsStore renvoie aussi les lignes supprimées logiquement.
+            // A store without SyncConventionsStore also returns soft-deleted rows.
             if (!SyncMetadata.IsDeleted(entity))
                 byKey[_key(entity)] = entity;
         }
@@ -216,9 +217,9 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
     private static DateTime? Latest(DateTime? current, TEntity entity)
         => SyncMetadata.LastModifiedUtc(entity) is { } modified && (current is null || modified > current) ? modified : current;
 
-    // ---------- Notifications du moniteur ----------
+    // ---------- Monitor notifications ----------
 
-    // async void imposé par la signature de l'événement : aucune exception ne doit en sortir.
+    // async void is required by the event signature: no exception may escape.
     private async void OnRecordChanged(object? sender, Record<TEntity> record)
     {
         if (_disposed) return;
@@ -245,14 +246,14 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
 
         var key = _parseKey(record.EntityKey);
 
-        // Cette ligne est déjà en attente de relecture : la relecture à venir verra aussi ce changement.
+        // This row is already waiting to be read again: the upcoming read will also see this change.
         if (!_queuedKeys.TryAdd(key, 0))
             return;
 
         await _refreshLock.WaitAsync();
         try
         {
-            // Retirée avant la lecture : un changement arrivé pendant la lecture déclenchera une nouvelle relecture.
+            // Removed before reading: a change arriving during the read will trigger another read.
             _queuedKeys.TryRemove(key, out _);
 
             TEntity? entity = null;
@@ -264,7 +265,7 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
 
             lock (_writeLock)
             {
-                // Ligne supprimée (physiquement ou logiquement), ou introuvable entre-temps : on la retire.
+                // Row deleted (physically or logically), or not found anymore: remove it.
                 if (entity is null || SyncMetadata.IsDeleted(entity))
                     _byKey.TryRemove(key, out _);
                 else
@@ -284,7 +285,7 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
 
     private async Task RefreshAllCoalescedAsync()
     {
-        // Une mise à jour complète est déjà en attente : elle couvrira aussi ce changement.
+        // A full update is already pending: it will cover this change too.
         if (Interlocked.Exchange(ref _fullRefreshQueued, 1) == 1)
             return;
 
@@ -302,11 +303,11 @@ public sealed class EntityCache<TEntity, TKey> : IEntityCache<TEntity, TKey>, ID
         RaiseEntitiesChanged();
     }
 
-    // ---------- Interne ----------
+    // ---------- Internals ----------
 
     private void RaiseEntitiesChanged() => EntitiesChanged?.Invoke(this, EventArgs.Empty);
 
-    /// <summary>Construit <c>e => e.Id == key</c> à partir de l'expression de clé, traduisible par Dommel et EF.</summary>
+    /// <summary>Builds <c>e => e.Id == key</c> from the key expression, translatable by Dommel and EF.</summary>
     private Expression<Func<TEntity, bool>> KeyEquals(TKey key)
     {
         var body = Expression.Equal(_keyExpression.Body, Expression.Constant(key, typeof(TKey)));

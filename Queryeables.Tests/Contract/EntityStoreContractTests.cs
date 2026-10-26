@@ -3,24 +3,24 @@ using Queryeables.Abstraction;
 namespace Queryeables.Tests.Contract;
 
 /// <summary>
-/// Contrat commun à toutes les implémentations d'<see cref="IEntityStore"/>.
-/// Pour une nouvelle implémentation : dériver de cette classe et fournir <see cref="CreateStoreAsync"/>.
-/// Chaque test part d'une base vide qui contient la table Clients.
+/// Contract shared by every <see cref="IEntityStore"/> implementation.
+/// For a new implementation: derive from this class and provide <see cref="CreateStoreAsync"/>.
+/// Each test starts from an empty database containing the Clients table.
 /// </summary>
 public abstract class EntityStoreContractTests : IAsyncLifetime
 {
-    /// <summary>Prépare une base vide (table Clients créée).</summary>
+    /// <summary>Prepares an empty database (Clients table created).</summary>
     public abstract Task InitializeAsync();
 
     public abstract Task DisposeAsync();
 
-    /// <summary>Crée un store sur la base du test. Le test le dispose.</summary>
+    /// <summary>Creates a store on the test database. The test disposes it.</summary>
     protected abstract IEntityStore CreateStore();
 
-    /// <summary>False pour un store qui ne prend pas en charge les transactions.</summary>
+    /// <summary>False for a store that does not support transactions.</summary>
     protected virtual bool SupportsTransactions => true;
 
-    /// <summary>True si le store applique [LastModified] et [SoftDelete] (<see cref="SyncConventionsStore"/>).</summary>
+    /// <summary>True when the store applies [LastModified] and [SoftDelete] (<see cref="SyncConventionsStore"/>).</summary>
     protected virtual bool UsesSyncConventions => false;
 
     private async Task<TestClient> InsertAsync(string nom, bool actif = true, int? parrain = null)
@@ -102,7 +102,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
 
         var ids = page1.Concat(page2).Concat(page3).Select(c => c.Id).ToList();
         Assert.Equal(5, ids.Count);
-        Assert.Equal(ids.OrderBy(id => id), ids); // triés par clé
+        Assert.Equal(ids.OrderBy(id => id), ids); // sorted by key
         Assert.Single(page3);
     }
 
@@ -244,7 +244,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Single(await store.GetAllAsync<TestClient>());
     }
 
-    // ---------- Synchronisation incrémentale (stores avec SyncConventionsStore) ----------
+    // ---------- Incremental synchronization (stores with SyncConventionsStore) ----------
 
     [Fact]
     public async Task Writes_set_LastModified()
@@ -310,7 +310,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         {
             await using var transaction = await store.BeginTransactionAsync();
             await store.InsertAsync(new TestClient { Nom = "Annulé" });
-            // pas de CommitAsync
+            // no CommitAsync
         }
 
         await using var check = CreateStore();

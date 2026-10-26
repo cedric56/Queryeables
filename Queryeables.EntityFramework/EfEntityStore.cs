@@ -7,14 +7,13 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.EntityFramework;
 
 /// <summary>
-/// Implémentation EF Core de IEntityStore.
-/// À placer idéalement dans un projet séparé (Avae.DAL.EntityFramework)
-/// pour que Avae.DAL ne dépende pas d'EF.
-/// Comportement aligné sur Dommel : lectures sans suivi, chaque écriture est enregistrée immédiatement.
+/// EF Core implementation of IEntityStore.
+/// Behavior aligned with Dommel: no-tracking reads, every write is saved immediately.
 /// </summary>
 public sealed class EfEntityStore : IEntityStore
 {
@@ -27,20 +26,20 @@ public sealed class EfEntityStore : IEntityStore
         _ownsContext = ownsContext;
     }
 
-    // ---------- Lecture ----------
+    // ---------- Read ----------
 
-    public async Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class
+    public async Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class
         => await _context.Set<TEntity>().AsNoTracking().ToListAsync(ct);
 
-    public async Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
+    public async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => await _context.Set<TEntity>().AsNoTracking().Where(predicate).ToListAsync(ct);
 
-    public Task<TEntity?> FirstOrDefaultAsync<TEntity>(
+    public Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => _context.Set<TEntity>().AsNoTracking().FirstOrDefaultAsync(predicate, ct);
 
-    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<TEntity>(
+    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize,
         CancellationToken ct = default) where TEntity : class
     {
@@ -53,21 +52,21 @@ public sealed class EfEntityStore : IEntityStore
             .ToListAsync(ct);
     }
 
-    public Task<long> CountAsync<TEntity>(
+    public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => _context.Set<TEntity>().LongCountAsync(predicate, ct);
 
-    // ---------- Écriture ----------
+    // ---------- Write ----------
 
-    public async Task InsertAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         _context.Add(entity);
-        await SaveAndDetachAsync(entity, ct); // EF remplit la clé générée
+        await SaveAndDetachAsync(entity, ct); // EF fills in the generated key
     }
 
-    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
-    public async Task<bool> UpdateAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
+    public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         var entry = _context.Update(entity);
@@ -75,7 +74,7 @@ public sealed class EfEntityStore : IEntityStore
         if (ConcurrencyToken.Find(typeof(TEntity)) is not { } version)
             return await SaveAndDetachAsync(entity, ct) > 0;
 
-        // EF vérifie l'ancienne version (WHERE Version = ...) et enregistre la nouvelle.
+        // EF checks the old version (WHERE Version = ...) and saves the new one.
         var current = ConcurrencyToken.Get(entity, version);
         var token = entry.Property(version.Name);
         token.OriginalValue = ConcurrencyToken.Box(version, current);
@@ -84,12 +83,12 @@ public sealed class EfEntityStore : IEntityStore
         if (await SaveAndDetachAsync(entity, ct) > 0)
             return true;
 
-        ConcurrencyToken.Set(entity, version, current); // l'entité garde la version qu'elle avait
+        ConcurrencyToken.Set(entity, version, current); // the entity keeps the version it had
         return await ExistsAsync(entity, ct) ? throw ConcurrencyToken.ConflictFor(typeof(TEntity)) : false;
     }
 
-    /// <exception cref="EntityStoreException">Conflict si l'entité a une version ([ConcurrencyCheck]) périmée.</exception>
-    public async Task<bool> DeleteAsync<TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
+    public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
         var entry = _context.Remove(entity);
@@ -105,8 +104,8 @@ public sealed class EfEntityStore : IEntityStore
         return await ExistsAsync(entity, ct) ? throw ConcurrencyToken.ConflictFor(typeof(TEntity)) : false;
     }
 
-    /// <summary>La ligne de cette clé existe-t-elle encore ? (distingue un conflit d'une ligne supprimée)</summary>
-    private async Task<bool> ExistsAsync<TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
+    /// <summary>Does the row with this key still exist? (tells a conflict from a deleted row)</summary>
+    private async Task<bool> ExistsAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
     {
         var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
             ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");
@@ -127,9 +126,9 @@ public sealed class EfEntityStore : IEntityStore
 
     public ValueTask DisposeAsync() => _ownsContext ? _context.DisposeAsync() : ValueTask.CompletedTask;
 
-    // ---------- Interne ----------
+    // ---------- Internals ----------
 
-    private async Task<int> SaveAndDetachAsync<TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
+    private async Task<int> SaveAndDetachAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
     {
         try
         {
@@ -137,7 +136,7 @@ public sealed class EfEntityStore : IEntityStore
         }
         catch (DbUpdateConcurrencyException)
         {
-            return 0; // aucune ligne touchée, comme Dommel qui renvoie false
+            return 0; // no row affected, like Dommel returning false
         }
         finally
         {
@@ -145,8 +144,8 @@ public sealed class EfEntityStore : IEntityStore
         }
     }
 
-    /// <summary>La pagination exige un ordre stable : on trie par clé primaire.</summary>
-    private IQueryable<TEntity> OrderByKey<TEntity>(IQueryable<TEntity> query) where TEntity : class
+    /// <summary>Paging requires a stable order: sort by primary key.</summary>
+    private IQueryable<TEntity> OrderByKey<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IQueryable<TEntity> query) where TEntity : class
     {
         var key = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
             ?? throw new InvalidOperationException($"{typeof(TEntity).Name} n'a pas de clé primaire.");

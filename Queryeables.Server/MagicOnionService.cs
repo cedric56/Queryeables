@@ -6,29 +6,29 @@ using Queryeables.Onion;
 namespace Queryeables.Server;
 
 /// <summary>
-/// Service MagicOnion d'accès aux entités : chaque appel est transmis au <see cref="EntityHandler"/> du type demandé,
-/// avec l'utilisateur authentifié par ASP.NET Core, pour que la règle d'accès de chaque type s'applique.
-/// Seuls les types enregistrés dans <see cref="IEntityHandlerRegistry"/> sont accessibles, et aucun SQL ne vient du client.
+/// MagicOnion entity access service: each call is forwarded to the <see cref="EntityHandler"/> of the requested type,
+/// with the user authenticated by ASP.NET Core, so that the access policy of each type applies.
+/// Only the types registered in <see cref="IEntityHandlerRegistry"/> can be reached, and no SQL comes from the client.
 /// </summary>
 /// <example>
 /// <code>
-/// // Dans l'application serveur :
+/// // In the server application:
 /// public sealed class AppMagicOnionService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
 ///
 /// builder.Services.AddSingleton&lt;IEntityHandlerRegistry&gt;(sp =>
 /// {
 ///     var factory = sp.GetRequiredService&lt;DbProviderFactory&gt;();
 ///     var registry = new EntityHandlerRegistry();
-///     registry.Register(new EntityHandler&lt;Client&gt;(() => DommelEntityStore.Create(factory).WithSyncConventions(), EntityAccessPolicies.Authenticated));
+///     registry.Register(new EntityHandler&lt;Customer&gt;(() => DommelEntityStore.Create(factory).WithSyncConventions(), EntityAccessPolicies.Authenticated));
 ///     return registry;
 /// });
-/// // WithSyncConventions applique [LastModified] et [SoftDelete] côté serveur.
-/// // Le store transactionnel active les lots (transactions distantes).
+/// // WithSyncConventions applies [LastModified] and [SoftDelete] on the server.
+/// // The transactional store enables batches (remote transactions).
 /// builder.Services.AddSingleton(sp => new EntityRequestDispatcher(
 ///     sp.GetRequiredService&lt;IEntityHandlerRegistry&gt;(),
 ///     () => DommelEntityStore.Create(sp.GetRequiredService&lt;DbProviderFactory&gt;()).WithSyncConventions()));
 ///
-/// // Authentification ASP.NET Core habituelle (JWT, cookies...) : l'utilisateur arrive dans les règles d'accès.
+/// // Usual ASP.NET Core authentication (JWT, cookies...): the user reaches the access policies.
 /// builder.Services.AddAuthentication(...);
 /// app.UseAuthentication();
 /// </code>
@@ -38,7 +38,7 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
 {
     private CancellationToken Aborted => Context.CallContext.CancellationToken;
 
-    /// <summary>Utilisateur authentifié par ASP.NET Core pour cet appel.</summary>
+    /// <summary>User authenticated by ASP.NET Core for this call.</summary>
     private EntityRequestContext Caller(string? connectionId = null)
         => new(Context.CallContext.GetHttpContext().User, connectionId);
 

@@ -1,9 +1,10 @@
 using Queryeables.Abstraction;
 using System.Linq.Expressions;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.Tests;
 
-/// <summary>Store en mémoire pour les tests sans base de données. Ne gère que <see cref="TestClient"/>.</summary>
+/// <summary>In-memory store for tests without a database. Only handles <see cref="TestClient"/>.</summary>
 public sealed class InMemoryEntityStore : IEntityStore
 {
     private readonly List<TestClient> _rows;
@@ -17,17 +18,17 @@ public sealed class InMemoryEntityStore : IEntityStore
 
     public int SelectCalls { get; private set; }
 
-    /// <summary>Simule une base lente, pour tester ce qui se passe pendant une lecture.</summary>
+    /// <summary>Simulates a slow database, to test what happens during a read.</summary>
     public TimeSpan Delay { get; set; }
 
-    public async Task<IReadOnlyList<T>> GetAllAsync<T>(CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(CancellationToken ct = default) where T : class
     {
         _log?.Add("GETALL");
         if (Delay > TimeSpan.Zero) await Task.Delay(Delay, ct);
         return _rows.Select(r => (T)(object)r.Copy()).ToList();
     }
 
-    public async Task<IReadOnlyList<T>> SelectAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
         SelectCalls++;
         if (Delay > TimeSpan.Zero) await Task.Delay(Delay, ct);
@@ -35,19 +36,19 @@ public sealed class InMemoryEntityStore : IEntityStore
         return _rows.Select(r => (T)(object)r.Copy()).Where(match).ToList();
     }
 
-    public async Task<T?> FirstOrDefaultAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
+    public async Task<T?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
         _log?.Add("FIRST");
         return (await SelectAsync(predicate, ct)).FirstOrDefault();
     }
 
-    public async Task<IReadOnlyList<T>> SelectPagedAsync<T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
     {
         Paging.Validate(pageNumber, pageSize);
         return (await SelectAsync(predicate, ct)).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
     }
 
-    public Task InsertAsync<T>(T entity, CancellationToken ct = default) where T : class
+    public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
     {
         var client = (TestClient)(object)entity;
         if (client.Id == 0)
@@ -57,7 +58,7 @@ public sealed class InMemoryEntityStore : IEntityStore
         return Task.CompletedTask;
     }
 
-    public Task<bool> UpdateAsync<T>(T entity, CancellationToken ct = default) where T : class
+    public Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
     {
         var client = (TestClient)(object)entity;
         _log?.Add($"UPDATE {client.Id}");
@@ -68,7 +69,7 @@ public sealed class InMemoryEntityStore : IEntityStore
         return Task.FromResult(true);
     }
 
-    public Task<bool> DeleteAsync<T>(T entity, CancellationToken ct = default) where T : class
+    public Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
     {
         var client = (TestClient)(object)entity;
         _log?.Add($"DELETE {client.Id}");
