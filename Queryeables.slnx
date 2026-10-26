@@ -7,4 +7,6 @@
   <Project Path="Queryeables.Server/Queryeables.Server.csproj" Id="e7f333d1-efa1-41ce-b759-f978acfa59e2" />
   <Project Path="Queryeables.SignalR.Server/Queryeables.SignalR.Server.csproj" />
   <Project Path="Queryeables.Sqlite/Queryeables.Sqlite.csproj" />
+  <Project Path="Queryeables.PostgreSql/Queryeables.PostgreSql.csproj" />
+  <Project Path="Queryeables.SqlServer/Queryeables.SqlServer.csproj" />
 </Solution>
