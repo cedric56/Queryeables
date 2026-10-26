@@ -50,6 +50,13 @@ public sealed class DommelEntityStore : IEntityStore
 
     // ---------- Lecture ----------
 
+    public async Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class
+    {
+        await EnsureOpenAsync(ct);
+        var result = await _connection.GetAllAsync<TEntity>(_transaction, ct);
+        return result.AsList();
+    }
+
     public async Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {

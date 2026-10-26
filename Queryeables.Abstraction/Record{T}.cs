@@ -4,7 +4,7 @@ using KeyAttribute = MessagePack.KeyAttribute;
 namespace Queryeables.Abstraction;
 
 [MessagePackObject]
-public class Record<T> where T : class, new()
+public class Record<T> where T : class
 {
     public Record()
     {

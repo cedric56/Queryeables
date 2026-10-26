@@ -1,6 +1,8 @@
 ﻿using Dommel;
 using Queryeables.Abstraction;
+using System.Collections.Concurrent;
 using System.Data.Common;
+using System.Linq.Expressions;
 
 namespace Queryeables.Dommel;
 
@@ -8,17 +10,31 @@ public class DommelMemoryEntityCache<TEntity, TKey> : InMemoryEntityCache<TEntit
 where TEntity : class, new()
 where TKey : notnull
 {
-    protected DommelMemoryEntityCache(Func<TEntity, TKey> id, DbProviderFactory? factory, IDBMonitor<TEntity>? monitor = null) : base(id, factory, monitor)
+    public DommelMemoryEntityCache(Func<IEntityStore> storeFactory, Expression<Func<TEntity, TKey>> key, IDbMonitor<TEntity>? monitor = null, Func<long, TKey>? keyFromRowId = null) : base(storeFactory, key, monitor, keyFromRowId)
     {
     }
 
     public override async Task LoadAsync(CancellationToken ct = default)
     {
-        if (_factory == null)
-            return;
+        await _refreshLock.WaitAsync(ct);
+        try
+        {
+            IReadOnlyList<TEntity> entities;
+            await using (var store = _storeFactory())
+                entities = await store.GetAllAsync<TEntity>(ct);
 
-        using var connection = _factory.CreateConnection()!;
-        var entities = await connection.GetAllAsync<TEntity>();
-        _byId = entities.ToDictionary(p => _id(p), p => p);
+            var byKey = new ConcurrentDictionary<TKey, TEntity>();
+            foreach (var entity in entities)
+                byKey[_key(entity)] = entity;
+
+            lock (_writeLock)
+                _byKey = byKey;
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+
+        RaiseEntitiesChanged();
     }
 }

@@ -14,6 +14,8 @@ namespace Queryeables.Abstraction;
 public interface IEntityStore : IAsyncDisposable
 {
     // Lecture
+    Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class;
+
     Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
         Expression<Func<TEntity, bool>> predicate,
         CancellationToken ct = default) where TEntity : class;

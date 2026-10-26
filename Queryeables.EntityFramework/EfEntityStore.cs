@@ -29,6 +29,9 @@ public sealed class EfEntityStore : IEntityStore
 
     // ---------- Lecture ----------
 
+    public async Task<IReadOnlyList<TEntity>> GetAllAsync<TEntity>(CancellationToken ct = default) where TEntity : class
+        => await _context.Set<TEntity>().AsNoTracking().ToListAsync(ct);
+
     public async Task<IReadOnlyList<TEntity>> SelectAsync<TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => await _context.Set<TEntity>().AsNoTracking().Where(predicate).ToListAsync(ct);
