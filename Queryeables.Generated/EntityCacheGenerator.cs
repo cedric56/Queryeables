@@ -159,7 +159,7 @@ public sealed class EntityCacheGenerator : IIncrementalGenerator
 
     private static IPropertySymbol? GetIdProperty(INamedTypeSymbol type)
     {
-        return type.GetMembers("Id")
+        return type.GetMembers("Id").AddRange(type.BaseType?.GetMembers("Id") ?? [])
             .OfType<IPropertySymbol>()
             .FirstOrDefault(p =>
                 !p.IsStatic &&
