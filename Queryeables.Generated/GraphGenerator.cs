@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -45,7 +44,8 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
                     group.ToImmutableArray());
 
                 spc.AddSource(
-                    Sanitize(parentType) + ".EntityGraph.g.cs",
+                    //Sanitize(parentType) + ".EntityGraph.g.cs",
+                    parentType.Name + ".Contracts.g.cs",
                     SourceText.From(
                         GenerateFile(info, source.Left),
                         Encoding.UTF8));
@@ -125,7 +125,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             if (argument.Key == name &&
                 argument.Value.Value is string value)
+            {
                 return value;
+            }
         }
 
         return null;
@@ -148,8 +150,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
                 FindProperty(graph.ChildType, graph.ForeignKey);
 
             // LookupForeignKey est utilisé uniquement pour cache.Find.
-            // En l'absence de configuration explicite, on tente de déduire
-            // une clé étrangère conventionnelle.
+            // Sans configuration explicite, on tente de déduire la FK.
             var lookupForeignKey =
                 FindProperty(graph.ChildType, graph.LookupForeignKey)
                 ?? (graph.LookupForeignKey is null
@@ -409,6 +410,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         sb.AppendLine("        return entityGraph;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
+
     }
 
     // ---------------------------------------------------------------------
@@ -421,7 +423,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
     {
         if (relation.ChildKey is null ||
             relation.ForeignKey is null)
+        {
             return;
+        }
 
         var child = TypeName(relation.ChildType);
         var childKeyType = TypeName(relation.ChildKey.Type);
@@ -587,7 +591,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
     }
 
     // ---------------------------------------------------------------------
-    // Extensions DI
+    // Extensions DI : une seule méthode Add{Entity}Services
     // ---------------------------------------------------------------------
 
     private static void AppendDiExtensions(
@@ -601,17 +605,16 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         string serviceInterface)
     {
         var serviceCollection = FindType(compilation, "IServiceCollection");
-        var magicStore = FindType(compilation, "MagicOnionEntityStore");
-        var dommelStore = FindType(compilation, "DommelEntityStore");
-        var serviceBase = FindType(compilation, "EntityGraphService", 2);
+        var entityStore = FindType(compilation, "IEntityStore");
 
         if (serviceCollection is null ||
-            magicStore is null ||
-            dommelStore is null ||
-            serviceBase is null)
+            entityStore is null)
+        {
             return;
+        }
 
         var collectionType = TypeName(serviceCollection);
+        var entityStoreType = TypeName(entityStore);
         var parentName = info.ParentType.Name;
 
         sb.AppendLine();
@@ -620,60 +623,27 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .AppendLine("ServiceCollectionExtensions");
         sb.AppendLine("{");
 
-        AppendRegistration(
-            sb,
-            "AddRemote" + parentName + "Services",
-            collectionType,
-            graphType,
-            graphName,
-            graphInterface,
-            serviceName,
-            serviceInterface,
-            TypeName(magicStore),
-            true);
-
-        AppendRegistration(
-            sb,
-            "AddLocal" + parentName + "Services",
-            collectionType,
-            graphType,
-            graphName,
-            graphInterface,
-            serviceName,
-            serviceInterface,
-            TypeName(dommelStore),
-            false);
-
-        sb.AppendLine("}");
-    }
-
-    private static void AppendRegistration(
-        StringBuilder sb,
-        string methodName,
-        string collectionType,
-        string graphType,
-        string graphName,
-        string graphInterface,
-        string serviceName,
-        string serviceInterface,
-        string storeType,
-        bool childrenSavedByServer)
-    {
         sb.Append("    public static ")
             .Append(collectionType)
-            .Append(' ')
-            .Append(methodName)
-            .Append("(this ")
+            .Append(" Add")
+            .Append(parentName)
+            .Append("Contracts(this ")
             .Append(collectionType)
-            .AppendLine(" services)");
+            .AppendLine(" services, bool childrenSavedByServer = false)");
         sb.AppendLine("    {");
 
+        sb.AppendLine(
+            "        global::System.ArgumentNullException.ThrowIfNull(services);");
+        sb.AppendLine();
+
+        // Enregistrement de l'interface et de l'implémentation du graphe.
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(graphInterface)
             .Append(", ")
             .Append(graphName)
             .AppendLine(">(services);");
 
+        // Enregistrement du graphe EntityGraph.
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(graphType)
             .Append(">(services, sp => ")
@@ -682,6 +652,8 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .Append(graphInterface)
             .AppendLine(">(sp)));");
 
+        // Enregistrement du service : la résolution du store passe
+        // exclusivement par IEntityStore.
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(serviceInterface)
             .Append(">(services, sp => new ")
@@ -689,19 +661,20 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .AppendLine("(");
 
         sb.Append("            () => global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<")
-            .Append(storeType)
+            .Append(entityStoreType)
             .AppendLine(">(sp),");
 
         sb.Append("            global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<")
             .Append(graphType)
             .AppendLine(">(sp),");
 
-        sb.Append("            childrenSavedByServer: ")
-            .Append(childrenSavedByServer ? "true" : "false")
-            .AppendLine("));");
+        sb.AppendLine("            childrenSavedByServer));");
 
+        sb.AppendLine();
         sb.AppendLine("        return services;");
         sb.AppendLine("    }");
+        sb.AppendLine("}");
+
     }
 
     // ---------------------------------------------------------------------
@@ -752,7 +725,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             {
                 if (type.Name == name &&
                     (!arity.HasValue || type.Arity == arity.Value))
+                {
                     return type;
+                }
 
                 var nested = FindNestedType(type, name, arity);
 
@@ -783,7 +758,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             if (nested.Name == name &&
                 (!arity.HasValue || nested.Arity == arity.Value))
+            {
                 return nested;
+            }
 
             var found = FindNestedType(nested, name, arity);
 
