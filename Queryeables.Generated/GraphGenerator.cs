@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -44,7 +45,6 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
                     group.ToImmutableArray());
 
                 spc.AddSource(
-                    //Sanitize(parentType) + ".EntityGraph.g.cs",
                     parentType.Name + ".Contracts.g.cs",
                     SourceText.From(
                         GenerateFile(info, source.Left),
@@ -66,10 +66,11 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         if (property.ContainingType is not INamedTypeSymbol parentType)
             return null;
 
-        var childType = GetCollectionElementType(property.Type);
-
-        if (childType is not INamedTypeSymbol child)
+        if (GetCollectionElementType(property.Type)
+            is not INamedTypeSymbol childType)
+        {
             return null;
+        }
 
         var attribute = context.Attributes.FirstOrDefault();
 
@@ -79,7 +80,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         return new GraphInfo(
             parentType,
             property,
-            child,
+            childType,
             GetNamedString(attribute, "ParentNavigation"),
             GetNamedString(attribute, "LookupNavigation"),
             GetNamedString(attribute, "ForeignKey"),
@@ -95,7 +96,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             if (candidate is not INamedTypeSymbol named ||
                 named.TypeArguments.Length != 1)
+            {
                 continue;
+            }
 
             if (named.OriginalDefinition.SpecialType ==
                 SpecialType.System_Collections_Generic_IEnumerable_T)
@@ -145,12 +148,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             var childKey = FindKeyProperty(graph.ChildType);
 
-            // ForeignKey est réservé à EntityGraph.HasMany.
             var foreignKey =
                 FindProperty(graph.ChildType, graph.ForeignKey);
 
-            // LookupForeignKey est utilisé uniquement pour cache.Find.
-            // Sans configuration explicite, on tente de déduire la FK.
             var lookupForeignKey =
                 FindProperty(graph.ChildType, graph.LookupForeignKey)
                 ?? (graph.LookupForeignKey is null
@@ -176,10 +176,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
                 lookupNavigation);
         }).ToImmutableArray();
 
-        return new EntityInfo(
-            parentType,
-            parentKey,
-            relations);
+        return new EntityInfo(parentType, parentKey, relations);
     }
 
     private static IPropertySymbol? FindProperty(
@@ -232,6 +229,67 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
     }
 
     // ---------------------------------------------------------------------
+    // Détection des parents de navigation distincts
+    // ---------------------------------------------------------------------
+
+    private static INamedTypeSymbol? GetRelationParentType(
+        RelationInfo relation)
+    {
+        return relation.ParentNavigation?.Type as INamedTypeSymbol;
+    }
+
+    private static bool HasDifferentParent(
+        RelationInfo relation,
+        INamedTypeSymbol parentType)
+    {
+        var relationParentType = GetRelationParentType(relation);
+
+        return relationParentType is not null &&
+               !SymbolEqualityComparer.Default.Equals(
+                   relationParentType,
+                   parentType);
+    }
+
+    private static ImmutableArray<INamedTypeSymbol> GetDistinctRelationParents(
+        EntityInfo info)
+    {
+        var result = ImmutableArray.CreateBuilder<INamedTypeSymbol>();
+
+        foreach (var relation in info.Relations)
+        {
+            if (!HasDifferentParent(relation, info.ParentType))
+                continue;
+
+            var relationParentType = GetRelationParentType(relation);
+
+            if (relationParentType is null)
+                continue;
+
+            if (result.Any(existing =>
+                    SymbolEqualityComparer.Default.Equals(
+                        existing,
+                        relationParentType)))
+            {
+                continue;
+            }
+
+            result.Add(relationParentType);
+        }
+
+        return result.ToImmutable();
+    }
+
+    private static string GetCacheParameterName(INamedTypeSymbol type)
+    {
+        var name = type.Name;
+
+        if (name.Length == 0)
+            return "relationCache";
+
+        return char.ToLowerInvariant(name[0]) + name.Substring(1) + "Cache";
+    }
+
+    // ---------------------------------------------------------------------
     // Génération du fichier
     // ---------------------------------------------------------------------
 
@@ -248,21 +306,16 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         var serviceName = parentName + "Service";
         var serviceInterface = "I" + serviceName;
 
-        var graphType =
-            $"{Abstraction}.EntityGraph<{parent}, {key}>";
+        var graphType = $"{Abstraction}.EntityGraph<{parent}, {key}>";
 
         var ns = info.ParentType.ContainingNamespace.IsGlobalNamespace
             ? null
             : info.ParentType.ContainingNamespace.ToDisplayString();
 
-        var cacheType = FindType(compilation, "IEntityCache", 2);
-
-        if (cacheType is null)
-        {
-            throw new InvalidOperationException(
+        var cacheType = FindType(compilation, "IEntityCache", 2)
+            ?? throw new InvalidOperationException(
                 "Impossible de trouver IEntityCache<T, TKey>. " +
                 "Vérifie son namespace et les références du projet.");
-        }
 
         var cacheTypeName = TypeNameWithoutTypeArguments(cacheType);
 
@@ -282,11 +335,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             sb.Append("namespace ").Append(ns).AppendLine(";");
         }
 
-        AppendGraphInterface(
-            sb,
-            info,
-            parent,
-            graphInterface);
+        AppendGraphInterface(sb, info, parent, graphInterface);
 
         AppendGraphClass(
             sb,
@@ -316,7 +365,8 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             graphName,
             graphInterface,
             serviceName,
-            serviceInterface);
+            serviceInterface,
+            cacheTypeName);
 
         return sb.ToString();
     }
@@ -339,12 +389,24 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
 
         foreach (var relation in info.Relations)
         {
+            var childType = TypeName(relation.ChildType);
+            var attachMethod = EscapeIdentifier(relation.Collection.Name);
+
             sb.Append("    void Attach")
-                .Append(relation.Collection.Name)
+                .Append(attachMethod)
                 .Append('(')
                 .Append(parent)
-                .Append(" person, global::System.Collections.Generic.IEnumerable<")
-                .Append(TypeName(relation.ChildType))
+                .Append(" current");
+
+            if (HasDifferentParent(relation, info.ParentType))
+            {
+                sb.Append(", ")
+                    .Append(TypeName(GetRelationParentType(relation)!))
+                    .Append(" parent");
+            }
+
+            sb.Append(", global::System.Collections.Generic.IEnumerable<")
+                .Append(childType)
                 .AppendLine("> children);");
         }
 
@@ -382,7 +444,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
 
         foreach (var relation in info.Relations)
         {
-            AppendAttachMethod(sb, parent, relation);
+            AppendAttachMethod(sb, info, parent, relation);
             sb.AppendLine();
         }
 
@@ -390,7 +452,42 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .Append(graphType)
             .Append(" Create(")
             .Append(graphInterface)
-            .AppendLine("? graph = null)");
+            .AppendLine("? graph = null,");
+
+        var relationParents = GetDistinctRelationParents(info);
+
+        for (var i = 0; i < relationParents.Length; i++)
+        {
+            var relationParent = relationParents[i];
+            var relationParentKey = FindKeyProperty(relationParent)
+                ?? throw new InvalidOperationException(
+                    $"La clé de '{relationParent.ToDisplayString()}' est introuvable.");
+
+            sb.Append("        ")
+                .Append(cacheTypeName)
+                .Append('<')
+                .Append(TypeName(relationParent))
+                .Append(", ")
+                .Append(TypeName(relationParentKey.Type))
+                .Append(">? ")
+                .Append(GetCacheParameterName(relationParent))
+                .Append(" = null");
+
+            sb.AppendLine(i == relationParents.Length - 1 ? ")" : ",");
+        }
+
+        if (relationParents.Length == 0)
+        {
+            // La déclaration de graph est déjà terminée par la virgule
+            // ci-dessus. Retirer cette virgule dans le cas sans cache.
+            var signature = sb.ToString();
+            var marker = graphInterface + "? graph = null,\n)";
+            sb.Clear();
+            sb.Append(signature.Replace(
+                marker,
+                graphInterface + "? graph = null)"));
+        }
+
         sb.AppendLine("    {");
 
         sb.Append("        var entityGraph = ")
@@ -404,80 +501,148 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .AppendLine(");");
 
         foreach (var relation in info.Relations)
-            AppendHasMany(sb, relation);
+            AppendHasMany(sb, info, relation, parent);
 
         sb.AppendLine();
         sb.AppendLine("        return entityGraph;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
-
     }
 
     // ---------------------------------------------------------------------
-    // HasMany : utilise ForeignKey, par exemple IdContact
+    // HasMany
+    //
+    // Parent identique :
+    //   ForeignKey désigne la FK du propriétaire de la collection.
+    //
+    // Parent distinct :
+    //   LookupForeignKey désigne la FK du propriétaire de la collection.
+    //   ForeignKey désigne la FK vers le parent de navigation.
     // ---------------------------------------------------------------------
 
     private static void AppendHasMany(
         StringBuilder sb,
-        RelationInfo relation)
+        EntityInfo info,
+        RelationInfo relation,
+        string parent)
     {
-        if (relation.ChildKey is null ||
-            relation.ForeignKey is null)
+        if (relation.ChildKey is null)
         {
+            throw new InvalidOperationException(
+                $"La clé de '{relation.ChildType.Name}' est introuvable.");
+        }
+
+        var differentParent = HasDifferentParent(relation, info.ParentType);
+
+        var collectionForeignKey = differentParent
+            ? relation.LookupForeignKey
+            : relation.ForeignKey;
+
+        if (collectionForeignKey is null)
+        {
+            throw new InvalidOperationException(
+                $"La clé étrangère du propriétaire de la collection " +
+                $"'{relation.Collection.Name}' est introuvable. " +
+                $"Vérifie ForeignKey et LookupForeignKey.");
+        }
+
+        var childType = TypeName(relation.ChildType);
+        var childKeyType = TypeName(relation.ChildKey.Type);
+
+        var collectionName = EscapeIdentifier(relation.Collection.Name);
+        var foreignKeyName = EscapeIdentifier(collectionForeignKey.Name);
+        var childKeyName = EscapeIdentifier(relation.ChildKey.Name);
+        var attachMethod = EscapeIdentifier(relation.Collection.Name);
+
+        if (!differentParent)
+        {
+            sb.AppendLine(
+$"        entityGraph.HasMany<{childType}, {childKeyType}, {TypeName(relation.ParentNavigation?.Type ?? throw new InvalidOperationException())}>("); 
+            sb.AppendLine($"            p => p.{collectionName},");
+            sb.AppendLine($"            c => c.{foreignKeyName},");
+            sb.AppendLine($"            c => c.{childKeyName},");
+            sb.AppendLine($"            relationParent: null,");  
+            sb.AppendLine(
+                $"            onLoaded: graph is null ? null : (current, unused, children) => graph.Attach{attachMethod}(current, children));");
+            sb.AppendLine();
             return;
         }
 
-        var child = TypeName(relation.ChildType);
-        var childKeyType = TypeName(relation.ChildKey.Type);
+        var relationParentType = GetRelationParentType(relation)!;
 
+        if (relation.ForeignKey is null)
+        {
+            throw new InvalidOperationException(
+                $"ForeignKey est introuvable pour la navigation " +
+                $"'{relation.Collection.Name}' vers " +
+                $"'{relationParentType.ToDisplayString()}'.");
+        }
+
+        var relationParentKeyName =
+            EscapeIdentifier(relation.ForeignKey.Name);
+
+        var relationParentTypeName = TypeName(relationParentType);
+        var cacheName = GetCacheParameterName(relationParentType);
+
+        sb.AppendLine(
+            $"        entityGraph.HasMany<{childType}, {childKeyType}, {relationParentTypeName}>(");
+        sb.AppendLine($"            p => p.{collectionName},");
+        sb.AppendLine($"            c => c.{foreignKeyName},");
+        sb.AppendLine($"            c => c.{childKeyName},");
+        sb.AppendLine(
+            $"            relationParent: c => {cacheName} is null");
+        sb.AppendLine(
+            $"                ? throw new global::System.InvalidOperationException(\"Missing cache for relation parent {relationParentType.Name}.\")");
+        sb.AppendLine(
+            $"                : {cacheName}.Find(c.{relationParentKeyName}),");
+        sb.AppendLine(
+            $"            onLoaded: graph is null ? null : (current, relationParent, children) => graph.Attach{attachMethod}(current, relationParent, children));");
         sb.AppendLine();
-        sb.Append("        entityGraph.HasMany<")
-            .Append(child)
-            .Append(", ")
-            .Append(childKeyType)
-            .AppendLine(">(");
-
-        sb.Append("            p => p.")
-            .Append(EscapeIdentifier(relation.Collection.Name))
-            .AppendLine(",");
-
-        sb.Append("            c => c.")
-            .Append(EscapeIdentifier(relation.ForeignKey.Name))
-            .AppendLine(",");
-
-        sb.Append("            c => c.")
-            .Append(EscapeIdentifier(relation.ChildKey.Name))
-            .AppendLine(",");
-
-        sb.Append("            onLoaded: graph is null ? null : ")
-            .Append("(person, children) => graph.Attach")
-            .Append(relation.Collection.Name)
-            .AppendLine("(person, children));");
     }
 
     // ---------------------------------------------------------------------
-    // Attach : LookupForeignKey est utilisé pour cache.Find
+    // Attach
     // ---------------------------------------------------------------------
 
     private static void AppendAttachMethod(
         StringBuilder sb,
+        EntityInfo info,
         string parent,
         RelationInfo relation)
     {
         var child = TypeName(relation.ChildType);
+        var differentParent = HasDifferentParent(relation, info.ParentType);
+
+        var relationParentType = differentParent
+            ? TypeName(GetRelationParentType(relation)!)
+            : parent;
+
+        var attachMethod = EscapeIdentifier(relation.Collection.Name);
 
         sb.Append("    public void Attach")
-            .Append(relation.Collection.Name)
+            .Append(attachMethod)
             .Append('(')
             .Append(parent)
-            .Append(" person, global::System.Collections.Generic.IEnumerable<")
+            .Append(" current");
+
+        if (differentParent)
+        {
+            sb.Append(", ")
+                .Append(relationParentType)
+                .Append(" parent");
+        }
+
+        sb.Append(", global::System.Collections.Generic.IEnumerable<")
             .Append(child)
             .AppendLine("> children)");
 
         sb.AppendLine("    {");
-        sb.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(person);");
-        sb.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(children);");
+        sb.AppendLine(
+            "        global::System.ArgumentNullException.ThrowIfNull(current);");
+        sb.AppendLine(
+            "        global::System.ArgumentNullException.ThrowIfNull(children);");
         sb.AppendLine();
+
         sb.AppendLine("        foreach (var child in children)");
         sb.AppendLine("        {");
 
@@ -500,7 +665,9 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             sb.Append("            child.")
                 .Append(EscapeIdentifier(relation.ParentNavigation.Name))
-                .AppendLine(" = person;");
+                .Append(" = ")
+                .Append(differentParent ? "parent" : "current")
+                .AppendLine(";");
         }
 
         sb.AppendLine("        }");
@@ -543,10 +710,11 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         foreach (var relation in info.Relations)
         {
             sb.Append("    global::System.Threading.Tasks.Task Load")
-                .Append(relation.Collection.Name)
+                .Append(EscapeIdentifier(relation.Collection.Name))
                 .Append("Async(")
                 .Append(parent)
-                .AppendLine(" entity, global::System.Threading.CancellationToken ct = default);");
+                .AppendLine(
+                    " entity, global::System.Threading.CancellationToken ct = default);");
         }
 
         sb.AppendLine("}");
@@ -580,10 +748,11 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         {
             sb.AppendLine();
             sb.Append("    public global::System.Threading.Tasks.Task Load")
-                .Append(relation.Collection.Name)
+                .Append(EscapeIdentifier(relation.Collection.Name))
                 .Append("Async(")
                 .Append(parent)
-                .AppendLine(" entity, global::System.Threading.CancellationToken ct = default)");
+                .AppendLine(
+                    " entity, global::System.Threading.CancellationToken ct = default)");
             sb.AppendLine("        => LoadChildrenAsync(entity, ct);");
         }
 
@@ -591,7 +760,7 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
     }
 
     // ---------------------------------------------------------------------
-    // Extensions DI : une seule méthode Add{Entity}Services
+    // Extensions DI
     // ---------------------------------------------------------------------
 
     private static void AppendDiExtensions(
@@ -602,16 +771,14 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
         string graphName,
         string graphInterface,
         string serviceName,
-        string serviceInterface)
+        string serviceInterface,
+        string cacheTypeName)
     {
         var serviceCollection = FindType(compilation, "IServiceCollection");
         var entityStore = FindType(compilation, "IEntityStore");
 
-        if (serviceCollection is null ||
-            entityStore is null)
-        {
+        if (serviceCollection is null || entityStore is null)
             return;
-        }
 
         var collectionType = TypeName(serviceCollection);
         var entityStoreType = TypeName(entityStore);
@@ -636,24 +803,41 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             "        global::System.ArgumentNullException.ThrowIfNull(services);");
         sb.AppendLine();
 
-        // Enregistrement de l'interface et de l'implémentation du graphe.
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(graphInterface)
             .Append(", ")
             .Append(graphName)
             .AppendLine(">(services);");
 
-        // Enregistrement du graphe EntityGraph.
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(graphType)
             .Append(">(services, sp => ")
             .Append(graphName)
-            .Append(".Create(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<")
-            .Append(graphInterface)
-            .AppendLine(">(sp)));");
+            .Append(".Create(");
 
-        // Enregistrement du service : la résolution du store passe
-        // exclusivement par IEntityStore.
+        var createArguments = new List<string>
+        {
+            "global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<"
+            + graphInterface + ">(sp)"
+        };
+
+        foreach (var relationParent in GetDistinctRelationParents(info))
+        {
+            var relationParentKey = FindKeyProperty(relationParent)
+                ?? throw new InvalidOperationException(
+                    $"La clé de '{relationParent.ToDisplayString()}' est introuvable.");
+
+            createArguments.Add(
+                "global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<"
+                + cacheTypeName + "<"
+                + TypeName(relationParent) + ", "
+                + TypeName(relationParentKey.Type)
+                + ">>(sp)");
+        }
+
+        sb.Append(string.Join(", ", createArguments));
+        sb.AppendLine("));");
+
         sb.Append("        global::Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<")
             .Append(serviceInterface)
             .Append(">(services, sp => new ")
@@ -669,12 +853,10 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
             .AppendLine(">(sp),");
 
         sb.AppendLine("            childrenSavedByServer));");
-
         sb.AppendLine();
         sb.AppendLine("        return services;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
-
     }
 
     // ---------------------------------------------------------------------
@@ -787,12 +969,6 @@ public sealed class EntityGraphGenerator : IIncrementalGenerator
 
         return prefix + type.Name;
     }
-
-    private static string Sanitize(INamedTypeSymbol type) =>
-        string.Join(
-            "_",
-            type.ToDisplayString()
-                .Select(c => char.IsLetterOrDigit(c) ? c : '_'));
 
     private static string EscapeIdentifier(string identifier) =>
         SyntaxFacts.GetKeywordKind(identifier) != SyntaxKind.None
