@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿namespace Queryeables.Abstraction;
 
-namespace Queryeables.Abstraction;
-
-public class EntityCacheAttribute : Attribute
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public sealed class EntityCacheAttribute : Attribute
 {
 }
