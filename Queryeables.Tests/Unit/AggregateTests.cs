@@ -22,7 +22,7 @@ public class AggregateTests
     private readonly MemoryDatabase _database = new();
     private readonly List<AggregatePerson> _loadedFor = [];
 
-    private Aggregate<AggregatePerson, long> Persons() => Aggregate.For<AggregatePerson, long>(p => p.Id)
+    private EntityGraph<AggregatePerson, long> Persons() => EntityGraph.For<AggregatePerson, long>(p => p.Id)
         .HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id,
             onLoaded: (person, contacts) =>
             {
@@ -31,7 +31,7 @@ public class AggregateTests
                     contact.Owner = person;
             });
 
-    private AggregateService<AggregatePerson, long> Service(bool childrenSavedByServer = false)
+    private EntityGraphService<AggregatePerson, long> Service(bool childrenSavedByServer = false)
         => new(() => new MemoryStore(_database), Persons(), childrenSavedByServer);
 
     private static AggregatePerson Ana() => new()
@@ -155,7 +155,7 @@ public class AggregateTests
     [Fact]
     public void Relations_must_target_writable_properties()
     {
-        var aggregate = Aggregate.For<AggregatePerson, long>(p => p.Id);
+        var aggregate = EntityGraph.For<AggregatePerson, long>(p => p.Id);
 
         Assert.Throws<ArgumentException>(() =>
             aggregate.HasMany(p => p.Contacts.Where(c => c.Id > 0), c => c.PersonId, c => c.Id));

@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq.Expressions;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 
 namespace Queryeables.Abstraction;
 
@@ -81,11 +77,11 @@ public interface IEntityStore : IAsyncDisposable
 }
 
 /// <summary>
-/// Transaction of an <see cref="IEntityStore"/>. Commit and rollback do not throw: they return a <see cref="DBResult"/>
+/// Transaction of an <see cref="IEntityStore"/>. Commit and rollback do not throw: they return a <see cref="DbResult"/>
 /// (a remote commit, for example, can fail on a conflict or a validation error).
 /// </summary>
 public interface IEntityTransaction : IAsyncDisposable
 {
-    Task<DBResult> CommitAsync(CancellationToken ct = default);
-    Task<DBResult> RollbackAsync(CancellationToken ct = default);
+    Task<DbResult> CommitAsync(CancellationToken ct = default);
+    Task<DbResult> RollbackAsync(CancellationToken ct = default);
 }

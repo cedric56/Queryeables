@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Ready-made <see cref="IDbTransaction{TEntity}"/> for an <see cref="Aggregate{TParent, TKey}"/>: saves and removes
+/// Ready-made <see cref="IDbTransaction{TEntity}"/> for an <see cref="EntityGraph{TParent, TKey}"/>: saves and removes
 /// the parent with its children in one transaction, and loads the children. Works with any store: Dommel, EF Core,
 /// or a remote MagicOnion store.
 /// </summary>
@@ -22,35 +22,35 @@ namespace Queryeables.Abstraction;
 /// }
 /// </code>
 /// </example>
-public class AggregateService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
+public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
     Func<IEntityStore> storeFactory,
-    Aggregate<TParent, TKey> aggregate,
+    EntityGraph<TParent, TKey> aggregate,
     bool childrenSavedByServer = false) : IDbTransaction<TParent>
     where TParent : class
     where TKey : notnull
 {
     private readonly Func<IEntityStore> _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
 
-    public Aggregate<TParent, TKey> Aggregate { get; } = aggregate ?? throw new ArgumentNullException(nameof(aggregate));
+    public EntityGraph<TParent, TKey> Aggregate { get; } = aggregate ?? throw new ArgumentNullException(nameof(aggregate));
 
-    public virtual async Task<DBResult> SaveAsync(TParent entity, CancellationToken ct = default)
+    public virtual async Task<DbResult> SaveAsync(TParent entity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
 
         if (childrenSavedByServer)
-            return await DBResult.RunAsync(() => store.SaveAsync(entity, Aggregate.IsNew, ct));
+            return await DbResult.RunAsync(() => store.SaveAsync(entity, Aggregate.IsNew, ct));
 
         return await store.RunInTransactionAsync(s => Aggregate.SaveAsync(s, entity, ct), ct);
     }
 
-    public virtual async Task<DBResult> RemoveAsync(TParent entity, CancellationToken ct = default)
+    public virtual async Task<DbResult> RemoveAsync(TParent entity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
 
         if (childrenSavedByServer)
-            return await DBResult.RunAsync(async () =>
+            return await DbResult.RunAsync(async () =>
             {
                 if (!await store.DeleteAsync(entity, ct))
                     throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} not found: nothing was deleted.");
@@ -59,7 +59,7 @@ public class AggregateService<[DynamicallyAccessedMembers(EntityMembers.Required
         return await store.RunInTransactionAsync(s => Aggregate.RemoveAsync(s, entity, ct), ct);
     }
 
-    /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="Aggregate{TParent, TKey}.LoadAsync"/>).</summary>
+    /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="EntityGraph{TParent, TKey}.LoadAsync"/>).</summary>
     public virtual async Task LoadChildrenAsync(TParent entity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);

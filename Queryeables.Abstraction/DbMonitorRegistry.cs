@@ -39,9 +39,9 @@ public sealed class DbMonitorRegistry
 
     /// <summary>Overload for a numeric key, for example the SQLite rowid.</summary>
     public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
-        => Publish(type, table, RecordKey.Format(rowId), connectionId);
+        => Publish(type, table, DbRecordKey.Format(rowId), connectionId);
 
     /// <summary>Overload for any key (Guid, string, tuple for a composite key...).</summary>
     public void Publish<TKey>(ChangeType type, string table, TKey key, string? connectionId = null) where TKey : notnull
-        => Publish(type, table, RecordKey.Format(key), connectionId);
+        => Publish(type, table, DbRecordKey.Format(key), connectionId);
 }

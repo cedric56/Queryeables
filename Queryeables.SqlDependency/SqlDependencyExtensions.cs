@@ -50,7 +50,7 @@ public static class SqlDependencyExtensions
                 if (!Enum.TryParse<ChangeType>(e.ChangeType.ToString(), out var type) || type == ChangeType.None)
                     return;
 
-                monitor.Publish(new Record<TObject>(RecordKey.Format(getKey(e.Entity)), type, []));
+                monitor.Publish(new DbRecord<TObject>(DbRecordKey.Format(getKey(e.Entity)), type, []));
             }
             catch (Exception ex)
             {

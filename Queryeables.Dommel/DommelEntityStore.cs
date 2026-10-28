@@ -1,14 +1,9 @@
 using Dommel;
 using Queryeables.Abstraction;
-using System;
-using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 
 namespace Queryeables.Dommel;
 
@@ -190,8 +185,8 @@ public sealed class DommelEntityStore : IEntityStore
             _inner = inner;
         }
 
-        public Task<DBResult> CommitAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.CommitAsync(ct));
-        public Task<DBResult> RollbackAsync(CancellationToken ct = default) => DBResult.RunAsync(() => _inner.RollbackAsync(ct));
+        public Task<DbResult> CommitAsync(CancellationToken ct = default) => DbResult.RunAsync(() => _inner.CommitAsync(ct));
+        public Task<DbResult> RollbackAsync(CancellationToken ct = default) => DbResult.RunAsync(() => _inner.RollbackAsync(ct));
 
         public async ValueTask DisposeAsync()
         {

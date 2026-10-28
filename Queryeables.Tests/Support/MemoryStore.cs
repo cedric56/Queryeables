@@ -98,18 +98,18 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     {
         private bool _done;
 
-        public Task<DBResult> CommitAsync(CancellationToken ct = default)
+        public Task<DbResult> CommitAsync(CancellationToken ct = default)
         {
             _done = true;
             store._snapshot = null;
             store._database.Log.Add("COMMIT");
-            return Task.FromResult(DBResult.Success());
+            return Task.FromResult(DbResult.Success());
         }
 
-        public Task<DBResult> RollbackAsync(CancellationToken ct = default)
+        public Task<DbResult> RollbackAsync(CancellationToken ct = default)
         {
             Restore();
-            return Task.FromResult(DBResult.Success());
+            return Task.FromResult(DbResult.Success());
         }
 
         public ValueTask DisposeAsync()

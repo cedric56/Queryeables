@@ -18,7 +18,7 @@ relays those changes to connected clients over MagicOnion or SignalR.
 - [Getting started](#getting-started)
 - [Core concepts](#core-concepts)
   - [IEntityStore](#ientitystore)
-  - [Transactions and DBResult](#transactions-and-dbresult)
+  - [Transactions and DbResult](#transactions-and-dbresult)
   - [Aggregates](#aggregates)
   - [Sync conventions](#sync-conventions)
   - [Change notifications and EntityCache](#change-notifications-and-entitycache)
@@ -32,7 +32,7 @@ relays those changes to connected clients over MagicOnion or SignalR.
 
 - **One store API**: async CRUD, filtering, paging, counting and transactions, identical for Dommel, EF Core and a
   remote server. Every implementation passes the same contract test suite.
-- **Transactions that report their outcome**: `RunInTransactionAsync` returns a `DBResult` with an error kind
+- **Transactions that report their outcome**: `RunInTransactionAsync` returns a `DbResult` with an error kind
   (`Validation`, `Conflict`, `NotFound`, `Forbidden`...) instead of throwing.
 - **Aggregates**: describe a parent and its children once; save, remove and load them together with any store.
 - **Sync conventions**: `[LastModified]`, `[SoftDelete]` and optimistic concurrency with `[ConcurrencyCheck]`.
@@ -48,7 +48,7 @@ relays those changes to connected clients over MagicOnion or SignalR.
 
 | Project | Purpose | Main dependency |
 |---|---|---|
-| `Queryeables.Abstraction` | `IEntityStore`, `DBResult`, aggregates, `EntityCache`, monitors, sync conventions | none |
+| `Queryeables.Abstraction` | `IEntityStore`, `DbResult`, aggregates, `EntityCache`, monitors, sync conventions | none |
 | `Queryeables.Dommel` | `DommelEntityStore`, connection factory, SQL logging, DI registration | Dommel |
 | `Queryeables.EntityFramework` | `EfEntityStore` | EF Core (relational) |
 | `Queryeables.Sqlite` | SQLite connection factory that reports every modified row | Microsoft.Data.Sqlite |
@@ -121,10 +121,10 @@ Helpers: `GetAsync` (throws `NotFound` instead of returning null), `InsertManyAs
 `DeleteManyAsync`, `SyncChildrenAsync`. To add a store for another framework, implement `IEntityStore` and derive a
 test class from `EntityStoreContractTests`.
 
-### Transactions and DBResult
+### Transactions and DbResult
 
 ```csharp
-DBResult result = await store.RunInTransactionAsync(async s =>
+DbResult result = await store.RunInTransactionAsync(async s =>
 {
     await s.UpdateAsync(order);
     await s.SyncChildrenAsync(previousLines, order.Lines, l => l.Id == 0, (a, b) => a.Id == b.Id);
@@ -135,13 +135,13 @@ if (!result.Successful)
 ```
 
 The transaction is committed when the work succeeds, rolled back otherwise. Exceptions thrown inside the work and
-failed commits become a failed `DBResult`; cancellation still throws. `RunInTransactionAsync<T>` returns a value
-(`DBResult<T>`), and `.OrThrow()` turns a failure back into an `EntityStoreException`.
+failed commits become a failed `DbResult`; cancellation still throws. `RunInTransactionAsync<T>` returns a value
+(`DbResult<T>`), and `.OrThrow()` turns a failure back into an `EntityStoreException`.
 
 Application services that save and remove an entity implement `IDbTransaction<T>`:
 
 ```csharp
-public interface IPersonService : IDbTransaction<Person>   // SaveAsync / RemoveAsync returning DBResult
+public interface IPersonService : IDbTransaction<Person>   // SaveAsync / RemoveAsync returning DbResult
 {
     Task LoadContactsAsync(Person person, CancellationToken ct = default);
 }

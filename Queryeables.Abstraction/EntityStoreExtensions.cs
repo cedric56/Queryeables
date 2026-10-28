@@ -9,7 +9,7 @@ public static class EntityStoreExtensions
     /// <summary>
     /// Runs <paramref name="work"/> in a transaction: committed if everything succeeds, rolled back otherwise.
     /// Never throws (except on cancellation): an exception thrown by <paramref name="work"/>, or a failed commit,
-    /// is returned as a failed <see cref="DBResult"/>.
+    /// is returned as a failed <see cref="DbResult"/>.
     /// </summary>
     /// <example>
     /// <code>
@@ -22,7 +22,7 @@ public static class EntityStoreExtensions
     /// if (!result.Successful) ...
     /// </code>
     /// </example>
-    public static async Task<DBResult> RunInTransactionAsync(this IEntityStore store,
+    public static async Task<DbResult> RunInTransactionAsync(this IEntityStore store,
         Func<IEntityStore, Task> work, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(work);
@@ -37,7 +37,7 @@ public static class EntityStoreExtensions
     /// Like <see cref="RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
     /// and returns the value produced by <paramref name="work"/> once the transaction is committed.
     /// </summary>
-    public static async Task<DBResult<T>> RunInTransactionAsync<T>(this IEntityStore store,
+    public static async Task<DbResult<T>> RunInTransactionAsync<T>(this IEntityStore store,
         Func<IEntityStore, Task<T>> work, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -50,7 +50,7 @@ public static class EntityStoreExtensions
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return DBResult.FromException(ex).As<T>();
+            return DbResult.FromException(ex).As<T>();
         }
 
         // Without a successful CommitAsync, disposing the transaction rolls it back.
@@ -63,11 +63,11 @@ public static class EntityStoreExtensions
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return DBResult.FromException(ex).As<T>();
+                return DbResult.FromException(ex).As<T>();
             }
 
             var commit = await transaction.CommitAsync(ct);
-            return commit.Successful ? DBResult.Success(value) : commit.As<T>();
+            return commit.Successful ? DbResult.Success(value) : commit.As<T>();
         }
     }
 
@@ -156,7 +156,7 @@ public static class EntityStoreExtensions
     }
 
     /// <summary>Inserts all entities in a single transaction (a single call with the remote store).</summary>
-    public static Task<DBResult> InsertManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+    public static Task<DbResult> InsertManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
         CancellationToken ct = default) where TEntity : class
         => store.ForEachInTransactionAsync(entities, async (s, e) => { await s.InsertAsync(e, ct); }, ct);
 
@@ -164,7 +164,7 @@ public static class EntityStoreExtensions
     /// Updates all entities in a single transaction. If a row no longer exists, nothing is applied
     /// (NotFound failure).
     /// </summary>
-    public static Task<DBResult> UpdateManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+    public static Task<DbResult> UpdateManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
         CancellationToken ct = default) where TEntity : class
         => store.ForEachInTransactionAsync(entities, async (s, e) =>
         {
@@ -176,7 +176,7 @@ public static class EntityStoreExtensions
     /// Deletes all entities in a single transaction. If a row no longer exists, nothing is deleted
     /// (NotFound failure).
     /// </summary>
-    public static Task<DBResult> DeleteManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+    public static Task<DbResult> DeleteManyAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
         CancellationToken ct = default) where TEntity : class
         => store.ForEachInTransactionAsync(entities, async (s, e) =>
         {
@@ -184,14 +184,14 @@ public static class EntityStoreExtensions
                 throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found: nothing was deleted.");
         }, ct);
 
-    private static Task<DBResult> ForEachInTransactionAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
+    private static Task<DbResult> ForEachInTransactionAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store, IEnumerable<TEntity> entities,
         Func<IEntityStore, TEntity, Task> action, CancellationToken ct) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(entities);
         var list = entities.ToList();
         if (list.Count == 0)
-            return Task.FromResult(DBResult.Success());
+            return Task.FromResult(DbResult.Success());
 
         return store.RunInTransactionAsync(async s =>
         {

@@ -7,7 +7,7 @@ public class RecordKeyTests
     public enum Kind { A, B }
 
     private static void AssertRoundTrip<TKey>(TKey key) where TKey : notnull
-        => Assert.Equal(key, RecordKey.Parse<TKey>(RecordKey.Format(key)));
+        => Assert.Equal(key, DbRecordKey.Parse<TKey>(DbRecordKey.Format(key)));
 
     [Fact] public void Long() => AssertRoundTrip(42L);
     [Fact] public void Negative_int() => AssertRoundTrip(-7);
@@ -21,16 +21,16 @@ public class RecordKeyTests
 
     [Fact]
     public void Long_is_formatted_without_culture()
-        => Assert.Equal("1234567", RecordKey.Format(1234567L));
+        => Assert.Equal("1234567", DbRecordKey.Format(1234567L));
 
     [Fact]
     public void Wrong_number_of_parts_is_rejected()
-        => Assert.Throws<FormatException>(() => RecordKey.Parse<(int, int)>("1"));
+        => Assert.Throws<FormatException>(() => DbRecordKey.Parse<(int, int)>("1"));
 
     [Fact]
     public void Record_from_rowid_uses_the_same_format()
     {
-        var record = new Record<TestClient>(42L, ChangeType.Update);
-        Assert.Equal(42L, RecordKey.Parse<long>(record.EntityKey));
+        var record = new DbRecord<TestClient>(42L, ChangeType.Update);
+        Assert.Equal(42L, DbRecordKey.Parse<long>(record.EntityKey));
     }
 }

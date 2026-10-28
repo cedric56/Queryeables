@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The "Routeables" package, packed from Routeables.Core.csproj (dotnet pack Routeables.Core). It is written by hand because it holds
+  the assemblies of seven projects and the dependencies of those projects are not packages.
+  When a PackageReference of one of them changes, change the dependencies below.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Queryeables.Abstraction</id>
+    <version>$version$</version>
+    <authors>Cedric</authors>
+    <description>Testing purpose</description>
+    <!--
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/cedric56/Routeables</projectUrl>
+    <repository type="git" url="https://github.com/cedric56/Routeables.git" />
+    <copyright>Copyright (c) 2026 Cedric</copyright>
+    <tags>routing mvvm viewmodel blazor maui avalonia uno wpf</tags>
+    <readme>README.md</readme>
+    <icon>icon.png</icon>
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="Microsoft.Extensions.DependencyInjection" version="10.0.13" />
+        <dependency id="Microsoft.Extensions.DependencyInjection.Abstractions" version="10.0.13" />
+      </group>
+    </dependencies>-->
+  </metadata>
+  <files>
+    <file src="bin/$configuration$/net10.0/Queryeables.Abstraction.dll"
+       target="lib/net10.0" />
+
+    <!-- The source generator: an analyzer, it adds nothing to the references of the project. -->
+    <file src="../Queryeables.Generated/bin/$configuration$/netstandard2.0/Queryeables.Generated.dll" target="analyzers/dotnet/cs" />
+
+  </files>
+</package>

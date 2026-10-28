@@ -224,11 +224,11 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     {
         public List<string> Calls { get; } = [];
 
-        public async Task<DBResult> SaveAsync(TestClient entity, CancellationToken ct = default)
+        public async Task<DbResult> SaveAsync(TestClient entity, CancellationToken ct = default)
         {
             Calls.Add($"SAVE {entity.Name}");
             if (fail)
-                return DBResult.Failure(EntityErrorCode.Conflict, "conflit");
+                return DbResult.Failure(EntityErrorCode.Conflict, "conflit");
 
             await using var store = storeFactory();
             return await store.RunInTransactionAsync(async s =>
@@ -238,7 +238,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             }, ct);
         }
 
-        public async Task<DBResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
+        public async Task<DbResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
         {
             Calls.Add($"REMOVE {entity.Name}");
             await using var store = storeFactory();

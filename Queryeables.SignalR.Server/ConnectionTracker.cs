@@ -27,7 +27,7 @@ public sealed class ConnectionTracker<TObject>(
             logger?.LogInformation("Client disconnected: {ConnectionId}", connectionId);
     }
 
-    protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+    protected override Task SendAsync(DbRecord<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
         logger?.LogDebug("Broadcasting {Record}", record);
         return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRRecord.From(record), ct);

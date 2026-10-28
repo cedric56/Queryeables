@@ -75,7 +75,7 @@ public class RemoteContractTests
     [Fact]
     public void DBResult_survives_the_wire_form()
     {
-        var original = DBResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
+        var original = DbResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
 
         var back = DBResultMessage.From(original).ToDBResult();
 
@@ -83,7 +83,7 @@ public class RemoteContractTests
         Assert.Equal(EntityErrorCode.Conflict, back.ErrorCode);
         Assert.Equal("changed in the meantime", back.Exception);
         Assert.Equal(new[] { "v1" }, back.Errors);
-        Assert.True(DBResultMessage.From(DBResult.Success()).ToDBResult().Successful);
+        Assert.True(DBResultMessage.From(DbResult.Success()).ToDBResult().Successful);
     }
 
     [Fact]

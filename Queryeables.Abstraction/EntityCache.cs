@@ -65,7 +65,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <param name="key">Entity key, for example <c>c => c.Id</c>.</param>
     /// <param name="monitor">Optional source of change notifications.</param>
     /// <param name="parseKey">
-    /// Reads back the key of a <see cref="Record{T}"/> (<see cref="Record{T}.EntityKey"/>), for row-by-row updates.
+    /// Reads back the key of a <see cref="DbRecord{T}"/> (<see cref="DbRecord{T}.EntityKey"/>), for row-by-row updates.
     /// Usually <c>RecordKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
     /// with SQLite, the rowid is the key only for an <c>INTEGER PRIMARY KEY</c> table.
     /// When absent, each change triggers a synchronization (or a full reload without [LastModified]).
@@ -220,7 +220,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     // ---------- Monitor notifications ----------
 
     // async void is required by the event signature: no exception may escape.
-    private async void OnRecordChanged(object? sender, Record<TEntity> record)
+    private async void OnRecordChanged(object? sender, DbRecord<TEntity> record)
     {
         if (_disposed) return;
         try
@@ -233,7 +233,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         }
     }
 
-    private async Task ApplyAsync(Record<TEntity> record)
+    private async Task ApplyAsync(DbRecord<TEntity> record)
     {
         if (record.ChangeType == ChangeType.None)
             return;

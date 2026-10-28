@@ -22,7 +22,7 @@ namespace Queryeables.Onion;
 /// </para>
 /// <para>
 /// <b>Errors:</b> reads and writes throw <see cref="EntityStoreException"/>; a transaction commit returns a
-/// <see cref="DBResult"/>. Both carry the kind of error (permissions, validation, conflict...).
+/// <see cref="DbResult"/>. Both carry the kind of error (permissions, validation, conflict...).
 /// </para>
 /// </summary>
 /// <example>
@@ -134,14 +134,14 @@ public sealed class MagicOnionEntityStore(
         return true;
     }
 
-    private async Task<DBResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
+    private async Task<DbResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
     {
         if (!ReferenceEquals(_transaction, transaction))
-            return DBResult.Failure(EntityErrorCode.InvalidRequest, "This transaction is no longer active.");
+            return DbResult.Failure(EntityErrorCode.InvalidRequest, "This transaction is no longer active.");
         _transaction = null;
 
         if (transaction.Operations.Count == 0)
-            return DBResult.Success();
+            return DbResult.Success();
 
         var operations = transaction.Operations.Select(o => o.Operation).ToArray();
         DBResultMessage response;
@@ -151,7 +151,7 @@ public sealed class MagicOnionEntityStore(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return DBResult.FromException(ex);
+            return DbResult.FromException(ex);
         }
 
         if (!response.Successful)
@@ -164,7 +164,7 @@ public sealed class MagicOnionEntityStore(
         // Generated keys and new versions copied back into the original entities.
         for (var i = 0; i < Math.Min(results.Length, transaction.Operations.Count); i++)
             transaction.Operations[i].ApplyResult(results[i]);
-        return DBResult.Success();
+        return DbResult.Success();
     }
 
     private void Abandon(RemoteTransaction transaction)
@@ -180,19 +180,19 @@ public sealed class MagicOnionEntityStore(
 
         public void Add(BatchOperation operation, Action<byte[]> applyResult) => Operations.Add((operation, applyResult));
 
-        public Task<DBResult> CommitAsync(CancellationToken ct = default)
+        public Task<DbResult> CommitAsync(CancellationToken ct = default)
         {
             if (_done)
-                return Task.FromResult(DBResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished."));
+                return Task.FromResult(DbResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished."));
             _done = true;
             return store.CommitAsync(this, ct);
         }
 
-        public Task<DBResult> RollbackAsync(CancellationToken ct = default)
+        public Task<DbResult> RollbackAsync(CancellationToken ct = default)
         {
             _done = true;
             store.Abandon(this); // nothing was sent: forgetting the writes is enough
-            return Task.FromResult(DBResult.Success());
+            return Task.FromResult(DbResult.Success());
         }
 
         public ValueTask DisposeAsync()

@@ -18,7 +18,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     private readonly IDbMonitor<TObject> _monitor;
     private readonly DbMonitorRegistry? _registry;
 
-    private readonly Channel<Record<TObject>> _queue = Channel.CreateUnbounded<Record<TObject>>(
+    private readonly Channel<DbRecord<TObject>> _queue = Channel.CreateUnbounded<DbRecord<TObject>>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false, AllowSynchronousContinuations = false });
 
     private readonly CancellationTokenSource _disposeCts = new();
@@ -58,7 +58,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     }
 
     /// <summary>Queues a change for broadcasting (for example a change reported by a client).</summary>
-    public void Relay(Record<TObject> record)
+    public void Relay(DbRecord<TObject> record)
     {
         ArgumentNullException.ThrowIfNull(record);
         if (Volatile.Read(ref _disposed) != 0)
@@ -69,14 +69,14 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     }
 
     /// <summary>Sends the change to every client except <paramref name="excludedConnections"/>.</summary>
-    protected abstract Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct);
+    protected abstract Task SendAsync(DbRecord<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct);
 
     /// <summary>Called when a broadcast fails; broadcasting of the following changes goes on.</summary>
     protected virtual void OnError(Exception exception)
     {
     }
 
-    private void OnRecordChanged(object? sender, Record<TObject> record) => Relay(record);
+    private void OnRecordChanged(object? sender, DbRecord<TObject> record) => Relay(record);
 
     private async Task ProcessAsync(CancellationToken ct)
     {

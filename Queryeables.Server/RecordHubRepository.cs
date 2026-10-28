@@ -32,9 +32,9 @@ public sealed class RecordHubRepository<TObject>(
     }
 
     /// <summary>Broadcasts a change reported by a client.</summary>
-    public void Raise(Record<TObject> record) => Relay(record);
+    public void Raise(DbRecord<TObject> record) => Relay(record);
 
-    protected override Task SendAsync(Record<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+    protected override Task SendAsync(DbRecord<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
         // Ids that are not MagicOnion connections (SignalR session...) are ignored.
         var excluded = excludedConnections

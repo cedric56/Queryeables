@@ -4,7 +4,7 @@ namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Transactional save and removal of an aggregate (an entity with its children), for application services.
-/// Each call runs in its own transaction and reports its outcome as a <see cref="DBResult"/> instead of throwing.
+/// Each call runs in its own transaction and reports its outcome as a <see cref="DbResult"/> instead of throwing.
 /// </summary>
 /// <remarks>
 /// Not to be confused with <see cref="System.Data.IDbTransaction"/>: this generic interface describes a service,
@@ -20,7 +20,7 @@ namespace Queryeables.Abstraction;
 ///
 /// public sealed class PersonService(DbProviderFactory factory) : IPersonService
 /// {
-///     public async Task&lt;DBResult&gt; SaveAsync(Person person, CancellationToken ct = default)
+///     public async Task&lt;DbResult&gt; SaveAsync(Person person, CancellationToken ct = default)
 ///     {
 ///         await using var store = DommelEntityStore.Create(factory);
 ///         return await store.RunInTransactionAsync(async s =>
@@ -37,8 +37,8 @@ namespace Queryeables.Abstraction;
 public interface IDbTransaction<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity> where TEntity : class
 {
     /// <summary>Inserts or updates <paramref name="entity"/> (and its children) in a single transaction.</summary>
-    Task<DBResult> SaveAsync(TEntity entity, CancellationToken ct = default);
+    Task<DbResult> SaveAsync(TEntity entity, CancellationToken ct = default);
 
     /// <summary>Removes <paramref name="entity"/> (and its children) in a single transaction.</summary>
-    Task<DBResult> RemoveAsync(TEntity entity, CancellationToken ct = default);
+    Task<DbResult> RemoveAsync(TEntity entity, CancellationToken ct = default);
 }

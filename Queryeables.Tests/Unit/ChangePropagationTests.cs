@@ -10,11 +10,11 @@ public class ChangePropagationTests
     public void Relay_publishes_changes_from_other_clients()
     {
         var monitor = new DbMonitor<TestClient>();
-        var received = new List<Record<TestClient>>();
+        var received = new List<DbRecord<TestClient>>();
         monitor.RecordChanged += (_, r) => received.Add(r);
         using var relay = new ChangeRelay<TestClient>(monitor, () => "moi");
 
-        relay.Receive(new Record<TestClient>(1L, ChangeType.Update, ["autre"]));
+        relay.Receive(new DbRecord<TestClient>(1L, ChangeType.Update, ["autre"]));
 
         Assert.Single(received);
     }
@@ -27,7 +27,7 @@ public class ChangePropagationTests
         monitor.RecordChanged += (_, _) => received++;
         using var relay = new ChangeRelay<TestClient>(monitor, () => "moi");
 
-        relay.Receive(new Record<TestClient>(1L, ChangeType.Update, ["moi"]));
+        relay.Receive(new DbRecord<TestClient>(1L, ChangeType.Update, ["moi"]));
 
         Assert.Equal(0, received);
     }
@@ -36,10 +36,10 @@ public class ChangePropagationTests
     public async Task Relay_sends_local_changes_with_its_id()
     {
         var monitor = new DbMonitor<TestClient>();
-        var sent = new TaskCompletionSource<Record<TestClient>>();
+        var sent = new TaskCompletionSource<DbRecord<TestClient>>();
         using var relay = new ChangeRelay<TestClient>(monitor, () => "moi", r => { sent.TrySetResult(r); return Task.CompletedTask; });
 
-        monitor.Publish(new Record<TestClient>(1L, ChangeType.Insert));
+        monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Insert));
 
         var record = await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(record.Contains("moi"));
@@ -52,7 +52,7 @@ public class ChangePropagationTests
         var sent = 0;
         using var relay = new ChangeRelay<TestClient>(monitor, () => "moi", _ => { sent++; return Task.CompletedTask; });
 
-        relay.Receive(new Record<TestClient>(1L, ChangeType.Update, ["autre"]));
+        relay.Receive(new DbRecord<TestClient>(1L, ChangeType.Update, ["autre"]));
 
         Assert.Equal(0, sent);
     }
@@ -64,7 +64,7 @@ public class ChangePropagationTests
         var sent = 0;
         using var relay = new ChangeRelay<TestClient>(monitor, () => null, _ => { sent++; return Task.CompletedTask; });
 
-        monitor.Publish(new Record<TestClient>(1L, ChangeType.Insert));
+        monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Insert));
 
         Assert.Equal(0, sent);
     }
@@ -77,7 +77,7 @@ public class ChangePropagationTests
         public List<(string Key, string[] Excluded)> Sent { get; } = [];
         public TaskCompletionSource FirstSend { get; } = new();
 
-        protected override Task SendAsync(Record<TestClient> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+        protected override Task SendAsync(DbRecord<TestClient> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
         {
             lock (Sent)
                 Sent.Add((record.EntityKey, excludedConnections.ToArray()));
@@ -120,7 +120,7 @@ public class ChangePropagationTests
         var broadcaster = new RecordingBroadcaster(monitor);
 
         for (var i = 1; i <= 50; i++)
-            broadcaster.Relay(new Record<TestClient>(i, ChangeType.Update));
+            broadcaster.Relay(new DbRecord<TestClient>(i, ChangeType.Update));
         broadcaster.Dispose();
 
         Assert.Equal(Enumerable.Range(1, 50).Select(i => i.ToString()), broadcaster.Sent.Select(s => s.Key));

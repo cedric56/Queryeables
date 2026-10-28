@@ -14,10 +14,10 @@ namespace Queryeables.Abstraction;
 /// var result = await store.RunInTransactionAsync(s => persons.SaveAsync(s, person));
 /// </code>
 /// </example>
-public static class Aggregate
+public static class EntityGraph
 {
     /// <param name="key">Primary key of the parent. A parent whose key has its default value (0, Guid.Empty, null) is new.</param>
-    public static Aggregate<TParent, TKey> For<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
+    public static EntityGraph<TParent, TKey> For<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
         Expression<Func<TParent, TKey>> key)
         where TParent : class
         where TKey : notnull
@@ -37,16 +37,16 @@ public static class Aggregate
 /// </list>
 /// Save and remove must run in a transaction, for example inside
 /// <see cref="EntityStoreExtensions.RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
-/// or through <see cref="AggregateService{TParent, TKey}"/>.
+/// or through <see cref="EntityGraphService{TParent, TKey}"/>.
 /// </remarks>
-public sealed class Aggregate<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>
+public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>
     where TParent : class
     where TKey : notnull
 {
     private readonly Func<TParent, TKey> _key;
     private readonly List<IRelation> _relations = [];
 
-    internal Aggregate(Expression<Func<TParent, TKey>> key)
+    internal EntityGraph(Expression<Func<TParent, TKey>> key)
     {
         ArgumentNullException.ThrowIfNull(key);
         _key = key.Compile();
@@ -63,7 +63,7 @@ public sealed class Aggregate<[DynamicallyAccessedMembers(EntityMembers.Required
     /// <param name="foreignKey">Child property holding the parent's key, for example <c>c => c.IdPerson</c>. It must be writable.</param>
     /// <param name="key">Primary key of the child: a default value means a new child; equal keys mean the same row.</param>
     /// <param name="onLoaded">Called after <see cref="LoadAsync"/> with the loaded children, for example to set navigation properties.</param>
-    public Aggregate<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
+    public EntityGraph<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
         Expression<Func<TParent, IEnumerable<TChild>?>> children,
         Expression<Func<TChild, TKey>> foreignKey,
         Expression<Func<TChild, TChildKey>> key,

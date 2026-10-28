@@ -13,7 +13,7 @@ namespace Queryeables.Onion;
 public sealed partial class RecordHubReceiver<TObject>(
     IDbMonitor<TObject> monitor,
     IDbSession session,
-    Func<Record<TObject>, Task>? send = null,
+    Func<DbRecord<TObject>, Task>? send = null,
     Action<Exception>? onError = null)
     : IRecordHubReceiver<TObject>, IDisposable where TObject : class
 {

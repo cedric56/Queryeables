@@ -128,7 +128,7 @@ public class SyncAndCoalescingTests
         var refreshes = 0;
         cache.EntitiesChanged += (_, _) => Interlocked.Increment(ref refreshes);
         for (var i = 0; i < 20; i++)
-            monitor.Publish(new Record<TestClient>(1L, ChangeType.Update));
+            monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Update));
 
         await Task.Delay(600);
 
@@ -147,11 +147,11 @@ public class SyncAndCoalescingTests
             var store = new InMemoryEntityStore(rows) { Delay = TimeSpan.FromMilliseconds(100) };
             lock (stores) stores.Add(store);
             return store;
-        }, c => c.Id, monitor, RecordKey.Parse<long>);
+        }, c => c.Id, monitor, DbRecordKey.Parse<long>);
         await cache.LoadAsync();
 
         for (var i = 0; i < 20; i++)
-            monitor.Publish(new Record<TestClient>(1L, ChangeType.Update));
+            monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Update));
         await Task.Delay(600);
 
         int rowReads;

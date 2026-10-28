@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Text representation of an entity key, carried by <see cref="Record{T}"/>:
+/// Text representation of an entity key, carried by <see cref="DbRecord{T}"/>:
 /// works for any key type (long, int, Guid, string, enum, date) and for composite keys as tuples.
 /// </summary>
 /// <example>
@@ -16,7 +16,7 @@ namespace Queryeables.Abstraction;
 /// RecordKey.Parse&lt;(int, int)&gt;(text);       // (7, 2)
 /// </code>
 /// </example>
-public static class RecordKey
+public static class DbRecordKey
 {
     // Separator of the parts of a composite key: a control character, absent from ordinary values.
     private const char Separator = '\u001F';
