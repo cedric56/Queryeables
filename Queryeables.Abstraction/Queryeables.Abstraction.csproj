@@ -8,6 +8,7 @@
     <NuspecFile>Queryeables.nuspec</NuspecFile>
     <NuspecProperties>version=$(Version);configuration=$(Configuration)</NuspecProperties>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -15,6 +16,12 @@
     <IncludeSource>false</IncludeSource>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Include="README.md"
+          Pack="true"
+          PackagePath="\" />
+  </ItemGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Generated\Queryeables.Generated.csproj" ReferenceOutputAssembly="false"/>
   </ItemGroup>
