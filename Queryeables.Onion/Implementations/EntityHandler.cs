@@ -56,7 +56,7 @@ public abstract class EntityHandler
 /// Access policy and validation still apply. Such a type cannot be part of a batch, since the service opens its
 /// own transaction.
 /// </param>
-public sealed class EntityHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
+public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(
     Func<IEntityStore> storeFactory,
     IEntityAccessPolicy policy,
     MessagePackSerializerOptions? options = null,

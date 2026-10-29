@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.SignalR;
 
@@ -20,7 +21,9 @@ public static class SignalRExtensions
     /// When the server is unreachable at startup, the method does not throw:
     /// it retries in the background according to <paramref name="retryPolicy"/>.
     /// </remarks>
-    public static async Task<Func<Task>> AddSignalR<TObject>(
+    [RequiresUnreferencedCode(
+    "This SignalR configuration uses APIs that may not be compatible with trimming.")]
+    public static async Task<Func<Task>> AddSignalR<[DynamicallyAccessedMembers(EntityMembers.Required)] TObject>(
         this IDbMonitor<TObject> monitor,
         string url,
         IDbSession session,

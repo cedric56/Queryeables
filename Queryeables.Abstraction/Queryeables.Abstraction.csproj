@@ -7,7 +7,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <NuspecFile>Queryeables.nuspec</NuspecFile>
     <NuspecProperties>version=$(Version);configuration=$(Configuration)</NuspecProperties>
-
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup>
