@@ -21,7 +21,7 @@ public class Person
     public string Name { get; set; } = "";
 
     [EntityGraph(ParentNavigation = nameof(Contact.Owner))]   // saved, removed and loaded with the person
-    public List<Contact> Contacts { get; set; } = [];
+    public List<Contact>? Contacts { get; set; }          // null = not loaded: saving leaves the contacts alone
 }
 
 public class Contact
@@ -91,15 +91,19 @@ public class Person
                  ParentNavigation = nameof(Contact.Owner),         // set to the parent after loading
                  LookupNavigation = nameof(Contact.Person),        // set to the entity found in its cache
                  LookupForeignKey = nameof(Contact.IdPerson))]     // by default Id{Navigation} or {Navigation}Id
-    public List<Contact> Contacts { get; set; } = [];
+    public List<Contact>? Contacts { get; set; }
 }
 ```
+
+A null collection means "not loaded": `SaveAsync` leaves the stored children alone. An empty list means "no children": they
+are deleted. Do not initialize the collection (`= []`): a person read from a cache would then delete its contacts when
+saved. An existing child sent with another parent's key is rejected (Conflict), so that a client cannot move it.
 
 `AddGeneratedEntities()` registers:
 
 | Service | What it does |
 | --- | --- |
-| `IPersonService` (also `IDbTransaction<Person>`) | `SaveAsync`: inserts or updates the person, writes its key into the contacts, then deletes, inserts and updates contacts to match the list, in one transaction. `RemoveAsync`: the contacts, then the person. `LoadContactsAsync`: reads the contacts and sets their navigation properties. |
+| `IPersonService` (also `IDbTransaction<Person>`) | `SaveAsync`: inserts or updates the person, writes its key into the contacts, then deletes, inserts and updates contacts to match the list, in one transaction (a null list is left alone). `RemoveAsync`: the contacts, then the person. `LoadContactsAsync`: reads the contacts only and sets their navigation properties; `LoadChildrenAsync` reads every collection. |
 | `IPersonGraph` | Sets the navigation properties; it receives the cache of each looked-up type. |
 | `IEntityCache<T, TKey>` | For every `[EntityCache]` type and every looked-up type. |
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage;
 using Queryeables.Abstraction;
 using System;
@@ -13,7 +14,9 @@ namespace Queryeables.EntityFramework;
 
 /// <summary>
 /// EF Core implementation of IEntityStore.
-/// Behavior aligned with Dommel: no-tracking reads, every write is saved immediately.
+/// Behavior aligned with Dommel: no-tracking reads, every write is saved immediately, and a write only concerns the
+/// entity itself (and its owned types), never the entities it references: children and navigation properties are
+/// written by their own calls, like <see cref="EntityGraph{TParent, TKey}"/> does.
 /// </summary>
 public sealed class EfEntityStore : IEntityStore
 {
@@ -61,18 +64,19 @@ public sealed class EfEntityStore : IEntityStore
     public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        _context.Add(entity);
-        await SaveAndDetachAsync(entity, ct); // EF fills in the generated key
+        var entries = Attach(entity, EntityState.Added);
+        await SaveAndDetachAsync(entries, ct); // EF fills in the generated key
     }
 
     /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
     public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        var entry = _context.Update(entity);
+        var entries = Attach(entity, EntityState.Modified);
+        var entry = entries[0];
 
         if (ConcurrencyToken.Find(typeof(TEntity)) is not { } version)
-            return await SaveAndDetachAsync(entity, ct) > 0;
+            return await SaveAndDetachAsync(entries, ct) > 0;
 
         // EF checks the old version (WHERE Version = ...) and saves the new one.
         var current = ConcurrencyToken.Get(entity, version);
@@ -80,7 +84,7 @@ public sealed class EfEntityStore : IEntityStore
         token.OriginalValue = ConcurrencyToken.Box(version, current);
         token.CurrentValue = ConcurrencyToken.Box(version, current + 1);
 
-        if (await SaveAndDetachAsync(entity, ct) > 0)
+        if (await SaveAndDetachAsync(entries, ct) > 0)
             return true;
 
         ConcurrencyToken.Set(entity, version, current); // the entity keeps the version it had
@@ -91,14 +95,15 @@ public sealed class EfEntityStore : IEntityStore
     public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        var entry = _context.Remove(entity);
+        var entries = Attach(entity, EntityState.Deleted);
+        var entry = entries[0];
 
         if (ConcurrencyToken.Find(typeof(TEntity)) is not { } version)
-            return await SaveAndDetachAsync(entity, ct) > 0;
+            return await SaveAndDetachAsync(entries, ct) > 0;
 
         entry.Property(version.Name).OriginalValue = ConcurrencyToken.Box(version, ConcurrencyToken.Get(entity, version));
 
-        if (await SaveAndDetachAsync(entity, ct) > 0)
+        if (await SaveAndDetachAsync(entries, ct) > 0)
             return true;
 
         return await ExistsAsync(entity, ct) ? throw ConcurrencyToken.ConflictFor(typeof(TEntity)) : false;
@@ -134,7 +139,30 @@ public sealed class EfEntityStore : IEntityStore
 
     // ---------- Internals ----------
 
-    private async Task<int> SaveAndDetachAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct) where TEntity : class
+    /// <summary>
+    /// Tracks the entity with <paramref name="state"/>, with its owned types, and nothing else. Add, Update and Remove
+    /// would walk the whole graph: a parent's children would be inserted twice, and a navigation property pointing to a
+    /// cached entity would write that entity back.
+    /// </summary>
+    private List<EntityEntry> Attach(object entity, EntityState state)
+    {
+        var entries = new List<EntityEntry>();
+        _context.ChangeTracker.TrackGraph(entity, node =>
+        {
+            // Not setting a state stops the walk at this node.
+            if (node.SourceEntry is null || node.Entry.Metadata.IsOwned())
+            {
+                node.Entry.State = state;
+                entries.Add(node.Entry);
+            }
+        });
+
+        if (entries.Count == 0)
+            throw new InvalidOperationException($"{entity.GetType().Name} is already tracked by this DbContext.");
+        return entries;
+    }
+
+    private async Task<int> SaveAndDetachAsync(List<EntityEntry> entries, CancellationToken ct)
     {
         try
         {
@@ -146,7 +174,8 @@ public sealed class EfEntityStore : IEntityStore
         }
         finally
         {
-            _context.Entry(entity).State = EntityState.Detached;
+            foreach (var entry in entries)
+                entry.State = EntityState.Detached;
         }
     }
 

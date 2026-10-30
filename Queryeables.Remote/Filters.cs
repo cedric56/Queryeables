@@ -227,10 +227,20 @@ internal static class Filters
     // Server: conditions → predicate
     // =====================================================================
 
+    /// <summary>
+    /// Most values accepted by the In operator, and most conditions in a filter. Each value becomes a node of the
+    /// expression tree and a SQL parameter: without a limit, one request could exhaust the stack of the server or exceed
+    /// the parameter limit of the database (2100 on SQL Server).
+    /// </summary>
+    public const int MaxValues = 1000;
+
     /// <summary>Builds the predicate, rejecting any condition outside the whitelist.</summary>
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
         IReadOnlyList<FilterCondition> conditions, bool any)
     {
+        if (conditions.Count > MaxValues)
+            throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
+
         var parameter = Expression.Parameter(typeof(T), "e");
         Expression? body = null;
 
@@ -269,6 +279,8 @@ internal static class Filters
                     throw new ArgumentException($"'{name}': the In operator expects a list of values.");
                 if (values.Count == 0)
                     return Expression.Constant(false); // no value: no row
+                if (values.Count > MaxValues)
+                    throw new ArgumentException($"'{name}': the In operator is limited to {MaxValues} values.");
                 Expression? anyOf = null;
                 foreach (var value in values)
                 {

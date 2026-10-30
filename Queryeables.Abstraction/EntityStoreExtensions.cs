@@ -73,7 +73,8 @@ public static class EntityStoreExtensions
 
     /// <summary>
     /// Aligns the stored children with their new list: deletes those that disappeared,
-    /// inserts the new ones and updates the others. Call it inside <see cref="RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>.
+    /// inserts the new ones and updates the others. Throws <see cref="EntityStoreException"/> (NotFound) when a child to
+    /// update no longer exists, so that the transaction is rolled back instead of losing the change. Call it inside <see cref="RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>.
     /// </summary>
     /// <param name="before">Children as they are in the database.</param>
     /// <param name="current">Children as they must be.</param>
@@ -106,8 +107,8 @@ public static class EntityStoreExtensions
         {
             if (isNew(child))
                 await store.InsertAsync(child, ct);
-            else
-                await store.UpdateAsync(child, ct);
+            else if (!await store.UpdateAsync(child, ct))
+                throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TChild).Name} not found: nothing was updated.");
         }
     }
 

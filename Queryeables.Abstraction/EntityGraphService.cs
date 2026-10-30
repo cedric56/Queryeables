@@ -68,11 +68,19 @@ public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Requir
         return await store.RunInTransactionAsync(s => Graph.RemoveAsync(s, entity, ct), ct);
     }
 
-    /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="EntityGraph{TParent, TKey}.LoadAsync"/>).</summary>
+    /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="EntityGraph{TParent, TKey}.LoadAsync(IEntityStore, TParent, CancellationToken)"/>).</summary>
     public virtual async Task LoadChildrenAsync(TParent entity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
         await Graph.LoadAsync(store, entity, ct);
+    }
+
+    /// <summary>Reads one child collection of <paramref name="entity"/>, for example <c>nameof(Person.Contacts)</c>.</summary>
+    public virtual async Task LoadChildrenAsync(TParent entity, string collection, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        await using var store = _storeFactory();
+        await Graph.LoadAsync(store, entity, collection, ct);
     }
 }

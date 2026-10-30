@@ -1,4 +1,7 @@
-﻿namespace Queryeables.Abstraction;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Reflection;
+
+namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Change monitor without an entity type: this is what the notification source sees
@@ -29,8 +32,11 @@ public interface IDbMonitor<TEntity> : IDbMonitor where TEntity : class
 /// </summary>
 public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : class
 {
-    /// <param name="table">Name of the monitored table. Defaults to the entity type name.</param>
-    public DbMonitor(string? table = null) => Table = table ?? typeof(TEntity).Name;
+    /// <param name="table">
+    /// Name of the monitored table. Defaults to the name given by [Table] on the entity type, otherwise the type name.
+    /// </param>
+    public DbMonitor(string? table = null)
+        => Table = table ?? typeof(TEntity).GetCustomAttribute<TableAttribute>()?.Name ?? typeof(TEntity).Name;
 
     /// <summary>Name of the monitored table.</summary>
     public string Table { get; }

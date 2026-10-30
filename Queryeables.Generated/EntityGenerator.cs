@@ -12,7 +12,10 @@ namespace Queryeables.Generated;
 /// <item>for each parent of an <c>[EntityGraph]</c> collection: <c>I{Parent}Graph</c> / <c>{Parent}Graph</c> (navigation
 /// properties set after loading, with the caches of the lookup navigations), and <c>I{Parent}Service</c> /
 /// <c>{Parent}Service</c> (save, remove and load the parent with its children);</item>
-/// <item><c>AddGeneratedEntities()</c> on <c>QueryeablesBuilder</c>, which registers the caches, graphs and services.</item>
+/// <item><c>AddGeneratedEntities()</c> on <c>QueryeablesBuilder</c>, which registers the caches, graphs and services of this
+/// project <b>and of the referenced projects</b>: each project with entities also gets a public module class
+/// (<c>Queryeables.Generated.Modules.*</c>) that the projects referencing it call. Entities kept in a shared library are
+/// thus registered by the client and by the server with the same single call.</item>
 /// </list>
 /// Problems are reported as diagnostics (QRY001-QRY009); the generator never throws.
 /// </summary>
@@ -80,12 +83,22 @@ public sealed class EntityGenerator : IIncrementalGenerator
             .Collect();
 
         // The registration needs Queryeables.Core (the "Queryeables" package); without it, only the classes are written.
-        var hasCore = context.CompilationProvider
-            .Select(static (compilation, _) => compilation.GetTypeByMetadataName("Queryeables.QueryeablesBuilder") is not null);
+        // Also: this assembly's module name, and the modules of the referenced assemblies.
+        var assembly = context.CompilationProvider.Select(static (compilation, _) => new AssemblyModel(
+            compilation.GetTypeByMetadataName("Queryeables.QueryeablesBuilder") is not null,
+            ModuleName(compilation.AssemblyName ?? "Assembly"),
+            new EquatableArray<string>(compilation.SourceModule.ReferencedAssemblySymbols
+                .Select(reference => (Reference: reference, Module: ModuleName(reference.Name)))
+                .Where(r => r.Reference.GetTypeByMetadataName(ModuleNamespace + "." + r.Module) is { DeclaredAccessibility: Accessibility.Public })
+                .Select(r => r.Module)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(module => module, StringComparer.Ordinal)
+                .ToArray())));
 
-        context.RegisterSourceOutput(caches.Combine(relations).Combine(hasCore), static (spc, input) =>
+        context.RegisterSourceOutput(caches.Combine(relations).Combine(assembly), static (spc, input) =>
         {
-            var ((cacheResults, relationResults), core) = input;
+            var ((cacheResults, relationResults), target) = input;
+            var core = target.HasCore;
 
             foreach (var result in cacheResults)
             {
@@ -120,7 +133,8 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 .OrderBy(c => c.TypeName, StringComparer.Ordinal)
                 .ToArray();
 
-            spc.AddSource("Queryeables.GeneratedEntities.g.cs", WriteRegistration(cacheModels, graphs));
+            var ownModule = cacheModels.Length > 0 || graphs.Length > 0 ? target.Module : null;
+            spc.AddSource("Queryeables.GeneratedEntities.g.cs", WriteRegistration(cacheModels, graphs, ownModule, target.ReferencedModules));
         });
     }
 
@@ -498,7 +512,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
         foreach (var relation in graph.Relations.Where(HasOwnLoadMethod))
         {
             sb.AppendLine();
-            sb.Append("    /// <summary>Reads the children of the entity (").Append(relation.Collection).AppendLine(" included).</summary>");
+            sb.Append("    /// <summary>Reads the ").Append(relation.Collection).AppendLine(" of the entity, and only them.</summary>");
             sb.Append("    global::System.Threading.Tasks.Task Load").Append(relation.Collection).Append("Async(").Append(parent)
               .AppendLine(" entity, global::System.Threading.CancellationToken ct = default);");
         }
@@ -517,7 +531,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
             sb.AppendLine();
             sb.Append("    public global::System.Threading.Tasks.Task Load").Append(relation.Collection).Append("Async(").Append(parent)
               .AppendLine(" entity, global::System.Threading.CancellationToken ct = default)");
-            sb.AppendLine("        => LoadChildrenAsync(entity, ct);");
+            sb.Append("        => LoadChildrenAsync(entity, \"").Append(relation.Collection).AppendLine("\", ct);");
         }
         sb.AppendLine("}");
         return sb.ToString();
@@ -527,7 +541,19 @@ public sealed class EntityGenerator : IIncrementalGenerator
     // Writing the registration
     // ---------------------------------------------------------------------
 
-    private static string WriteRegistration(CacheModel[] caches, GraphModel[] graphs)
+    private const string ModuleNamespace = "Queryeables.Generated.Modules";
+
+    /// <summary>Name of the module class of an assembly: <c>Entities_</c> and the assembly name as an identifier.</summary>
+    private static string ModuleName(string assemblyName)
+    {
+        var name = new StringBuilder("Entities_");
+        foreach (var c in assemblyName)
+            name.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
+        return name.ToString();
+    }
+
+    private static string WriteRegistration(CacheModel[] caches, GraphModel[] graphs, string? ownModule,
+        EquatableArray<string> referencedModules)
     {
         const string Di = "global::Microsoft.Extensions.DependencyInjection";
         const string Builder = "global::Queryeables.QueryeablesBuilder";
@@ -535,18 +561,44 @@ public sealed class EntityGenerator : IIncrementalGenerator
 
         sb.AppendLine("// <auto-generated />");
         sb.AppendLine("#nullable enable");
-        sb.AppendLine("namespace Queryeables.Generated;");
-        sb.AppendLine();
-        sb.AppendLine("internal static class GeneratedEntities");
+        sb.AppendLine("namespace Queryeables.Generated");
         sb.AppendLine("{");
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Registers what [EntityCache] and [EntityGraph] describe: the caches (and their monitors), the graphs and");
-        sb.AppendLine("    /// their services (<c>I{Parent}Service</c>, also registered as <c>IDbTransaction&lt;Parent&gt;</c>).");
-        sb.AppendLine("    /// </summary>");
-        sb.Append("    public static ").Append(Builder).Append(" AddGeneratedEntities(this ").Append(Builder).AppendLine(" builder)");
+        sb.AppendLine("    internal static class GeneratedEntities");
         sb.AppendLine("    {");
-        sb.AppendLine("        global::System.ArgumentNullException.ThrowIfNull(builder);");
-        sb.AppendLine("        var services = builder.Services;");
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Registers what [EntityCache] and [EntityGraph] describe, in this project and in the referenced projects:");
+        sb.AppendLine("        /// the caches (and their monitors), the graphs and their services (<c>I{Parent}Service</c>, also registered as");
+        sb.AppendLine("        /// <c>IDbTransaction&lt;Parent&gt;</c>).");
+        sb.AppendLine("        /// </summary>");
+        sb.Append("        public static ").Append(Builder).Append(" AddGeneratedEntities(this ").Append(Builder).AppendLine(" builder)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            global::System.ArgumentNullException.ThrowIfNull(builder);");
+        foreach (var module in referencedModules)
+            sb.Append("            global::").Append(ModuleNamespace).Append('.').Append(module).AppendLine(".Register(builder);");
+        if (ownModule is not null)
+            sb.Append("            global::").Append(ModuleNamespace).Append('.').Append(ownModule).AppendLine(".Register(builder);");
+        sb.AppendLine("            return builder;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        if (ownModule is null)
+            return sb.ToString();
+
+        sb.AppendLine();
+        sb.Append("namespace ").AppendLine(ModuleNamespace);
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>The entities of this project, registered by <c>AddGeneratedEntities()</c> here and in the projects that reference it.</summary>");
+        sb.AppendLine("    [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+        sb.Append("    public static class ").AppendLine(ownModule);
+        sb.AppendLine("    {");
+        sb.Append("        public static void Register(").Append(Builder).AppendLine(" builder)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            global::System.ArgumentNullException.ThrowIfNull(builder);");
+        sb.AppendLine("            var services = builder.Services;");
+        var body = new StringBuilder();
+        var outer = sb;
+        sb = body;
 
         foreach (var cache in caches)
         {
@@ -580,10 +632,19 @@ public sealed class EntityGenerator : IIncrementalGenerator
               .Append(serviceInterface).AppendLine(">(sp)));");
         }
 
-        sb.AppendLine("        return builder;");
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
-        return sb.ToString();
+        // The registrations, indented one more level inside the module.
+        foreach (var line in body.ToString().Split('\n'))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (trimmed.Length > 0)
+                outer.Append("    ").AppendLine(trimmed);
+            else
+                outer.AppendLine();
+        }
+        outer.AppendLine("        }");
+        outer.AppendLine("    }");
+        outer.AppendLine("}");
+        return outer.ToString();
     }
 
     // ---------------------------------------------------------------------

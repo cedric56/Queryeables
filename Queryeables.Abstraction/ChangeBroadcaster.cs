@@ -25,6 +25,9 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     private readonly Task _loop;
     private int _disposed;
 
+    /// <summary>How long Dispose waits for the queued changes to go out.</summary>
+    protected virtual TimeSpan DrainTimeout => TimeSpan.FromSeconds(5);
+
     /// <param name="registry">When provided, the monitor is added to it to receive the server database changes.</param>
     protected ChangeBroadcaster(IDbMonitor<TObject> monitor, DbMonitorRegistry? registry = null)
     {
@@ -121,11 +124,20 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         _monitor.RecordChanged -= OnRecordChanged;
         _registry?.Remove(_monitor);
 
-        // Nothing enters the queue anymore; what is already in it still goes out.
+        // Nothing enters the queue anymore; what is already in it still goes out, for a few seconds at most:
+        // a client that does not read must not block the shutdown of the server.
         _queue.Writer.TryComplete();
         try
         {
-            _loop.GetAwaiter().GetResult();
+            if (!_loop.Wait(DrainTimeout))
+            {
+                _disposeCts.Cancel();
+                _loop.Wait(DrainTimeout);
+            }
+        }
+        catch (AggregateException)
+        {
+            // Errors were already reported by OnError.
         }
         finally
         {

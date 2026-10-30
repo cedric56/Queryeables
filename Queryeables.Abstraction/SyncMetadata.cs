@@ -104,11 +104,11 @@ public static class SyncMetadata
 
         var lastModified = all.SingleOrDefault(p => p.GetCustomAttribute<LastModifiedAttribute>() is not null);
         if (lastModified is not null && lastModified.PropertyType != typeof(DateTime) && lastModified.PropertyType != typeof(DateTimeOffset))
-            throw new NotSupportedException($"{type.Name}.{lastModified.Name} : [LastModified] attend un DateTime ou un DateTimeOffset.");
+            throw new NotSupportedException($"{type.Name}.{lastModified.Name}: [LastModified] expects a DateTime or a DateTimeOffset.");
 
         var softDelete = all.SingleOrDefault(p => p.GetCustomAttribute<SoftDeleteAttribute>() is not null);
         if (softDelete is not null && softDelete.PropertyType != typeof(bool))
-            throw new NotSupportedException($"{type.Name}.{softDelete.Name} : [SoftDelete] attend un bool.");
+            throw new NotSupportedException($"{type.Name}.{softDelete.Name}: [SoftDelete] expects a bool.");
 
         var properties = new Properties(lastModified, softDelete);
         _cache.TryAdd(type, properties);

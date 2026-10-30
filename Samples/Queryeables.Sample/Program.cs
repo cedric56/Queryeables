@@ -41,7 +41,7 @@ Console.WriteLine($"Cache: {string.Join(", ", persons.Entities.OrderBy(p => p.Id
 // Loading sets the navigation properties: the owner, and the other person found in the cache.
 var loaded = new Person { Id = ana.Id, Name = ana.Name };
 await service.LoadContactsAsync(loaded);
-foreach (var contact in loaded.Contacts)
+foreach (var contact in loaded.Contacts ?? [])
     Console.WriteLine($"{contact.Owner} -> {contact.Kind}: {contact.Person?.Name ?? "(nobody)"}");
 
 // Removing deletes the contacts, then the person.

@@ -1,4 +1,4 @@
-﻿using MagicOnion.Server.Hubs;
+using MagicOnion.Server.Hubs;
 using Queryeables.Abstraction;
 using Queryeables.Onion;
 
@@ -12,10 +12,13 @@ public class RecordHub<TObject>(RecordHubRepository<TObject> repository) :
     StreamingHubBase<IRecordHub<TObject>, IRecordHubReceiver<TObject>>,
     IRecordHub<TObject> where TObject : class
 {
+    /// <summary>One broadcast group per entity type.</summary>
+    private static readonly string GroupName = "queryeables:" + typeof(TObject).FullName;
+
     /// <summary>Subscribes the connection to notifications and returns its id, to keep as the client-side session.</summary>
     public async Task<Guid> AddReceiverAsync()
     {
-        var group = await Group.AddAsync("customers");
+        var group = await Group.AddAsync(GroupName);
         repository.RegisterGroup(group, Context.ContextId);
         return Context.ContextId;
     }

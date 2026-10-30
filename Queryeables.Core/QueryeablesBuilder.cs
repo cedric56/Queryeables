@@ -69,6 +69,11 @@ public sealed class QueryeablesBuilder
     /// Registers the in-memory cache of <typeparamref name="TEntity"/> (<see cref="IEntityCache{TEntity, TKey}"/>), fed by the
     /// stores and kept up to date by the monitor of the type. <c>[EntityCache]</c> on the class does it for you.
     /// </summary>
+    /// <remarks>
+    /// With an integer key, each notification updates its row only: the change sources (the SQLite rowid of an
+    /// <c>INTEGER PRIMARY KEY</c> table...) report that key. With any other key, a notification synchronizes the cache
+    /// (only the changed rows with [LastModified], everything otherwise): a rowid cannot be read as a Guid or a string key.
+    /// </remarks>
     public QueryeablesBuilder AddCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(Expression<Func<TEntity, TKey>> key)
         where TEntity : class
@@ -80,7 +85,7 @@ public sealed class QueryeablesBuilder
             sp.GetRequiredService<IEntityStoreFactory>(),
             key,
             sp.GetRequiredService<IDbMonitor<TEntity>>(),
-            DbRecordKey.Parse<TKey>));
+            IsInteger(typeof(TKey)) ? DbRecordKey.Parse<TKey> : null));
         return this;
     }
 
@@ -100,6 +105,11 @@ public sealed class QueryeablesBuilder
             sp.GetRequiredService<EntityGraph<TParent, TKey>>()));
         return this;
     }
+
+    private static bool IsInteger(Type type)
+        => Type.GetTypeCode(Nullable.GetUnderlyingType(type) ?? type) is TypeCode.Int64 or TypeCode.Int32 or TypeCode.Int16
+            or TypeCode.UInt64 or TypeCode.UInt32 or TypeCode.UInt16 or TypeCode.Byte or TypeCode.SByte
+           && !type.IsEnum;
 
     /// <summary>Registers the store factory, once everything is configured.</summary>
     internal void Build()

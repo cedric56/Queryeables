@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace Queryeables;
 
@@ -30,11 +31,25 @@ public sealed class EntityServerBuilder
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(policy);
-        _handlers.Add(sp => new EntityHandler<TEntity>(
-            sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize,
-            aggregate: sp.GetService<IDbTransaction<TEntity>>()));
+        _handlers.Add(sp =>
+        {
+            var aggregate = sp.GetService<IDbTransaction<TEntity>>();
+
+            // Without its graph service, the server would save the parent and silently drop the children it received.
+            if (aggregate is null && HasEntityGraph(typeof(TEntity)))
+                throw new InvalidOperationException(
+                    $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IDbTransaction<{typeof(TEntity).Name}> is registered " +
+                    "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
+                    "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
+
+            return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate);
+        });
         return this;
     }
+
+    private static bool HasEntityGraph([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type)
+        => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Any(property => property.IsDefined(typeof(EntityGraphAttribute), inherit: true));
 
     internal EntityHandlerRegistry Build(IServiceProvider services)
     {

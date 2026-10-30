@@ -1,4 +1,5 @@
 using Queryeables.Abstraction;
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -80,8 +81,9 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
         if (Enqueue(BatchOperationKind.Insert, entity))
             return;
 
-        var data = await CallAsync(_remote.InsertAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
-        ApplyResult(data, entity); // generated key and version
+        var sent = _serializer.Serialize(entity);
+        var data = await CallAsync(_remote.InsertAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
+        ApplyResult(data, sent, entity); // generated key and version
     }
 
     public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
@@ -90,8 +92,9 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
         if (Enqueue(BatchOperationKind.Update, entity))
             return true;
 
-        var data = await CallAsync(_remote.UpdateAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
-        return ApplyResult(data, entity); // empty data: row not found
+        var sent = _serializer.Serialize(entity);
+        var data = await CallAsync(_remote.UpdateAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
+        return ApplyResult(data, sent, entity); // empty data: row not found
     }
 
     public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
@@ -129,10 +132,11 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
         if (_transaction is null)
             return false;
 
-        var operation = new BatchOperation(Name<TEntity>(), kind, _serializer.Serialize(entity), ConnectionId<TEntity>());
+        var sent = _serializer.Serialize(entity);
+        var operation = new BatchOperation(Name<TEntity>(), kind, sent, ConnectionId<TEntity>());
         Action<byte[]> applyResult = kind == BatchOperationKind.Delete
             ? _ => { }
-            : data => ApplyResult(data, entity);
+            : data => ApplyResult(data, sent, entity);
         _transaction.Add(operation, applyResult);
         return true;
     }
@@ -220,21 +224,74 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
     private IReadOnlyList<TEntity> DeserializeMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data)
         => data is { Length: > 0 } ? _serializer.Deserialize<TEntity[]>(data) ?? [] : [];
 
-    /// <summary>Copies the entity returned by the server into the caller's one. False when the server returned nothing.</summary>
-    private bool ApplyResult<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data, TEntity target) where TEntity : class
+    /// <summary>
+    /// Copies what the server wrote (generated keys, versions, dates) from the returned entity into the caller's one.
+    /// False when the server returned nothing.
+    /// </summary>
+    /// <param name="sent">The entity as sent: what the server received, to tell its changes from what the serializer drops.</param>
+    private bool ApplyResult<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data, byte[] sent, TEntity target)
+        where TEntity : class
     {
         if (data is not { Length: > 0 })
             return false;
 
-        var source = _serializer.Deserialize<TEntity>(data);
-        if (source is null)
+        var returned = _serializer.Deserialize<TEntity>(data);
+        if (returned is null)
             return false;
 
-        foreach (var property in typeof(TEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (property.CanRead && property.CanWrite && property.GetIndexParameters().Length == 0)
-                property.SetValue(target, property.GetValue(source));
-        }
+        if (_serializer.Deserialize<TEntity>(sent) is { } received)
+            CopyChanges(typeof(TEntity), returned, received, target, depth: 0);
         return true;
+    }
+
+    /// <summary>
+    /// Copies the scalar properties the server changed, comparing what it returned with what it received, and walks child
+    /// lists item by item (the server keeps their order). The caller's objects are kept: navigation properties, members
+    /// the serializer does not carry and child instances held elsewhere (a bound list...) are left as they are, and
+    /// receive the generated keys.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification =
+        "Child entities are serialized by the transport, which needs their public properties too.")]
+    private static void CopyChanges([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type,
+        object returned, object received, object target, int depth)
+    {
+        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!property.CanRead || !property.CanWrite || property.GetIndexParameters().Length != 0)
+                continue;
+
+            var value = property.GetValue(returned);
+            if (IsScalar(property.PropertyType))
+            {
+                if (!SameValue(value, property.GetValue(received)))
+                    property.SetValue(target, value);
+            }
+            else if (depth < MaxDepth
+                && value is IList returnedItems
+                && property.GetValue(received) is IList receivedItems
+                && property.GetValue(target) is IList targetItems
+                && returnedItems.Count == targetItems.Count && receivedItems.Count == targetItems.Count)
+            {
+                for (var i = 0; i < targetItems.Count; i++)
+                {
+                    if (returnedItems[i] is { } returnedItem && receivedItems[i] is { } receivedItem && targetItems[i] is { } targetItem
+                        && returnedItem.GetType() == targetItem.GetType())
+                        CopyChanges(targetItem.GetType(), returnedItem, receivedItem, targetItem, depth + 1);
+                }
+            }
+        }
+    }
+
+    private static bool SameValue(object? a, object? b)
+        => a is byte[] x && b is byte[] y ? x.AsSpan().SequenceEqual(y) : Equals(a, b);
+
+    private const int MaxDepth = 4;
+
+    private static bool IsScalar(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) || type == typeof(byte[])
+            || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) || type == typeof(Guid)
+            || type == typeof(DateOnly) || type == typeof(TimeOnly);
     }
 }

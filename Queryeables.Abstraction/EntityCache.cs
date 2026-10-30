@@ -248,13 +248,12 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         if (record.ChangeType == ChangeType.None)
             return;
 
-        if (_parseKey is null)
+        // No key, or a key of another kind (a SQLite rowid for a Guid key...): synchronize instead.
+        if (_parseKey is null || !TryParseKey(record.EntityKey, out var key))
         {
             await RefreshAllCoalescedAsync();
             return;
         }
-
-        var key = _parseKey(record.EntityKey);
 
         // This row is already waiting to be read again: the upcoming read will also see this change.
         if (!_queuedKeys.TryAdd(key, 0))
@@ -314,6 +313,25 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     }
 
     // ---------- Internals ----------
+
+    private bool TryParseKey(string? text, out TKey key)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                key = _parseKey!(text);
+                return true;
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException or NotSupportedException
+                                       or InvalidCastException)
+        {
+        }
+
+        key = default!;
+        return false;
+    }
 
     private void RaiseEntitiesChanged() => EntitiesChanged?.Invoke(this, EventArgs.Empty);
 

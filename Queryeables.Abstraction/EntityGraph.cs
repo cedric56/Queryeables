@@ -31,9 +31,10 @@ public static class EntityGraph
 /// <remarks>
 /// <list type="bullet">
 /// <item><see cref="SaveAsync"/> inserts or updates the parent, writes its key into the children's foreign key,
-/// then aligns the stored children with the collection (<see cref="EntityStoreExtensions.SyncChildrenAsync{TChild}"/>).</item>
+/// then aligns the stored children with the collection (<see cref="EntityStoreExtensions.SyncChildrenAsync{TChild}"/>).
+/// A null collection means "not loaded": the stored children are left as they are. An empty collection deletes them.</item>
 /// <item><see cref="RemoveAsync"/> deletes the children, then the parent.</item>
-/// <item><see cref="LoadAsync"/> reads the children of a parent into its collection.</item>
+/// <item><see cref="LoadAsync(IEntityStore, TParent, CancellationToken)"/> reads the children of a parent into its collection.</item>
 /// </list>
 /// Save and remove must run in a transaction, for example inside
 /// <see cref="EntityStoreExtensions.RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
@@ -63,7 +64,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <param name="foreignKey">Child property holding the parent's key, for example <c>c => c.IdPerson</c>. It must be writable.</param>
     /// <param name="key">Primary key of the child: a default value means a new child; equal keys mean the same row.</param>
     /// <param name="onLoaded">
-    /// Called after <see cref="LoadAsync"/> with the parent and its loaded children, for example to set navigation properties
+    /// Called after <see cref="LoadAsync(IEntityStore, TParent, CancellationToken)"/> with the parent and its loaded children, for example to set navigation properties
     /// (the generated <c>{Parent}Graph</c> class does it).
     /// </param>
     public EntityGraph<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
@@ -125,10 +126,24 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             await relation.LoadAsync(store, parent, isNew ? default : key, ct);
     }
 
+    /// <summary>Reads one child collection of the parent, for example <c>nameof(Person.Contacts)</c>.</summary>
+    /// <exception cref="ArgumentException">No collection of that name was declared with <see cref="HasMany"/>.</exception>
+    public Task LoadAsync(IEntityStore store, TParent parent, string collection, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(collection);
+
+        var relation = _relations.Find(r => r.Name == collection)
+            ?? throw new ArgumentException($"{typeof(TParent).Name} has no child collection named '{collection}'.", nameof(collection));
+        return relation.LoadAsync(store, parent, IsNew(parent) ? default : _key(parent), ct);
+    }
+
     private static bool IsDefault<T>(T value) => value is null || EqualityComparer<T>.Default.Equals(value, default!);
 
     private interface IRelation
     {
+        string Name { get; }
         Task SaveAsync(IEntityStore store, TParent parent, TKey key, CancellationToken ct);
         Task RemoveAsync(IEntityStore store, TKey key, CancellationToken ct);
         Task LoadAsync(IEntityStore store, TParent parent, TKey? key, CancellationToken ct);
@@ -153,20 +168,37 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             ArgumentNullException.ThrowIfNull(key);
 
             _getChildren = children.Compile();
-            _setChildren = Setter<TParent, List<TChild>>(children, nameof(children));
+            _setChildren = Setter<TParent, List<TChild>>(children, nameof(children), out var property);
+            Name = property.Name;
             _foreignKey = foreignKey;
-            _setForeignKey = Setter<TChild, TKey>(foreignKey, nameof(foreignKey));
+            _setForeignKey = Setter<TChild, TKey>(foreignKey, nameof(foreignKey), out _);
             _childKey = key.Compile();
             _onLoaded = onLoaded;
         }
 
+        public string Name { get; }
+
         public async Task SaveAsync(IEntityStore store, TParent parent, TKey key, CancellationToken ct)
         {
-            var current = _getChildren(parent)?.ToList() ?? [];
+            // Null: the children were not loaded, they stay as they are. Deleting them would lose data.
+            if (_getChildren(parent)?.ToList() is not { } current)
+                return;
+
+            var before = await store.SelectAsync(ForeignKeyEquals(key), ct);
+
+            // An existing child must already belong to this parent: otherwise the update would move a row of another
+            // parent here (a remote client could take over any child by its key).
+            var owned = before.Select(_childKey).ToHashSet();
+            foreach (var child in current)
+            {
+                if (!IsDefault(_childKey(child)) && !owned.Contains(_childKey(child)))
+                    throw new EntityStoreException(EntityErrorCode.Conflict,
+                        $"{typeof(TChild).Name} {_childKey(child)} does not belong to this {typeof(TParent).Name}.");
+            }
+
             foreach (var child in current)
                 _setForeignKey(child, key);
 
-            var before = await store.SelectAsync(ForeignKeyEquals(key), ct);
             await store.SyncChildrenAsync(before, current,
                 child => IsDefault(_childKey(child)),
                 (a, b) => EqualityComparer<TChildKey>.Default.Equals(_childKey(a), _childKey(b)),
@@ -196,7 +228,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
     }
 
     /// <summary>Compiles an assignment to the property selected by <paramref name="selector"/>.</summary>
-    private static Action<TOwner, TValue> Setter<TOwner, TValue>(LambdaExpression selector, string argument)
+    private static Action<TOwner, TValue> Setter<TOwner, TValue>(LambdaExpression selector, string argument, out PropertyInfo selected)
     {
         var body = selector.Body;
         while (body is UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } convert)
@@ -211,6 +243,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             throw new ArgumentException(
                 $"Property {property.Name} ({property.PropertyType.Name}) must accept a value of type {typeof(TValue).Name}.", argument);
 
+        selected = property;
         var owner = Expression.Parameter(typeof(TOwner), "owner");
         var value = Expression.Parameter(typeof(TValue), "value");
         var assign = Expression.Assign(Expression.Property(owner, property), Expression.Convert(value, property.PropertyType));

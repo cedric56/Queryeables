@@ -14,12 +14,13 @@ public class Person
 
     /// <summary>
     /// Saved, removed and loaded with the person. Each contact belongs to its owner (OwnerId) and points to another person
-    /// (PersonId), found in the cache of persons after loading.
+    /// (PersonId), found in the cache of persons after loading. Null until loaded: saving a person whose contacts were not
+    /// loaded leaves them as they are, while an empty list deletes them.
     /// </summary>
     [NotMapped]
     [EntityGraph(ForeignKey = nameof(Contact.OwnerId), ParentNavigation = nameof(Contact.Owner),
         LookupNavigation = nameof(Contact.Person), LookupForeignKey = nameof(Contact.PersonId))]
-    public List<Contact> Contacts { get; set; } = [];
+    public List<Contact>? Contacts { get; set; }
 
     public override string ToString() => Name;
 }

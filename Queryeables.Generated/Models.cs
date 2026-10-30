@@ -42,3 +42,6 @@ internal sealed record RelationResult(
     EquatableArray<DiagnosticInfo> Diagnostics);
 
 internal sealed record CacheResult(CacheModel? Cache, DiagnosticInfo? Diagnostic);
+
+/// <summary>What the registration needs to know about the compilation: Queryeables.Core present, module names.</summary>
+internal sealed record AssemblyModel(bool HasCore, string Module, EquatableArray<string> ReferencedModules);
