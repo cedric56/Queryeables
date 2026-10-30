@@ -40,7 +40,7 @@ public static class EntityGraph
 /// <see cref="EntityStoreExtensions.RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
 /// or through <see cref="EntityGraphService{TParent, TKey}"/>.
 /// </remarks>
-public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>
+public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey> : IEntityGraph<TParent>
     where TParent : class
     where TKey : notnull
 {

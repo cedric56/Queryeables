@@ -21,6 +21,15 @@ public enum FilterOperator
 
     /// <summary>Text that contains Value.</summary>
     Contains,
+
+    /// <summary>
+    /// Postfix node: all of the previous <c>Value</c> conditions (a number). Property is empty. A filter with such nodes is
+    /// read in postfix order and ignores <c>Any</c>.
+    /// </summary>
+    And,
+
+    /// <summary>Postfix node: one of the previous <c>Value</c> conditions (a number). See <see cref="And"/>.</summary>
+    Or,
 }
 
 /// <summary>A "property operator value" condition sent to the server.</summary>

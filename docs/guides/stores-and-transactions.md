@@ -31,8 +31,9 @@ callers.
 | `SelectChangesAsync<T>(sinceUtc)` | Rows changed since a date, soft-deleted ones included (`[LastModified]`) |
 
 Predicates stay simple so that every store understands them: comparisons, booleans, `ids.Contains(e.Id)`, and
-`StartsWith`, `EndsWith`, `Contains` on strings, all joined by `&&` or all by `||`. For joins, projections or grouping, use
-the ORM directly.
+`StartsWith`, `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!`. A `!` is pushed down to the
+terms (`!(a && b)` is sent as `!a || !b`); it cannot negate a `Contains`, a text search, or an ordering on a nullable
+property. For joins, projections, sorting or grouping, use the ORM directly.
 
 ## Writing
 

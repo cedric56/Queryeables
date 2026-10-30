@@ -7,6 +7,11 @@ using System.Linq.Expressions;
 
 namespace Queryeables.Dommel;
 
+/// <summary>
+/// <see cref="IEntityStore"/> on Dommel. Predicates are passed to Dommel with their captured variables already replaced by
+/// constants (<see cref="CapturedValues"/>): Dommel would compile a lambda per variable and per query. A predicate that
+/// compares one column with a value (a key, a foreign key) runs SQL built once per type and column.
+/// </summary>
 public sealed class DommelEntityStore : IEntityStore
 {
     private readonly DbConnection _connection;
@@ -68,7 +73,10 @@ public sealed class DommelEntityStore : IEntityStore
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
-        var result = await _connection.SelectAsync(predicate, _transaction, ct);
+        if (await EqualityQueries.SelectAsync(_connection, _transaction, predicate, ct) is { } rows)
+            return rows;
+
+        var result = await _connection.SelectAsync(CapturedValues.Inline(predicate), _transaction, ct);
         return result.AsList();
     }
 
@@ -76,7 +84,8 @@ public sealed class DommelEntityStore : IEntityStore
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
-        return await _connection.FirstOrDefaultAsync(predicate, _transaction, ct);
+        var (handled, row) = await EqualityQueries.FirstOrDefaultAsync(_connection, _transaction, predicate, ct);
+        return handled ? row : await _connection.FirstOrDefaultAsync(CapturedValues.Inline(predicate), _transaction, ct);
     }
 
     public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -85,7 +94,7 @@ public sealed class DommelEntityStore : IEntityStore
     {
         Paging.Validate(pageNumber, pageSize);
         await EnsureOpenAsync(ct);
-        var result = await _connection.SelectPagedAsync(predicate, pageNumber, pageSize, _transaction, ct);
+        var result = await _connection.SelectPagedAsync(CapturedValues.Inline(predicate), pageNumber, pageSize, _transaction, ct);
         return result.AsList();
     }
 
@@ -95,7 +104,7 @@ public sealed class DommelEntityStore : IEntityStore
         await EnsureOpenAsync(ct);
         // Dommel's CountAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
-        return await _connection.CountAsync(predicate, _transaction);
+        return await _connection.CountAsync(CapturedValues.Inline(predicate), _transaction);
     }
 
     // ---------- Write ----------
@@ -106,6 +115,7 @@ public sealed class DommelEntityStore : IEntityStore
         await EnsureOpenAsync(ct);
         var id = await _connection.InsertAsync(entity, _transaction, ct);
         AssignGeneratedKey(entity, id);
+        SignalIfCommitted();
     }
 
     /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
@@ -114,9 +124,11 @@ public sealed class DommelEntityStore : IEntityStore
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
 
-        return ConcurrencyToken.Find(typeof(TEntity)) is { } version
+        var updated = ConcurrencyToken.Find(typeof(TEntity)) is { } version
             ? await VersionedCommands.UpdateAsync(_connection, _transaction, entity, version, ct)
             : await _connection.UpdateAsync(entity, _transaction, ct);
+        SignalIfCommitted();
+        return updated;
     }
 
     /// <exception cref="EntityStoreException">Conflict when the entity has a stale version ([ConcurrencyCheck]).</exception>
@@ -125,9 +137,11 @@ public sealed class DommelEntityStore : IEntityStore
         ArgumentNullException.ThrowIfNull(entity);
         await EnsureOpenAsync(ct);
 
-        return ConcurrencyToken.Find(typeof(TEntity)) is { } version
+        var deleted = ConcurrencyToken.Find(typeof(TEntity)) is { } version
             ? await VersionedCommands.DeleteAsync(_connection, _transaction, entity, version, ct)
             : await _connection.DeleteAsync(entity, _transaction, ct);
+        SignalIfCommitted();
+        return deleted;
     }
 
     // ---------- Transactions ----------
@@ -163,6 +177,13 @@ public sealed class DommelEntityStore : IEntityStore
 
     // ---------- Internals ----------
 
+    /// <summary>Outside a transaction, each write is committed when it returns (see <see cref="CommittedWrites"/>).</summary>
+    private void SignalIfCommitted()
+    {
+        if (_transaction is null)
+            CommittedWrites.Signal(_connection);
+    }
+
     private async Task EnsureOpenAsync(CancellationToken ct)
     {
         if (_connection.State != ConnectionState.Open)
@@ -193,7 +214,11 @@ public sealed class DommelEntityStore : IEntityStore
             _inner = inner;
         }
 
-        public Task<DbResult> CommitAsync(CancellationToken ct = default) => DbResult.RunAsync(() => _inner.CommitAsync(ct));
+        public Task<DbResult> CommitAsync(CancellationToken ct = default) => DbResult.RunAsync(async () =>
+        {
+            await _inner.CommitAsync(ct);
+            CommittedWrites.Signal(_store._connection); // the changes are visible now
+        });
         public Task<DbResult> RollbackAsync(CancellationToken ct = default) => DbResult.RunAsync(() => _inner.RollbackAsync(ct));
 
         public async ValueTask DisposeAsync()

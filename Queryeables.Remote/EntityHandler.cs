@@ -1,4 +1,4 @@
-﻿using Queryeables.Abstraction;
+using Queryeables.Abstraction;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Queryeables.Remote;
@@ -51,8 +51,8 @@ public abstract class EntityHandler
 /// When provided, standalone writes go through this service instead of the store: insert and update call
 /// <see cref="IDbTransaction{TEntity}.SaveAsync"/>, delete calls <see cref="IDbTransaction{TEntity}.RemoveAsync"/>.
 /// Use it to save an entity together with its children (a person and its contacts) in one transaction.
-/// Access policy and validation still apply. Such a type cannot be part of a batch, since the service opens its
-/// own transaction.
+/// Access policy and validation still apply. In a batch, a graph service (<see cref="IEntityGraphService{TEntity}"/>) runs
+/// its graph in the batch's transaction; any other service opens its own transaction, so its type cannot be part of a batch.
 /// </param>
 public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(
     Func<IEntityStore> storeFactory,
@@ -130,11 +130,27 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     public override async Task<byte[]> WriteAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, bool requireEffect, CancellationToken ct = default)
     {
-        if (aggregate is not null)
+        if (aggregate is not null and not IEntityGraphService<T>)
             throw new EntityStoreException(EntityErrorCode.NotSupported,
                 $"{typeof(T).Name} is saved by its own transactional service: it cannot be part of a batch.");
 
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
+
+        // A graph: the parent and its children, in the batch's transaction.
+        if (aggregate is IEntityGraphService<T> { Graph: var graph })
+        {
+            using (ChangeContext.Begin(context.ConnectionId))
+            {
+                if (kind == BatchOperationKind.Delete)
+                {
+                    await graph.RemoveAsync(store, value, ct);
+                    return serializer.Serialize(true);
+                }
+
+                await graph.SaveAsync(store, value, ct);
+                return serializer.Serialize(value); // generated keys, also those of the children
+            }
+        }
 
         // The client that initiated the change is passed on to the notification source.
         using (ChangeContext.Begin(context.ConnectionId))

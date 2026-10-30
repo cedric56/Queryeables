@@ -24,7 +24,9 @@ services.UseQueryeables(q => q
 ## How changes are reported
 
 `SqliteDbFactory` installs SQLite's update, commit and rollback hooks on each connection it opens. A row changed several
-times in one transaction is reported once. The client that made the change (the remote caller on a server) travels with
+times in one transaction is reported once. The commit hook runs before the commit completes, so the changes are reported
+only when the store signals that the commit returned (`CommittedWrites`): a cache that reads the row again sees its new
+state. A commit made without the store (Dapper on the connection) is reported after `UnsignaledCommitDelay` (50 ms). The client that made the change (the remote caller on a server) travels with
 it, so that it is not notified of its own change.
 
 SQLite reports the **rowid**. It is the entity key only for an `INTEGER PRIMARY KEY` table: caches with another key type

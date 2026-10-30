@@ -18,4 +18,8 @@
     <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Queryeables.Tests" />
+  </ItemGroup>
+
 </Project>

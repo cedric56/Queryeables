@@ -34,27 +34,58 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         _notifyOnCommit = isTransaction;
     }
 
+    /// <summary>
+    /// How long a commit made outside <see cref="DommelEntityStore"/> (Dapper on the connection...) waits before its changes
+    /// are reported. Stores report theirs as soon as the commit returns (<see cref="CommittedWrites"/>).
+    /// </summary>
+    public TimeSpan UnsignaledCommitDelay { get; init; } = TimeSpan.FromMilliseconds(50);
+
     public override DbConnection CreateConnection()
     {
         var connection = base.CreateConnection();
         var sqlite = connection as SqliteConnection
             ?? (SqliteConnection)((DbLogConnection)connection).Inner;
+        var changes = new ConnectionChanges();
 
         // The connection is returned closed: hooks can only be set once the native handle is open.
         sqlite.StateChange += (_, e) =>
         {
             if (e.CurrentState == ConnectionState.Open)
-                RegisterHooks(sqlite);
+                RegisterHooks(sqlite, changes);
         };
 
+        // The commit hook runs before the commit completes: a subscriber reading the row at that moment could still see
+        // its previous state. Committed changes are reported once the store says the commit returned.
+        // Off the writer's thread: the caches that read the row again do not delay the write that triggered them.
+        CommittedWrites.OnCommitted(connection, () => _ = Task.Run(() => PublishCommitted(changes)));
         return connection;
     }
 
-    private void RegisterHooks(SqliteConnection sqlite)
+    /// <summary>The changes of one connection, waiting for their commit, then for their report.</summary>
+    private sealed class ConnectionChanges
     {
-        // Changes of this connection not reported yet (waiting for commit).
-        var pending = new List<Change>();
-        var gate = new object();
+        public readonly object Gate = new();
+        public readonly List<Change> Pending = [];
+        public readonly List<Change> Committed = [];
+    }
+
+    private void PublishCommitted(ConnectionChanges changes)
+    {
+        List<Change> committed;
+        lock (changes.Gate)
+        {
+            if (changes.Committed.Count == 0)
+                return;
+            committed = [.. changes.Committed];
+            changes.Committed.Clear();
+        }
+        Publish(committed);
+    }
+
+    private void RegisterHooks(SqliteConnection sqlite, ConnectionChanges changes)
+    {
+        var pending = changes.Pending;
+        var gate = changes.Gate;
         var db = sqlite.Handle;
         if (db is null)
             return;
@@ -78,16 +109,22 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
 
         raw.sqlite3_commit_hook(db, user_data =>
         {
-            List<Change> committed;
+            bool any;
             lock (gate)
             {
-                committed = [.. pending];
+                changes.Committed.AddRange(pending);
                 pending.Clear();
+                any = changes.Committed.Count > 0;
             }
 
-            // The hook runs before the commit completes: publish afterwards, outside the SQLite thread.
-            if (committed.Count > 0)
-                _ = Task.Run(() => Publish(committed));
+            // Reported when the store signals the end of the commit; otherwise (a commit made without the store),
+            // after a short delay, outside the SQLite thread.
+            if (any)
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(UnsignaledCommitDelay);
+                    PublishCommitted(changes);
+                });
 
             return 0; // 0 = let the commit proceed
         }, null);

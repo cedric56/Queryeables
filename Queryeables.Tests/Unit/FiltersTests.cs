@@ -75,11 +75,60 @@ public class FiltersTests
     [Fact] public void Ends_with() => AssertRoundTrip(c => c.Name.EndsWith("belle"));
     [Fact] public void Text_contains() => AssertRoundTrip(c => c.Name.Contains("o"));
 
+    // ---------- AND, OR, parentheses and NOT ----------
+
+    [Fact] public void And_of_an_or() => AssertRoundTrip(c => c.Active && (c.Name == "Bob" || c.Id == 5));
+    [Fact] public void Or_of_ands() => AssertRoundTrip(c => (c.Id == 1 && c.Active) || (c.Id == 2 && !c.Active));
+    [Fact] public void Deep_nesting() => AssertRoundTrip(c => c.Id > 0 && (c.Name == "Ana" || (c.Status == Status.Active && (c.Id == 5 || c.Id == 9))));
+    [Fact] public void Negated_and_uses_de_morgan() => AssertRoundTrip(c => !(c.Id == 1 && c.Active));
+    [Fact] public void Negated_or_uses_de_morgan() => AssertRoundTrip(c => !(c.Name == "Ana" || c.Name == "Bob"));
+    [Fact] public void Negated_comparison() => AssertRoundTrip(c => !(c.Id > 1) || c.Name == "Bob");
+    [Fact] public void Double_negation() => AssertRoundTrip(c => !!(c.Id == 2) && !(!c.Active || c.Id == 1));
+    [Fact] public void Mixed_filter_with_a_list() { long[] ids = [1, 5]; AssertRoundTrip(c => ids.Contains(c.Id) && (c.Active || c.SponsorId == 1)); }
+
+    [Fact]
+    public void A_flat_filter_keeps_the_flat_form()
+    {
+        var (conditions, any) = Filters.FromPredicate<Row>(c => c.Id == 1 || c.Id == 2);
+        Assert.Equal(2, conditions.Length);
+        Assert.True(any);
+    }
+
+    [Fact]
+    public void A_mixed_filter_is_sent_in_postfix_order()
+    {
+        var (conditions, _) = Filters.FromPredicate<Row>(c => c.Active && (c.Id == 1 || c.Id == 2));
+        Assert.Equal(new[] { FilterOperator.Equal, FilterOperator.Equal, FilterOperator.Equal, FilterOperator.Or, FilterOperator.And },
+            conditions.Select(c => c.Operator));
+    }
+
+    [Fact]
+    public void A_forged_postfix_filter_is_rejected()
+    {
+        var term = new FilterCondition("Id", FilterOperator.Equal, 1);
+        AssertServerRejects(term, new FilterCondition("", FilterOperator.And, 2));                        // one operand only
+        AssertServerRejects(term, term, term, new FilterCondition("", FilterOperator.Or, 2));             // two left over
+        AssertServerRejects(term, term, new FilterCondition("", FilterOperator.Or, "two"));               // not a number
+
+        var deep = new List<FilterCondition> { term };
+        for (var i = 0; i < 40; i++)
+            deep.AddRange([term, new FilterCondition("", FilterOperator.And, 2)]);
+        AssertServerRejects([.. deep]);                                                                    // too deep
+    }
+
     // ---------- Client-side rejection ----------
 
     [Fact]
-    public void Mixed_and_or_is_rejected()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => c.Id == 1 && (c.Name == "a" || c.Name == "b")));
+    public void Negating_a_list_or_a_text_search_is_rejected()
+    {
+        long[] ids = [1, 2];
+        Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !ids.Contains(c.Id)));
+        Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !c.Name.StartsWith("A")));
+    }
+
+    [Fact]
+    public void Negating_an_ordering_on_a_nullable_is_rejected()
+        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !(c.SponsorId > 0)));
 
     [Fact]
     public void Comparing_two_properties_is_rejected()

@@ -1,4 +1,4 @@
-﻿using MagicOnion;
+using MagicOnion;
 using Queryeables.Remote;
 
 namespace Queryeables.Onion;
@@ -9,7 +9,8 @@ namespace Queryeables.Onion;
 /// the client uses it through <see cref="MagicOnionRemote"/> and <see cref="RemoteEntityStore"/>.
 /// <para>
 /// Filters are "property operator value" conditions (<see cref="FilterConditionMessage"/>),
-/// all combined with AND (<c>any</c> = false) or all with OR (<c>any</c> = true).
+/// all combined with AND (<c>any</c> = false) or all with OR (<c>any</c> = true), or nested in postfix order
+/// (<see cref="Queryeables.Remote.FilterOperator.And"/> and <see cref="Queryeables.Remote.FilterOperator.Or"/> nodes).
 /// No SQL goes over the wire: only the types registered on the server can be reached, according to their access policies.
 /// </para>
 /// <para>On failure, <see cref="DBResultMessage.ErrorCode"/> gives the kind of error.</para>

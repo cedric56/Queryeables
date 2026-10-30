@@ -12,7 +12,7 @@ namespace Queryeables.Abstraction;
 /// children included, in a single call: the server saves the children with its own graph service.
 /// The source generator writes a <c>{Parent}Service</c> class on top of this one for every <c>[EntityGraph]</c>.
 /// </remarks>
-public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey> : IDbTransaction<TParent>
+public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey> : IEntityGraphService<TParent>
     where TParent : class
     where TKey : notnull
 {
@@ -41,6 +41,8 @@ public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Requir
     }
 
     public EntityGraph<TParent, TKey> Graph { get; }
+
+    IEntityGraph<TParent> IEntityGraphService<TParent>.Graph => Graph;
 
     public virtual async Task<DbResult> SaveAsync(TParent entity, CancellationToken ct = default)
     {

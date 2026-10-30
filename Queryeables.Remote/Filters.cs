@@ -1,3 +1,4 @@
+using Queryeables.Abstraction;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -21,7 +22,7 @@ internal static class Filters
     // =====================================================================
 
     /// <summary>
-    /// Translates a predicate into conditions. Accepted forms, all combined with AND or all with OR:
+    /// Translates a predicate into conditions. Accepted terms:
     /// <list type="bullet">
     /// <item>comparisons between a property and a value: ==, !=, &gt;, &gt;=, &lt;, &lt;=;</item>
     /// <item>boolean property: <c>e.Active</c>, <c>!e.Active</c>;</item>
@@ -29,7 +30,10 @@ internal static class Filters
     /// <item>text: <c>e.Name.StartsWith(x)</c>, <c>EndsWith</c>, <c>Contains</c>;</item>
     /// <item><c>e => true</c>.</item>
     /// </list>
-    /// Anything else throws <see cref="NotSupportedException"/>, before any server call.
+    /// Terms combine with <c>&amp;&amp;</c>, <c>||</c>, parentheses and <c>!</c> (pushed down to the terms: <c>!(a &amp;&amp; b)</c>
+    /// becomes <c>!a || !b</c>). A predicate that only uses <c>&amp;&amp;</c>, or only <c>||</c>, is sent as a flat list with
+    /// <c>Any</c>; any other is sent in postfix order, with <see cref="FilterOperator.And"/> and <see cref="FilterOperator.Or"/>
+    /// nodes. Anything else throws <see cref="NotSupportedException"/>, before any server call.
     /// </summary>
     public static (FilterCondition[] Conditions, bool Any) FromPredicate<T>(Expression<Func<T, bool>> predicate)
     {
@@ -39,31 +43,93 @@ internal static class Filters
         if (predicate.Body is ConstantExpression { Value: true })
             return ([], false);
 
-        bool? any = null;
-        var terms = new List<Expression>();
-        Flatten(predicate.Body, terms, ref any);
+        var output = new List<FilterCondition>();
+        Emit(predicate.Body, parameter, negate: false, output);
 
-        var conditions = terms.Select(term => ParseTerm(term, parameter)).ToArray();
-        return (conditions, any ?? false);
+        // Flat form when it suffices: what every server understands.
+        var logical = output.Where(IsLogical).ToList();
+        if (logical.Count == 0)
+            return (output.ToArray(), false);
+        if (logical.Count == 1 && IsLogical(output[^1]))
+            return (output.Take(output.Count - 1).ToArray(), output[^1].Operator == FilterOperator.Or);
+
+        if (output.Count > MaxValues)
+            throw Unsupported($"more than {MaxValues} conditions");
+        return (output.ToArray(), false);
     }
 
-    private static void Flatten(Expression expression, List<Expression> terms, ref bool? any)
+    private static bool IsLogical(FilterCondition condition) => condition.Operator is FilterOperator.And or FilterOperator.Or;
+
+    /// <summary>Writes the expression in postfix order; <paramref name="negate"/> pushes a <c>!</c> down to the terms.</summary>
+    private static void Emit(Expression expression, ParameterExpression parameter, bool negate, List<FilterCondition> output)
     {
         if (expression.NodeType is ExpressionType.AndAlso or ExpressionType.OrElse)
         {
-            var isOr = expression.NodeType == ExpressionType.OrElse;
-            if (any is not null && any != isOr)
-                throw Unsupported("AND and OR cannot be mixed");
-            any = isOr;
+            var terms = new List<Expression>();
+            Flatten(expression, expression.NodeType, terms);
+            foreach (var term in terms)
+                Emit(term, parameter, negate, output);
 
+            // De Morgan: !(a && b) == !a || !b.
+            var isOr = expression.NodeType == ExpressionType.OrElse ^ negate;
+            output.Add(new FilterCondition(string.Empty, isOr ? FilterOperator.Or : FilterOperator.And, terms.Count));
+            return;
+        }
+
+        // !(...) that is not a negated boolean property: push it down.
+        if (expression is UnaryExpression { NodeType: ExpressionType.Not } not
+            && !(AsProperty(not.Operand, parameter) is { } flag && IsBoolean(flag)))
+        {
+            Emit(not.Operand, parameter, !negate, output);
+            return;
+        }
+
+        var condition = ParseTerm(expression, parameter);
+        output.Add(negate ? Negate(condition, expression, parameter) : condition);
+    }
+
+    /// <summary>Collects the operands of a chain of the same operator: a &amp;&amp; b &amp;&amp; c gives a, b, c.</summary>
+    private static void Flatten(Expression expression, ExpressionType type, List<Expression> terms)
+    {
+        if (expression.NodeType == type)
+        {
             var binary = (BinaryExpression)expression;
-            Flatten(binary.Left, terms, ref any);
-            Flatten(binary.Right, terms, ref any);
+            Flatten(binary.Left, type, terms);
+            Flatten(binary.Right, type, terms);
         }
         else
         {
             terms.Add(expression);
         }
+    }
+
+    /// <summary>The opposite condition, so that no NOT has to be translated by the database.</summary>
+    private static FilterCondition Negate(FilterCondition condition, Expression term, ParameterExpression parameter)
+    {
+        // With a null, every ordering is false in C#: !(e.Score > 1) is true for a null score, e.Score <= 1 is not.
+        if (condition.Operator is FilterOperator.GreaterThan or FilterOperator.GreaterThanOrEqual
+                or FilterOperator.LessThan or FilterOperator.LessThanOrEqual
+            && term is BinaryExpression binary
+            && (AsProperty(binary.Left, parameter) ?? AsProperty(binary.Right, parameter)) is { } compared
+            && Nullable.GetUnderlyingType(compared.PropertyType) is not null)
+            throw Unsupported($"'{term}' on a nullable property cannot be negated");
+
+        var op = condition.Operator switch
+        {
+            FilterOperator.Equal when condition.Value is bool flag => (FilterOperator?)null,
+            FilterOperator.Equal => FilterOperator.NotEqual,
+            FilterOperator.NotEqual => FilterOperator.Equal,
+            FilterOperator.GreaterThan => FilterOperator.LessThanOrEqual,
+            FilterOperator.GreaterThanOrEqual => FilterOperator.LessThan,
+            FilterOperator.LessThan => FilterOperator.GreaterThanOrEqual,
+            FilterOperator.LessThanOrEqual => FilterOperator.GreaterThan,
+            _ => throw Unsupported($"'{term}' cannot be negated")
+        };
+
+        // A boolean flag: !e.Active is e.Active == false (and keeps excluding nulls, like the database would).
+        return op is null
+            ? new FilterCondition(condition.Property, FilterOperator.Equal, !(bool)condition.Value!)
+            : new FilterCondition(condition.Property, op.Value, condition.Value);
     }
 
     private static FilterCondition ParseTerm(Expression term, ParameterExpression parameter)
@@ -189,9 +255,10 @@ internal static class Filters
         return finder.Found;
     }
 
+    /// <summary>The value of an expression that does not use the parameter: read directly when it is a captured variable.</summary>
     private static object? Evaluate(Expression expression)
-        => expression is ConstantExpression constant
-            ? constant.Value
+        => CapturedValues.TryEvaluate(expression, out var value)
+            ? value
             : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile()();
 
     /// <summary>Reduces the value to a primitive type that any serializer carries (no custom type to register).</summary>
@@ -210,7 +277,7 @@ internal static class Filters
     private static NotSupportedException Unsupported(string reason)
         => new($"Predicate cannot be sent to the server: {reason}. Supported: comparisons between a " +
                "property and a value, boolean properties, list.Contains(e.Prop), StartsWith/EndsWith/Contains " +
-               "on strings, all combined with AND or all with OR.");
+               "on strings, combined with &&, || and !.");
 
     private sealed class ParameterFinder(ParameterExpression parameter) : ExpressionVisitor
     {
@@ -242,6 +309,9 @@ internal static class Filters
             throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
 
         var parameter = Expression.Parameter(typeof(T), "e");
+        if (conditions.Any(c => c is { Operator: FilterOperator.And or FilterOperator.Or }))
+            return Expression.Lambda<Func<T, bool>>(FromPostfix<T>(conditions, parameter), parameter);
+
         Expression? body = null;
 
         foreach (var condition in conditions)
@@ -258,6 +328,66 @@ internal static class Filters
 
         body ??= Expression.Constant(true);
         return Expression.Lambda<Func<T, bool>>(body, parameter);
+    }
+
+    /// <summary>Most nested levels of AND and OR: the expression tree and the SQL stay small.</summary>
+    private const int MaxDepth = 32;
+
+    /// <summary>Rebuilds a predicate written in postfix order (see <see cref="FromPredicate{T}"/>).</summary>
+    private static Expression FromPostfix<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
+        IReadOnlyList<FilterCondition> conditions, ParameterExpression parameter)
+    {
+        var stack = new Stack<(Expression Expression, int Depth)>();
+        foreach (var condition in conditions)
+        {
+            ArgumentNullException.ThrowIfNull(condition);
+            if (condition.Operator is not (FilterOperator.And or FilterOperator.Or))
+            {
+                stack.Push((Term<T>(condition, parameter), 0));
+                continue;
+            }
+
+            int count;
+            try
+            {
+                count = Convert.ToInt32(condition.Value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+            {
+                throw new ArgumentException($"{condition.Operator} expects its number of operands.", ex);
+            }
+            if (count < 2 || count > stack.Count)
+                throw new ArgumentException($"{condition.Operator} expects between 2 and {stack.Count} operands, not {count}.");
+
+            var operands = new (Expression Expression, int Depth)[count];
+            for (var i = count - 1; i >= 0; i--)
+                operands[i] = stack.Pop();
+
+            var depth = operands.Max(o => o.Depth) + 1;
+            if (depth > MaxDepth)
+                throw new ArgumentException($"A filter is limited to {MaxDepth} nested levels.");
+
+            var combined = operands[0].Expression;
+            for (var i = 1; i < count; i++)
+            {
+                combined = condition.Operator == FilterOperator.Or
+                    ? Expression.OrElse(combined, operands[i].Expression)
+                    : Expression.AndAlso(combined, operands[i].Expression);
+            }
+            stack.Push((combined, depth));
+        }
+
+        if (stack.Count != 1)
+            throw new ArgumentException("The filter does not combine into a single condition.");
+        return stack.Pop().Expression;
+    }
+
+    private static Expression Term<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
+        FilterCondition condition, ParameterExpression parameter)
+    {
+        var property = typeof(T).GetProperty(condition.Property, BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new ArgumentException($"Unknown property '{condition.Property}' on {typeof(T).Name}.");
+        return Build(Expression.Property(parameter, property), condition);
     }
 
     private static Expression Build(MemberExpression member, FilterCondition condition)

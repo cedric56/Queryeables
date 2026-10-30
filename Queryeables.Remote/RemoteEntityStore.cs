@@ -11,7 +11,7 @@ namespace Queryeables.Remote;
 /// transactions remotely as locally.
 /// <para>
 /// <b>Predicates:</b> comparisons, booleans, <c>list.Contains(e.Prop)</c>, StartsWith/EndsWith/Contains on strings,
-/// all combined with AND or all with OR. Anything else throws <see cref="NotSupportedException"/> before any call.
+/// combined with &amp;&amp;, || and ! in any nesting. Anything else throws <see cref="NotSupportedException"/> before any call.
 /// </para>
 /// <para>
 /// <b>Transactions:</b> during a transaction, writes are queued and sent in a single call

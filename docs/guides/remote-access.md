@@ -43,8 +43,9 @@ services.UseQueryeables(q => q
     .AddGeneratedEntities());
 ```
 
-- **Predicates** become conditions; an unsupported one throws `NotSupportedException` before any call.
-- **Transactions**: writes are queued and sent in one batch on commit, applied in one server transaction. Until then,
+- **Predicates** become conditions, with `&&`, `||`, parentheses and `!`; an unsupported one throws
+  `NotSupportedException` before any call.
+- **Transactions**: writes are queued and sent in one batch on commit, applied in one server transaction, parents with their children included. Until then,
   `UpdateAsync` and `DeleteAsync` return true, an inserted entity has no key yet, and reads do not see the pending writes.
 - **Results**: after a write, the keys, versions and dates set by the server are copied into your objects; navigation
   properties and members the serializer ignores are kept.

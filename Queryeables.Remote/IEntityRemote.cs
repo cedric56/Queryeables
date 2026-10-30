@@ -8,7 +8,8 @@ namespace Queryeables.Remote;
 /// On the server, the transport forwards each call to <see cref="EntityRequestDispatcher"/>, whose methods have the same
 /// shape. <see cref="EntityRequestDispatcher.AsRemote"/> connects the two in-process, without a network.
 /// Filters are "property operator value" conditions (<see cref="FilterCondition"/>), all combined with AND
-/// (<c>any</c> = false) or all with OR (<c>any</c> = true): no SQL and no expression goes over the wire.
+/// (<c>any</c> = false) or all with OR (<c>any</c> = true), or nested in postfix order with
+/// <see cref="FilterOperator.And"/> and <see cref="FilterOperator.Or"/> nodes: no SQL and no expression goes over the wire.
 /// </remarks>
 public interface IEntityRemote
 {

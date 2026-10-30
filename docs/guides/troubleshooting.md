@@ -26,7 +26,9 @@ Kestrel endpoint.
 ### `Predicate cannot be sent to the server`
 
 The remote store accepts comparisons, booleans, `Contains` on a list, and `StartsWith`, `EndsWith`, `Contains` on strings,
-all joined by `&&` or all by `||`. Split the query, filter the rest in memory, or write a dedicated server method.
+combined with `&&`, `||` and `!`, nested up to 32 levels. It cannot negate a `Contains`, a text search, or an ordering on a
+nullable property, nor compare two properties. Split the query, filter the rest in memory, or write a dedicated server
+method.
 
 ### See the SQL
 

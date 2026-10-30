@@ -1,12 +1,14 @@
 using BenchmarkDotNet.Attributes;
+using Dapper;
 using Dommel;
 using Queryeables.Abstraction;
 
 namespace Queryeables.Benchmarks;
 
 /// <summary>
-/// What <c>IEntityStore</c> costs on top of Dommel: the same query, written with Dommel on a connection (baseline) and
-/// through <see cref="Dommel.DommelEntityStore"/>. Each invocation opens its connection, like an application does.
+/// What <c>IEntityStore</c> costs: the same query with hand-written SQL through Dapper, with Dommel on a connection
+/// (baseline), and through <see cref="Dommel.DommelEntityStore"/>. Each invocation opens its connection, like an
+/// application does.
 /// </summary>
 [MemoryDiagnoser]
 public class StoreBenchmarks
@@ -27,6 +29,13 @@ public class StoreBenchmarks
     [GlobalCleanup]
     public Task CleanupAsync() => _database.DisposeAsync().AsTask();
 
+    [Benchmark]
+    public async Task<Item?> Dapper_FirstOrDefault()
+    {
+        await using var connection = await _database.OpenAsync();
+        return await connection.QueryFirstOrDefaultAsync<Item>("SELECT Id, Name, Quantity FROM Item WHERE Id = @id", new { id = _id });
+    }
+
     [Benchmark(Baseline = true)]
     public async Task<Item?> Dommel_FirstOrDefault()
     {
@@ -39,6 +48,13 @@ public class StoreBenchmarks
     {
         await using var store = _database.Stores.Create();
         return await store.FirstOrDefaultAsync<Item>(i => i.Id == _id);
+    }
+
+    [Benchmark]
+    public async Task<int> Dapper_GetAll()
+    {
+        await using var connection = await _database.OpenAsync();
+        return (await connection.QueryAsync<Item>("SELECT Id, Name, Quantity FROM Item")).Count();
     }
 
     [Benchmark]

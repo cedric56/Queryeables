@@ -13,9 +13,10 @@ var stores = RemoteEntityStore.Factory(remote, serializer, session);   // IsRemo
 ```
 
 - Predicates are sent as conditions: `==`, `!=`, `<`, `<=`, `>`, `>=`, booleans, `ids.Contains(e.Id)`, and `StartsWith`,
-  `EndsWith`, `Contains` on strings, all combined with `&&` or all with `||`. Anything else throws
-  `NotSupportedException` before any call.
-- In a transaction, writes are queued and sent in one batch on commit: all applied, or none.
+  `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!` (pushed down to the terms). Anything
+  else throws `NotSupportedException` before any call.
+- In a transaction, writes are queued and sent in one batch on commit: all applied, or none. A parent with an entity
+  graph is saved with its children inside that batch.
 - After a write, the keys, versions and dates set by the server are copied into your objects. Navigation properties and
   members the serializer does not carry are left as they are.
 

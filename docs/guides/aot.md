@@ -14,3 +14,7 @@ What still generates code at run time, in the libraries Queryeables builds on:
 | MagicOnion client | Yes | With the MagicOnion source generator |
 
 A Native AOT client therefore talks to a server (`UseMagicOnion`) rather than to a local database through Dommel or EF Core.
+
+The CI proves it: `Queryeables.AotSmoke` uses the generated graph service and registration, a cache and its monitor,
+transactions, and a remote store with nested filters and a batch; it is published with Native AOT (a trimming or AOT
+warning fails the build) and the native binary is run.
