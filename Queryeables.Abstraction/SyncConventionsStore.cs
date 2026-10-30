@@ -110,6 +110,8 @@ public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default) => _inner.BeginTransactionAsync(ct);
 
     public ValueTask DisposeAsync() => _inner.DisposeAsync();
+
+    public void Dispose() => _inner.Dispose();
 }
 
 public static class SyncConventionsStoreExtensions

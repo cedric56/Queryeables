@@ -2,35 +2,29 @@
 using MagicOnion;
 using MagicOnion.Server;
 using Queryeables.Onion;
+using Queryeables.Remote;
 
 namespace Queryeables.Server;
 
 /// <summary>
-/// MagicOnion entity access service: each call is forwarded to the <see cref="EntityHandler"/> of the requested type,
-/// with the user authenticated by ASP.NET Core, so that the access policy of each type applies.
-/// Only the types registered in <see cref="IEntityHandlerRegistry"/> can be reached, and no SQL comes from the client.
+/// MagicOnion entity access service: each call is forwarded to <see cref="EntityRequestDispatcher"/>, with the user
+/// authenticated by ASP.NET Core, so that the access policy of each type applies. Only the exposed types can be reached,
+/// and no SQL comes from the client.
 /// </summary>
 /// <example>
 /// <code>
-/// // In the server application:
+/// // In the server application: MagicOnion finds the service by this class.
 /// public sealed class AppMagicOnionService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
 ///
-/// builder.Services.AddSingleton&lt;IEntityHandlerRegistry&gt;(sp =>
-/// {
-///     var factory = sp.GetRequiredService&lt;DbProviderFactory&gt;();
-///     var registry = new EntityHandlerRegistry();
-///     registry.Register(new EntityHandler&lt;Customer&gt;(() => DommelEntityStore.Create(factory).WithSyncConventions(), EntityAccessPolicies.Authenticated));
-///     return registry;
-/// });
-/// // WithSyncConventions applies [LastModified] and [SoftDelete] on the server.
-/// // The transactional store enables batches (remote transactions).
-/// builder.Services.AddSingleton(sp => new EntityRequestDispatcher(
-///     sp.GetRequiredService&lt;IEntityHandlerRegistry&gt;(),
-///     () => DommelEntityStore.Create(sp.GetRequiredService&lt;DbProviderFactory&gt;()).WithSyncConventions()));
+/// builder.Services.AddMagicOnion();
+/// builder.Services.UseQueryeables(q => q
+///     .UseSqlite("Data Source=app.db")
+///     .AddGeneratedEntities()
+///     .AddEntityServer(MessagePackEntitySerializer.Default, server => server
+///         .Expose&lt;Person&gt;(EntityAccessPolicies.Authenticated)
+///         .Expose&lt;Contact&gt;(EntityAccessPolicies.Authenticated)));
 ///
-/// // Usual ASP.NET Core authentication (JWT, cookies...): the user reaches the access policies.
-/// builder.Services.AddAuthentication(...);
-/// app.UseAuthentication();
+/// app.MapMagicOnionService();
 /// </code>
 /// </example>
 public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
@@ -43,26 +37,30 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
         => new(Context.CallContext.GetHttpContext().User, connectionId);
 
     public UnaryResult<DBResultMessage> GetAllAsync(string type)
-        => new(dispatcher.GetAllAsync(type, Caller(), Aborted));
+        => Reply(dispatcher.GetAllAsync(type, Caller(), Aborted));
 
-    public UnaryResult<DBResultMessage> SelectAsync(string type, FilterCondition[] conditions, bool any)
-        => new(dispatcher.SelectAsync(type, conditions, any, Caller(), Aborted));
+    public UnaryResult<DBResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
+        => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(conditions), any, Caller(), Aborted));
 
-    public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
-        => new(dispatcher.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, Caller(), Aborted));
+    public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
+        => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize, Caller(), Aborted));
 
     public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
-        => new(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
+        => Reply(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
 
     public UnaryResult<DBResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
-        => new(dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<DBResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
-        => new(dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<DBResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
-        => new(dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
 
-    public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperation[] operations)
-        => new(dispatcher.ExecuteBatchAsync(operations, Caller(), Aborted));
+    public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
+        => Reply(dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
+
+    private static UnaryResult<DBResultMessage> Reply(Task<RemoteResult> call) => new(ToMessageAsync(call));
+
+    private static async Task<DBResultMessage> ToMessageAsync(Task<RemoteResult> call) => DBResultMessage.From(await call);
 }

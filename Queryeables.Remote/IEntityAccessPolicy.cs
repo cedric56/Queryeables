@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 public enum EntityOperation
 {

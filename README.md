@@ -1,318 +1,214 @@
 # Queryeables
 
 [![CI](https://github.com/cedric56/Queryeables/actions/workflows/ci.yml/badge.svg)](https://github.com/cedric56/Queryeables/actions/workflows/ci.yml)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
+[![MIT License](https://img.shields.io/badge/license-MIT-5B35E0)](LICENSE.txt)
 
-**One data-access API for .NET, local or remote, with change notifications and caching.**
+**One data-access API for .NET, local or remote: your entities, their caches and their children, the same code everywhere.**
 
-Queryeables puts Dommel, Entity Framework Core and a remote MagicOnion server behind the same
-`IEntityStore` interface. On top of it, it provides transactions that report their outcome, aggregates
-(a parent saved with its children), an in-memory cache that follows database changes, and the plumbing that
-relays those changes to connected clients over MagicOnion or SignalR.
+A view model or a service asks for `IPersonService` or `IEntityCache<Person, long>`. It never knows whether the data comes
+from SQLite through Dommel, from SQL Server through EF Core, or from a server across the network.
 
-> **Status:** early. Targets .NET 10. Packages are not published on NuGet yet, and the API may still change.
+> **Status:** early. Packages are not published on NuGet yet, and the API may still change.
 
-## Contents
-
-- [Features](#features)
-- [Projects](#projects)
-- [Getting started](#getting-started)
-- [Core concepts](#core-concepts)
-  - [IEntityStore](#ientitystore)
-  - [Transactions and DbResult](#transactions-and-dbresult)
-  - [Aggregates](#aggregates)
-  - [Sync conventions](#sync-conventions)
-  - [Change notifications and EntityCache](#change-notifications-and-entitycache)
-- [Remote access with MagicOnion](#remote-access-with-magiconion)
-- [Security](#security)
-- [Native AOT](#native-aot)
-- [Building, testing and packaging](#building-testing-and-packaging)
-- [Credits](#credits) · [License](#license)
-
-## Features
-
-- **One store API**: async CRUD, filtering, paging, counting and transactions, identical for Dommel, EF Core and a
-  remote server. Every implementation passes the same contract test suite.
-- **Transactions that report their outcome**: `RunInTransactionAsync` returns a `DbResult` with an error kind
-  (`Validation`, `Conflict`, `NotFound`, `Forbidden`...) instead of throwing.
-- **Aggregates**: describe a parent and its children once; save, remove and load them together with any store.
-- **Sync conventions**: `[LastModified]`, `[SoftDelete]` and optimistic concurrency with `[ConcurrencyCheck]`.
-- **Change notifications**: SQLite update hooks and SQL Server (SqlTableDependency) feed monitors; MagicOnion and
-  SignalR hubs relay the changes to clients, never echoing a client's own changes back to it.
-- **EntityCache**: thread-safe, key-indexed in-memory cache that updates row by row, coalesces bursts of
-  notifications and resynchronizes incrementally after a reconnection.
-- **Controlled remote access**: no SQL from clients, a whitelist of filter operators, a mandatory access policy per
-  entity type, server-side validation and a page-size cap.
-- **Trimming and AOT analyzers** enabled on every library.
-
-## Projects
-
-| Project | Purpose | Main dependency |
-|---|---|---|
-| `Queryeables.Abstraction` | `IEntityStore`, `DbResult`, aggregates, `EntityCache`, monitors, sync conventions | none |
-| `Queryeables.Dommel` | `DommelEntityStore`, connection factory, SQL logging, DI registration | Dommel |
-| `Queryeables.EntityFramework` | `EfEntityStore` | EF Core (relational) |
-| `Queryeables.Sqlite` | SQLite connection factory that reports every modified row | Microsoft.Data.Sqlite |
-| `Queryeables.PostgreSql` | PostgreSQL connection factory | Npgsql |
-| `Queryeables.SqlDependency` | SQL Server change notifications | SqlTableDependency |
-| `Queryeables.Onion` | Shared MagicOnion contracts, server-side handlers, `MagicOnionEntityStore` (client store) | MagicOnion.Abstractions |
-| `Queryeables.Onion.Client` | gRPC channel and change-hub subscription for clients | MagicOnion.Client |
-| `Queryeables.Server` | MagicOnion entity service and change hub for ASP.NET Core | MagicOnion.Server |
-| `Queryeables.SignalR` | SignalR client for change notifications | SignalR client |
-| `Queryeables.SignalR.Server` | SignalR hub for change notifications | ASP.NET Core |
-| `Queryeables.Tests` | Contract and unit tests | xUnit |
-
-Reference only what you need: a local EF Core application needs `Abstraction` and `EntityFramework`, nothing else.
-
-## Getting started
-
-Requirements: the .NET 10 SDK.
-
-```bash
-git clone https://github.com/cedric56/Queryeables.git
-cd Queryeables
-dotnet test Queryeables.slnx
-```
-
-Until packages are published, reference the projects, or build local packages:
-
-```bash
-dotnet pack Queryeables.slnx -c Release -o ~/packages/queryeables -p:Version=0.1.0
-dotnet nuget add source ~/packages/queryeables -n Queryeables-local
-```
-
-A minimal local setup with SQLite and Dommel:
+## In one minute
 
 ```csharp
-services.UseSqliteFactory("Data Source=app.db");   // registers DbProviderFactory, DbMonitorRegistry, IDbSession
-
-// later, from a DbProviderFactory resolved from DI
-await using var store = DommelEntityStore.Create(factory);
-await store.InsertAsync(person);                    // the generated key is written back into person
-var adults = await store.SelectAsync<Person>(p => p.Age >= 18);
-```
-
-`UseFactory<TConnection>(connectionString)` and `UseNpgsqlFactory(connectionString)` do the same for other providers.
-They also make Dommel ignore `[NotMapped]` properties.
-
-## Core concepts
-
-### IEntityStore
-
-One instance is one unit of work (a connection or a `DbContext`). Write application code against the interface:
-
-```csharp
-IEntityStore store = DommelEntityStore.Create(factory);           // Dommel
-IEntityStore store = new EfEntityStore(new AppDbContext(options)); // EF Core
-IEntityStore store = new MagicOnionEntityStore(layer, session);    // remote server
-
-var all    = await store.GetAllAsync<Person>();
-var some   = await store.SelectAsync<Person>(p => p.Active && p.CityId == cityId);
-var first  = await store.FirstOrDefaultAsync<Person>(p => p.Id == id);
-var page   = await store.SelectPagedAsync<Person>(p => p.Active, pageNumber: 1, pageSize: 50);
-var count  = await store.CountAsync<Person>(p => p.Active);
-
-await store.InsertAsync(person);
-bool updated = await store.UpdateAsync(person);
-bool deleted = await store.DeleteAsync(person);
-await store.SaveAsync(person, p => p.Id);   // insert when the key is 0, update otherwise
-```
-
-Helpers: `GetAsync` (throws `NotFound` instead of returning null), `InsertManyAsync`, `UpdateManyAsync`,
-`DeleteManyAsync`, `SyncChildrenAsync`. To add a store for another framework, implement `IEntityStore` and derive a
-test class from `EntityStoreContractTests`.
-
-### Transactions and DbResult
-
-```csharp
-DbResult result = await store.RunInTransactionAsync(async s =>
+[EntityCache]                                            // an in-memory cache that follows the database
+public class Person
 {
-    await s.UpdateAsync(order);
-    await s.SyncChildrenAsync(previousLines, order.Lines, l => l.Id == 0, (a, b) => a.Id == b.Id);
-});
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
 
-if (!result.Successful)
-    ShowError(result.ErrorCode, result.Exception, result.Errors);
+    [EntityGraph(ParentNavigation = nameof(Contact.Owner))]   // saved, removed and loaded with the person
+    public List<Contact> Contacts { get; set; } = [];
+}
+
+public class Contact
+{
+    public long Id { get; set; }
+    public long PersonId { get; set; }                   // the foreign key, found by its name
+    public Person? Owner { get; set; }
+}
+
+services.UseQueryeables(q => q
+    .UseSqlite("Data Source=app.db")                     // or UseDommel, UseNpgsql, UseEntityFramework, UseMagicOnion
+    .AddGeneratedEntities());                            // what the attributes describe, written by the source generator
 ```
 
-The transaction is committed when the work succeeds, rolled back otherwise. Exceptions thrown inside the work and
-failed commits become a failed `DbResult`; cancellation still throws. `RunInTransactionAsync<T>` returns a value
-(`DbResult<T>`), and `.OrThrow()` turns a failure back into an `EntityStoreException`.
-
-Application services that save and remove an entity implement `IDbTransaction<T>`:
-
 ```csharp
-public interface IPersonService : IDbTransaction<Person>   // SaveAsync / RemoveAsync returning DbResult
+public sealed class PersonsViewModel(IPersonService persons, IEntityCache<Person, long> cache)
 {
-    Task LoadContactsAsync(Person person, CancellationToken ct = default);
+    public IReadOnlyCollection<Person> All => cache.Entities;               // kept up to date by the database
+    public Task<DbResult> SaveAsync(Person person) => persons.SaveAsync(person);   // the person and its contacts, one transaction
 }
 ```
 
-### Aggregates
+Two attributes, one registration call. To serve the same entities to remote clients, the client changes one line:
+`UseMagicOnion("https://server:5001")` instead of `UseSqlite(...)`.
 
-Describe a parent and its children once, then let `AggregateService` save, remove and load them:
+The [sample](Samples/Queryeables.Sample/Program.cs) runs this end to end on SQLite.
 
-```csharp
-var persons = Aggregate.For<Person, long>(p => p.Id)
-    .HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id,
-             onLoaded: (person, contacts) => { /* set navigation properties */ });
+## Start with your provider
 
-public sealed class PersonService(Func<IEntityStore> stores, Aggregate<Person, long> persons, bool childrenSavedByServer = false)
-    : AggregateService<Person, long>(stores, persons, childrenSavedByServer), IPersonService
-{
-    public Task LoadContactsAsync(Person person, CancellationToken ct = default) => LoadChildrenAsync(person, ct);
-}
-```
+| Data | Package | Setup |
+| --- | --- | --- |
+| SQLite | `Queryeables.Sqlite` | `q.UseSqlite("Data Source=app.db")`: changes are reported to the caches by SQLite itself |
+| PostgreSQL | `Queryeables.PostgreSql` | `q.UseNpgsql(connectionString)` |
+| SQL Server, MySQL... (Dommel) | `Queryeables.Dommel` | `q.UseDommel<SqlConnection>(connectionString)` |
+| Any EF Core provider | `Queryeables.EntityFramework` | `q.UseEntityFramework(sp => new AppDbContext(options))` |
+| A Queryeables server | `Queryeables.Onion.Client` | `q.UseMagicOnion("https://server:5001")` |
+| Your own store | `Queryeables` | `q.UseStores(sp => new MyStore(...))` |
 
-- **Save**: inserts or updates the parent, writes its key into each child's foreign key, then deletes, inserts and
-  updates children to match the collection, in one transaction.
-- **Remove**: deletes the children, then the parent.
-- **Load**: reads the children into the collection and calls `onLoaded`.
+Each provider brings the `Queryeables` package: the contracts, the remote-access core, the setup and the source generator.
 
-The same service works locally (`() => DommelEntityStore.Create(factory)`) and remotely
-(`() => new MagicOnionEntityStore(layer, session)` with `childrenSavedByServer: true`, see below).
+## What you get
 
-### Sync conventions
+- **One store API**, `IEntityStore`: async CRUD, filters, paging, counting and transactions, identical for Dommel, EF Core
+  and a remote server. Every implementation passes the same [contract tests](Queryeables.Tests/Contract).
+- **Entity graphs**, `[EntityGraph]`: a parent saved, removed and loaded with its children, navigation properties set,
+  related entities found in their caches. The generator writes `I{Parent}Service` and `{Parent}Graph`.
+- **Caches that follow the database**, `[EntityCache]`: row by row, bursts coalesced, incremental resynchronization after
+  a reconnection.
+- **Transactions that report their outcome**: `DbResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
+  `Forbidden`...) instead of an exception.
+- **Remote access without coupling**: the remote core speaks to an `IEntityRemote`; MagicOnion is one transport among
+  others. No SQL from the client, a whitelist of filter operators, an access policy per type.
+- **Change notifications** from SQLite hooks or SQL Server, relayed to clients over MagicOnion or SignalR, without echoing a
+  client's own changes.
+- **Sync conventions**: `[LastModified]`, `[SoftDelete]`, optimistic concurrency with `[ConcurrencyCheck]`.
+- **Native AOT and trimming analyzers** on every library; the generator replaces reflection-based registration.
+
+## Entity graphs
 
 ```csharp
 public class Person
 {
     public long Id { get; set; }
-    [LastModified] public DateTime LastModified { get; set; }
-    [SoftDelete] public bool Deleted { get; set; }
-    [ConcurrencyCheck] public long Version { get; set; }
+
+    // Each contact belongs to a person (IdContact) and points to another person (IdPerson).
+    [EntityGraph(ForeignKey = nameof(Contact.IdContact),          // by default Id{Parent} or {Parent}Id
+                 ParentNavigation = nameof(Contact.Owner),         // set to the parent after loading
+                 LookupNavigation = nameof(Contact.Person),        // set to the entity found in its cache
+                 LookupForeignKey = nameof(Contact.IdPerson))]     // by default Id{Navigation} or {Navigation}Id
+    public List<Contact> Contacts { get; set; } = [];
 }
-
-IEntityStore store = DommelEntityStore.Create(factory).WithSyncConventions();
 ```
 
-`WithSyncConventions()` stamps `[LastModified]` on every write, turns deletes into soft deletes and hides
-soft-deleted rows from reads. `SelectChangesAsync(since)` still returns them, for synchronization.
-A stale `[ConcurrencyCheck]` version fails with `EntityErrorCode.Conflict` on every store.
+`AddGeneratedEntities()` registers:
 
-### Change notifications and EntityCache
+| Service | What it does |
+| --- | --- |
+| `IPersonService` (also `IDbTransaction<Person>`) | `SaveAsync`: inserts or updates the person, writes its key into the contacts, then deletes, inserts and updates contacts to match the list, in one transaction. `RemoveAsync`: the contacts, then the person. `LoadContactsAsync`: reads the contacts and sets their navigation properties. |
+| `IPersonGraph` | Sets the navigation properties; it receives the cache of each looked-up type. |
+| `IEntityCache<T, TKey>` | For every `[EntityCache]` type and every looked-up type. |
 
-A `DbMonitor<T>` receives the changes of one table. Change sources publish to a `DbMonitorRegistry`:
+A mistake in the attributes is a compile error with a clear message (QRY001 to QRY009), not an exception at run time.
+Without the generator, `q.AddCache<T, TKey>(key)` and `q.AddGraph(...)` do the same by hand
+(`EntityGraph.For<Person, long>(p => p.Id).HasMany(...)`).
 
-- **SQLite**: `UseSqliteFactory` hooks every connection it creates and reports each modified row after the commit.
-- **SQL Server**: `monitor.AddTableDependency<Person, long>(connectionString, p => p.Id, out var stop)`.
-
-`EntityCache` keeps an in-memory copy that follows the monitor:
+## Transactions and DbResult
 
 ```csharp
-var monitor = new DbMonitor<Person>();
-registry.Add(monitor);   // DbMonitorRegistry from DI
+await using var store = stores.Create();      // IEntityStoreFactory, registered by the provider
+DbResult result = await store.RunInTransactionAsync(async s =>
+{
+    await s.SaveAsync(order, o => o.Id);       // insert when the key is 0, update otherwise
+    await s.SyncChildrenAsync(previousLines, order.Lines, l => l.Id == 0, (a, b) => a.Id == b.Id);
+});
 
-var cache = new EntityCache<Person, long>(
-    () => DommelEntityStore.Create(factory),
-    p => p.Id, monitor, RecordKey.Parse<long>);
-await cache.LoadAsync();
-
-Person? ana = cache.Find(42);
-cache.EntitiesChanged += (_, _) => Refresh();
+if (!result.Successful)
+    Show(result.ErrorCode, result.Exception, result.Errors);
 ```
 
-Changed rows are read again one by one; a burst of notifications triggers a single update per row. After a
-reconnection, `cache.SyncAsync()` reads only the rows changed in the meantime (types with `[LastModified]`).
+Exceptions inside the work and failed commits become a failed `DbResult`; cancellation still throws.
+`.OrThrow()` turns a failure back into an `EntityStoreException`. Register an `IEntityStoreFactory`, never a store: a store
+is one connection, disposed by its user.
 
-Clients receive the server's changes through a hub:
+## Remote access
 
-```csharp
-var unsubscribe = await monitor.AddStreamingHub(serverUrl, session);   // MagicOnion
-var unsubscribe = await monitor.AddSignalR(hubUrl, session);           // or SignalR
-```
+The remote core (`Queryeables.Remote`, inside the `Queryeables` package) does not depend on any transport:
 
-The session id travels with every write, so a client is not notified of its own changes.
+- the client store, `RemoteEntityStore`, talks to an **`IEntityRemote`** (one method per operation, entities as bytes);
+- the server, `EntityRequestDispatcher`, receives the same calls and routes them to the exposed types;
+- an **`IEntitySerializer`** turns entities into bytes.
 
-## Remote access with MagicOnion
+A transport only implements `IEntityRemote` on the client and forwards to the dispatcher on the server. MagicOnion is the
+one shipped (`Queryeables.Onion`, `.Onion.Client`, `.Server`, with MessagePack); `dispatcher.AsRemote()` connects both sides
+in-process, for tests or an application that hosts its own server.
 
-### Server
+**Server** (ASP.NET Core with MagicOnion):
 
 ```csharp
 public sealed class AppLayerService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
-public sealed class PersonRecordHub(RecordHubRepository<Person> repository) : RecordHub<Person>(repository);
-```
 
-```csharp
 builder.Services.AddMagicOnion();
-builder.Services.UseSqliteFactory($"Data Source={dbPath}");
-builder.Services.AddSingleton<IDbMonitor<Person>>(new DbMonitor<Person>());
-builder.Services.AddSingleton<RecordHubRepository<Person>>();   // relays database changes to MagicOnion clients
-
-builder.Services.AddSingleton<IEntityHandlerRegistry>(sp =>
-{
-    var factory = sp.GetRequiredService<DbProviderFactory>();
-    Func<IEntityStore> store = () => DommelEntityStore.Create(factory);
-    var policy = EntityAccessPolicies.Authenticated;
-
-    var registry = new EntityHandlerRegistry();
-    registry.Register(new EntityHandler<Person>(store, policy,
-        aggregate: new AggregateService<Person, long>(store, persons)));   // saves contacts with the person
-    registry.Register(new EntityHandler<Contact>(store, policy));
-    return registry;
-});
-builder.Services.AddSingleton(sp => new EntityRequestDispatcher(
-    sp.GetRequiredService<IEntityHandlerRegistry>(),
-    () => DommelEntityStore.Create(sp.GetRequiredService<DbProviderFactory>())));   // enables remote transactions
+builder.Services.UseQueryeables(q => q
+    .UseSqlite("Data Source=server.db")
+    .AddGeneratedEntities()
+    .AddMagicOnionServer(server => server
+        .Expose<Person>(EntityAccessPolicies.Authenticated)      // writes go through IPersonService: contacts included
+        .Expose<Contact>(EntityAccessPolicies.Authenticated)));
 
 app.MapMagicOnionService();
 ```
 
-Only registered types are reachable. Each write goes through the access policy, then DataAnnotations validation.
+**Client**: `q.UseMagicOnion("https://server:5001")`, and the same `AddGeneratedEntities()`. The generated services send
+the parent with its children in one call; the server saves them with its own graph service.
 
-### Client
+Supported remote predicates: `==`, `!=`, `<`, `<=`, `>`, `>=`, booleans, `ids.Contains(p.Id)`, and `StartsWith`,
+`EndsWith`, `Contains` on strings, all combined with `&&` or all with `||`. Anything else throws `NotSupportedException`
+before any network call: write a dedicated server method for it. In a remote transaction, writes are queued and sent in
+one call on commit: all of them are applied, or none.
+
+## Change notifications
+
+`UseSqlite` reports every row changed through Queryeables to the monitors; for SQL Server,
+`monitor.AddTableDependency<Person, long>(connectionString, p => p.Id, out var stop)`. Caches registered by the generator
+listen to their monitor.
+
+Remote clients receive the server's changes through a hub, MagicOnion or SignalR:
 
 ```csharp
-services.AddSingleton<IDbSession, DbSession>();
-services.AddSingleton(sp => sp.Create<IMagicOnionLayer>(serverUrl));   // gRPC through the WebSocket bridge
-
-await using var store = new MagicOnionEntityStore(layer, session);
-var adults = await store.SelectAsync<Person>(p => p.Age >= 18);   // same API as locally
+var monitor = provider.GetRequiredService<IDbMonitor<Person>>();
+var unsubscribe = await monitor.AddStreamingHub(serverUrl, provider.GetRequiredService<IDbSession>());
 ```
 
-Supported predicates: `==`, `!=`, `<`, `<=`, `>`, `>=`, boolean properties, `ids.Contains(p.Id)`, and
-`StartsWith`, `EndsWith`, `Contains` on strings, all combined with `&&` or all with `||`. Anything else throws
-`NotSupportedException` before any network call. During a transaction, writes are queued and sent in one call on
-commit: all of them are applied, or none.
+Notifications are a signal to refresh, not a durable log: after a reconnection, call `cache.SyncAsync()`, which reads only
+the rows changed in the meantime (types with `[LastModified]`).
+
+## Packages
+
+| Project | Contents |
+| --- | --- |
+| `Queryeables` (Abstraction, Remote, Core, Generated) | Contracts, remote core, `UseQueryeables`, source generator. No database, no transport. |
+| `Queryeables.Dommel` | `DommelEntityStore`, connection factory, SQL logging |
+| `Queryeables.Sqlite`, `Queryeables.PostgreSql` | Dommel on SQLite (with change reporting), on PostgreSQL |
+| `Queryeables.EntityFramework` | `EfEntityStore` |
+| `Queryeables.SqlDependency` | SQL Server change notifications |
+| `Queryeables.Onion`, `.Onion.Client`, `.Server` | The MagicOnion transport: messages, client, ASP.NET Core service and hub |
+| `Queryeables.SignalR`, `.SignalR.Server` | Change notifications over SignalR |
 
 ## Security
 
 - **Never expose `EntityAccessPolicies.AllowAll` on a public network.** Configure ASP.NET Core authentication and use
-  `Authenticated`, `ReadOnly`, or a custom rule with `EntityAccessPolicies.From(request => ...)`.
-- Keep connection strings and certificate passwords out of the source code (user secrets, environment variables,
-  a vault).
-- Restrict CORS to the origins that actually need it.
-- Remote filters are a whitelist: no SQL and no arbitrary expression is executed on the server.
-- Notifications are a signal to refresh, not a durable event log: after a reconnection, resynchronize
-  (`EntityCache.SyncAsync`).
+  `Authenticated`, `ReadOnly`, or `EntityAccessPolicies.From(request => ...)`.
+- Keep connection strings and certificate passwords out of the source code.
+- No SQL and no expression goes over the wire: only "property operator value" conditions on exposed types.
 
 ## Native AOT
 
-Every library sets `IsAotCompatible` and builds without trimming or AOT warnings; entity type parameters are
-annotated so that their public properties are kept. At run time:
+Every library sets `IsAotCompatible` and builds without trimming or AOT warnings. At run time, EF Core and Dapper/Dommel
+generate code (fine with trimming, not with full Native AOT), MagicOnion clients need the MagicOnion source generator, and
+entities sent over MagicOnion need `[MessagePackObject]`.
 
-- EF Core and Dapper/Dommel generate code at run time: fine with trimming, not with full Native AOT.
-- MagicOnion clients need the MagicOnion source generator under Native AOT.
-- Entities sent over MagicOnion need `[MessagePackObject]` for source-generated formatters.
-
-## Building, testing and packaging
+## Build and test
 
 ```bash
-dotnet build Queryeables.slnx
 dotnet test Queryeables.slnx
+dotnet run --project Samples/Queryeables.Sample
 dotnet pack Queryeables.slnx -c Release -o ./artifacts -p:Version=0.1.0
 ```
 
-The contract tests run every store (Dommel, EF Core and the remote MagicOnion store, with and without sync
-conventions) against an in-memory SQLite database. The unit tests cover filters, keys, cache, aggregates,
-transactions and change propagation without a database.
-
-The [CI workflow](.github/workflows/ci.yml) builds, tests and packs on every push and pull request. Pushing a tag such
-as `v0.1.0` publishes the packages to nuget.org (requires the `NUGET_API_KEY` repository secret).
-
-## Credits
-
-Design ideas come from the Datasync Community Toolkit, ActualLab.Fusion, ABP and Breeze; see [CREDITS.md](CREDITS.md).
-
-## License
-
-[MIT](LICENSE.txt)
+Design ideas come from the Datasync Community Toolkit, ActualLab.Fusion, ABP and Breeze: see [CREDITS.md](CREDITS.md).
+Released under the [MIT License](LICENSE.txt).

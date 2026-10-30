@@ -2,7 +2,7 @@ using Queryeables.Abstraction;
 using System.Collections.Concurrent;
 using System.Reflection;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 /// <summary>
 /// Network name of an entity type: <see cref="RemoteNameAttribute"/> when present, otherwise the full name.

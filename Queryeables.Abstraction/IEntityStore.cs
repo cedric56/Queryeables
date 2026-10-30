@@ -18,8 +18,12 @@ namespace Queryeables.Abstraction;
 /// <item>a member without a default implementation is only added in a new major version.</item>
 /// </list>
 /// Every new implementation must pass the <c>EntityStoreContractTests</c> test suite.
+/// <para>
+/// Stores are disposable both ways, so that a dependency injection container disposing synchronously does not fail;
+/// prefer registering an <see cref="IEntityStoreFactory"/> rather than a store.
+/// </para>
 /// </remarks>
-public interface IEntityStore : IAsyncDisposable
+public interface IEntityStore : IAsyncDisposable, IDisposable
 {
     // Read
     Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class;

@@ -6,6 +6,7 @@ using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.EntityFramework;
 using Queryeables.Onion;
+using Queryeables.Remote;
 
 namespace Queryeables.Tests.Contract;
 
@@ -83,8 +84,23 @@ public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Remote store: <see cref="MagicOnionEntityStore"/> → MessagePack serialization → <see cref="EntityRequestDispatcher"/>
-/// → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
+/// Remote store, transport-agnostic: <see cref="RemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsRemote"/>
+/// → <see cref="EntityHandler{T}"/> → Dommel, with a JSON serializer: nothing of MagicOnion is involved.
+/// </summary>
+public sealed class RemoteEntityStoreContractTests : SqliteContractTests
+{
+    protected override IEntityStore CreateStore()
+    {
+        var registry = new EntityHandlerRegistry();
+        registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll));
+        var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), CreateDommelStore);
+        return new RemoteEntityStore(dispatcher.AsRemote(), new JsonTestSerializer());
+    }
+}
+
+/// <summary>
+/// Remote store over MagicOnion: <see cref="RemoteEntityStore"/> → <see cref="MagicOnionRemote"/> → MessagePack messages
+/// → <see cref="EntityRequestDispatcher"/> → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
 /// </summary>
 public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 {
@@ -98,9 +114,11 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(serverStore, policy, maxPageSize: maxPageSize));
-        var dispatcher = new EntityRequestDispatcher(registry, transactionStoreFactory: serverStore);
-        return new MagicOnionEntityStore(new InProcessLayer(dispatcher));
+        return Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, serverStore));
     }
+
+    private static IEntityStore Client(EntityRequestDispatcher dispatcher)
+        => MagicOnionRemote.Stores(new InProcessLayer(dispatcher)).Create();
 
     [Fact]
     public async Task Server_caps_the_page_size()
@@ -194,7 +212,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         var service = new RecordingService(CreateDommelStore);
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll, aggregate: service));
-        await using var store = new MagicOnionEntityStore(new InProcessLayer(new EntityRequestDispatcher(registry)));
+        await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
 
         var ana = new TestClient { Name = "Ana" };
         await store.InsertAsync(ana);
@@ -212,7 +230,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll,
             aggregate: new RecordingService(CreateDommelStore, fail: true)));
-        await using var store = new MagicOnionEntityStore(new InProcessLayer(new EntityRequestDispatcher(registry)));
+        await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
 
         var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "Ana" }));
 
@@ -253,28 +271,34 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Name.Length > 3));
     }
 
-    /// <summary>The MagicOnion service without the network: each call goes straight to the dispatcher.</summary>
+    /// <summary>
+    /// The MagicOnion service without the network: each call goes straight to the dispatcher, its messages through
+    /// MessagePack as on the network (numbers come back with the smallest possible type).
+    /// </summary>
     private sealed class InProcessLayer(EntityRequestDispatcher dispatcher) : IMagicOnionLayer
     {
         private static readonly EntityRequestContext Caller = EntityRequestContext.Anonymous;
 
-        public UnaryResult<DBResultMessage> GetAllAsync(string type) => new(dispatcher.GetAllAsync(type, Caller));
-        public UnaryResult<DBResultMessage> SelectAsync(string type, FilterCondition[] conditions, bool any)
-            => new(dispatcher.SelectAsync(type, RoundTrip(conditions), any, Caller));
-        public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize)
-            => new(dispatcher.SelectPagedAsync(type, RoundTrip(conditions), any, pageNumber, pageSize, Caller));
+        public UnaryResult<DBResultMessage> GetAllAsync(string type) => Reply(dispatcher.GetAllAsync(type, Caller));
+        public UnaryResult<DBResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
+            => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, Caller));
+        public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
+            => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize, Caller));
         public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
-            => new(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
+            => Reply(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
         public UnaryResult<DBResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
-            => new(dispatcher.InsertAsync(type, entity, Caller.WithConnection(connectionId)));
+            => Reply(dispatcher.InsertAsync(type, entity, Caller.WithConnection(connectionId)));
         public UnaryResult<DBResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
-            => new(dispatcher.UpdateAsync(type, entity, Caller.WithConnection(connectionId)));
+            => Reply(dispatcher.UpdateAsync(type, entity, Caller.WithConnection(connectionId)));
         public UnaryResult<DBResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
-            => new(dispatcher.DeleteAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperation[] operations)
-            => new(dispatcher.ExecuteBatchAsync(RoundTrip(operations), Caller));
+            => Reply(dispatcher.DeleteAsync(type, entity, Caller.WithConnection(connectionId)));
+        public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
+            => Reply(dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(RoundTrip(operations)), Caller));
 
-        // Arguments go through MessagePack as on the network: numbers come back with the smallest possible type.
+        private static UnaryResult<DBResultMessage> Reply(Task<RemoteResult> call) => new(ReplyAsync(call));
+
+        private static async Task<DBResultMessage> ReplyAsync(Task<RemoteResult> call) => RoundTrip(DBResultMessage.From(await call));
+
         private static T RoundTrip<T>(T value)
             => MessagePack.MessagePackSerializer.Deserialize<T>(MessagePack.MessagePackSerializer.Serialize(value));
 

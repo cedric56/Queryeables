@@ -142,6 +142,14 @@ public sealed class DommelEntityStore : IEntityStore
         return new Transaction(this, _transaction);
     }
 
+    public void Dispose()
+    {
+        _transaction?.Dispose();
+        _transaction = null;
+        if (_ownsConnection)
+            _connection.Dispose();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_transaction != null)

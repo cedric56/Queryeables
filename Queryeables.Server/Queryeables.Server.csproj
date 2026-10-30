@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
     <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
   </ItemGroup>
 

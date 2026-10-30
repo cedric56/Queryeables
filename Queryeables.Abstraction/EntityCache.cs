@@ -61,15 +61,25 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private int _fullRefreshQueued;
     private readonly ConcurrentDictionary<TKey, byte> _queuedKeys = new();
 
-    /// <param name="storeFactory">Creates a store for each load; the cache disposes it afterwards.</param>
+    /// <param name="stores">Creates a store for each load; the cache disposes it afterwards.</param>
     /// <param name="key">Entity key, for example <c>c => c.Id</c>.</param>
     /// <param name="monitor">Optional source of change notifications.</param>
     /// <param name="parseKey">
     /// Reads back the key of a <see cref="DbRecord{T}"/> (<see cref="DbRecord{T}.EntityKey"/>), for row-by-row updates.
-    /// Usually <c>RecordKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
+    /// Usually <c>DbRecordKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
     /// with SQLite, the rowid is the key only for an <c>INTEGER PRIMARY KEY</c> table.
     /// When absent, each change triggers a synchronization (or a full reload without [LastModified]).
     /// </param>
+    public EntityCache(
+        IEntityStoreFactory stores,
+        Expression<Func<TEntity, TKey>> key,
+        IDbMonitor<TEntity>? monitor = null,
+        Func<string, TKey>? parseKey = null)
+        : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, key, monitor, parseKey)
+    {
+    }
+
+    /// <inheritdoc cref="EntityCache{TEntity, TKey}(IEntityStoreFactory, Expression{Func{TEntity, TKey}}, IDbMonitor{TEntity}?, Func{string, TKey}?)"/>
     public EntityCache(
         Func<IEntityStore> storeFactory,
         Expression<Func<TEntity, TKey>> key,

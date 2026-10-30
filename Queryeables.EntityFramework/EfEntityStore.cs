@@ -126,6 +126,12 @@ public sealed class EfEntityStore : IEntityStore
 
     public ValueTask DisposeAsync() => _ownsContext ? _context.DisposeAsync() : ValueTask.CompletedTask;
 
+    public void Dispose()
+    {
+        if (_ownsContext)
+            _context.Dispose();
+    }
+
     // ---------- Internals ----------
 
     private async Task<int> SaveAndDetachAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct) where TEntity : class

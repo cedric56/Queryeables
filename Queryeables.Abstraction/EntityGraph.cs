@@ -7,7 +7,7 @@ namespace Queryeables.Abstraction;
 /// <summary>Entry point to describe an aggregate: a parent entity and its children, linked by a foreign key.</summary>
 /// <example>
 /// <code>
-/// var persons = Aggregate.For&lt;Person, long&gt;(p => p.Id)
+/// var persons = EntityGraph.For&lt;Person, long&gt;(p => p.Id)
 ///     .HasMany(p => p.Contacts, foreignKey: c => c.IdContact, key: c => c.Id, onLoaded: graph.AttachContacts);
 ///
 /// await using var store = DommelEntityStore.Create(factory);
@@ -58,45 +58,23 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <summary>True when the parent's key still has its default value: it is not in the database yet.</summary>
     public bool IsNew(TParent parent) => IsDefault(_key(parent));
 
-    ///// <summary>Declares a child collection.</summary>
-    ///// <param name="children">Collection property of the parent, for example <c>p => p.Contacts</c>. It must be writable.</param>
-    ///// <param name="foreignKey">Child property holding the parent's key, for example <c>c => c.IdPerson</c>. It must be writable.</param>
-    ///// <param name="key">Primary key of the child: a default value means a new child; equal keys mean the same row.</param>
-    ///// <param name="onLoaded">Called after <see cref="LoadAsync"/> with the loaded children, for example to set navigation properties.</param>
-    //public EntityGraph<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
-    //    Expression<Func<TParent, IEnumerable<TChild>?>> children,
-    //    Expression<Func<TChild, TKey>> foreignKey,
-    //    Expression<Func<TChild, TChildKey>> key,
-    //    Action<TParent, IReadOnlyList<TChild>>? onLoaded = null)
-    //    where TChild : class
-    //    where TChildKey : notnull
-    //{
-    //    _relations.Add(new Relation<TChild, TChildKey>(children, foreignKey, key, onLoaded));
-    //    return this;
-    //}
-
-    public EntityGraph<TParent, TKey> HasMany<
-    [DynamicallyAccessedMembers(EntityMembers.Required)] TChild,
-    TChildKey,
-    TRelationParent>(
-    Expression<Func<TParent, IEnumerable<TChild>?>> children,
-    Expression<Func<TChild, TKey>> foreignKey,
-    Expression<Func<TChild, TChildKey>> key,
-     Func<TChild, TRelationParent?>? relationParent = null,
-    Action<TParent, TRelationParent, IReadOnlyList<TChild>>? onLoaded = null)
-    where TChild : class
-    where TChildKey : notnull
-    where TRelationParent : class
+    /// <summary>Declares a child collection.</summary>
+    /// <param name="children">Collection property of the parent, for example <c>p => p.Contacts</c>. It must be writable.</param>
+    /// <param name="foreignKey">Child property holding the parent's key, for example <c>c => c.IdPerson</c>. It must be writable.</param>
+    /// <param name="key">Primary key of the child: a default value means a new child; equal keys mean the same row.</param>
+    /// <param name="onLoaded">
+    /// Called after <see cref="LoadAsync"/> with the parent and its loaded children, for example to set navigation properties
+    /// (the generated <c>{Parent}Graph</c> class does it).
+    /// </param>
+    public EntityGraph<TParent, TKey> HasMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey>(
+        Expression<Func<TParent, IEnumerable<TChild>?>> children,
+        Expression<Func<TChild, TKey>> foreignKey,
+        Expression<Func<TChild, TChildKey>> key,
+        Action<TParent, IReadOnlyList<TChild>>? onLoaded = null)
+        where TChild : class
+        where TChildKey : notnull
     {
-        relationParent ??= child => child as TRelationParent;
-        _relations.Add(
-        new Relation<TChild, TChildKey, TRelationParent>(
-            children,
-            foreignKey,
-            key,
-            relationParent,
-            onLoaded));
-
+        _relations.Add(new Relation<TChild, TChildKey>(children, foreignKey, key, onLoaded));
         return this;
     }
 
@@ -156,29 +134,19 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
         Task LoadAsync(IEntityStore store, TParent parent, TKey? key, CancellationToken ct);
     }
 
-    private sealed class Relation<
-    [DynamicallyAccessedMembers(EntityMembers.Required)] TChild,
-    TChildKey,
-    TRelationParent> : IRelation
-    where TChild : class
-    where TChildKey : notnull
-    where TRelationParent : class
+    private sealed class Relation<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild, TChildKey> : IRelation
+        where TChild : class
+        where TChildKey : notnull
     {
         private readonly Func<TParent, IEnumerable<TChild>?> _getChildren;
         private readonly Action<TParent, List<TChild>> _setChildren;
         private readonly Expression<Func<TChild, TKey>> _foreignKey;
         private readonly Action<TChild, TKey> _setForeignKey;
         private readonly Func<TChild, TChildKey> _childKey;
-        private readonly Func<TChild, TRelationParent?>? _relationParent;
+        private readonly Action<TParent, IReadOnlyList<TChild>>? _onLoaded;
 
-        private readonly Action<TParent, TRelationParent, IReadOnlyList<TChild>>? _onLoaded;
-
-        public Relation(
-            Expression<Func<TParent, IEnumerable<TChild>?>> children,
-            Expression<Func<TChild, TKey>> foreignKey,
-            Expression<Func<TChild, TChildKey>> key,
-            Func<TChild, TRelationParent?>? relationParent,
-            Action<TParent, TRelationParent, IReadOnlyList<TChild>>? onLoaded)
+        public Relation(Expression<Func<TParent, IEnumerable<TChild>?>> children, Expression<Func<TChild, TKey>> foreignKey,
+            Expression<Func<TChild, TChildKey>> key, Action<TParent, IReadOnlyList<TChild>>? onLoaded)
         {
             ArgumentNullException.ThrowIfNull(children);
             ArgumentNullException.ThrowIfNull(foreignKey);
@@ -186,97 +154,44 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
 
             _getChildren = children.Compile();
             _setChildren = Setter<TParent, List<TChild>>(children, nameof(children));
-
             _foreignKey = foreignKey;
             _setForeignKey = Setter<TChild, TKey>(foreignKey, nameof(foreignKey));
-
             _childKey = key.Compile();
-            _relationParent = relationParent;
             _onLoaded = onLoaded;
         }
 
-        public async Task SaveAsync(
-            IEntityStore store,
-            TParent parent,
-            TKey key,
-            CancellationToken ct)
+        public async Task SaveAsync(IEntityStore store, TParent parent, TKey key, CancellationToken ct)
         {
             var current = _getChildren(parent)?.ToList() ?? [];
-
             foreach (var child in current)
                 _setForeignKey(child, key);
 
             var before = await store.SelectAsync(ForeignKeyEquals(key), ct);
-
-            await store.SyncChildrenAsync(
-                before,
-                current,
+            await store.SyncChildrenAsync(before, current,
                 child => IsDefault(_childKey(child)),
-                (a, b) => EqualityComparer<TChildKey>.Default.Equals(
-                    _childKey(a),
-                    _childKey(b)),
+                (a, b) => EqualityComparer<TChildKey>.Default.Equals(_childKey(a), _childKey(b)),
                 ct);
         }
 
-        public async Task RemoveAsync(
-            IEntityStore store,
-            TKey key,
-            CancellationToken ct)
+        public async Task RemoveAsync(IEntityStore store, TKey key, CancellationToken ct)
         {
             foreach (var child in await store.SelectAsync(ForeignKeyEquals(key), ct))
                 await store.DeleteAsync(child, ct);
         }
 
-        public async Task LoadAsync(
-            IEntityStore store,
-            TParent parent,
-            TKey? key,
-            CancellationToken ct)
+        public async Task LoadAsync(IEntityStore store, TParent parent, TKey? key, CancellationToken ct)
         {
             var children = key is null || IsDefault(key)
-                ? new List<TChild>()
+                ? []
                 : (await store.SelectAsync(ForeignKeyEquals(key), ct)).ToList();
-
             _setChildren(parent, children);
-
-            if (_onLoaded is null)
-                return;
-
-            if (_relationParent is null)
-            {
-                // Pas de résolveur : le parent personnalisé ne peut pas être obtenu.
-                return;
-            }
-
-            // Regrouper les enfants par parent de relation.
-            var groups = children
-                .Select(child => new
-                {
-                    Child = child,
-                    Parent = _relationParent(child)
-                })
-                .Where(x => x.Parent is not null)
-                .GroupBy(x => x.Parent!);
-
-            foreach (var group in groups)
-            {
-                var groupChildren = group.Select(x => x.Child).ToList();
-
-                _onLoaded(
-                    parent,
-                    group.Key,
-                    groupChildren);
-            }
+            _onLoaded?.Invoke(parent, children);
         }
 
-        /// <summary>
-        /// c => c.ForeignKey == key : expression translatable by Dommel, EF and remote filters.
-        /// </summary>
+        /// <summary><c>c => c.ForeignKey == key</c>: translatable by Dommel, EF and the remote filters.</summary>
         private Expression<Func<TChild, bool>> ForeignKeyEquals(TKey key)
             => Expression.Lambda<Func<TChild, bool>>(
-                Expression.Equal(
-                    _foreignKey.Body,
-                    Expression.Constant(key, typeof(TKey))),
+                Expression.Equal(_foreignKey.Body, Expression.Constant(key, typeof(TKey))),
                 _foreignKey.Parameters);
     }
 

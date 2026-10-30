@@ -1,15 +1,20 @@
 <Solution>
   <Project Path="Queryeables.Abstraction/Queryeables.Abstraction.csproj" />
+  <Project Path="Queryeables.Core/Queryeables.Core.csproj" />
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />
   <Project Path="Queryeables.Generated/Queryeables.Generated.csproj" Id="bdf35e5b-372f-44e0-8db7-9ef1071ec43c" />
   <Project Path="Queryeables.Onion.Client/Queryeables.Onion.Client.csproj" />
   <Project Path="Queryeables.Onion/Queryeables.Onion.csproj" Id="b02edfb3-6a85-4718-890e-8ca3bcd9459d" />
   <Project Path="Queryeables.PostgreSql/Queryeables.PostgreSql.csproj" />
+  <Project Path="Queryeables.Remote/Queryeables.Remote.csproj" />
   <Project Path="Queryeables.Server/Queryeables.Server.csproj" Id="e7f333d1-efa1-41ce-b759-f978acfa59e2" />
   <Project Path="Queryeables.SignalR.Server/Queryeables.SignalR.Server.csproj" />
   <Project Path="Queryeables.SignalR/Queryeables.SignalR.csproj" />
   <Project Path="Queryeables.SqlDependency/Queryeables.SqlDependency.csproj" />
   <Project Path="Queryeables.Sqlite/Queryeables.Sqlite.csproj" />
   <Project Path="Queryeables.Tests/Queryeables.Tests.csproj" />
+  <Folder Name="/Samples/">
+    <Project Path="Samples/Queryeables.Sample/Queryeables.Sample.csproj" />
+  </Folder>
 </Solution>

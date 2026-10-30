@@ -1,6 +1,5 @@
-using MessagePack;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 public enum FilterOperator
 {
@@ -25,7 +24,6 @@ public enum FilterOperator
 }
 
 /// <summary>A "property operator value" condition sent to the server.</summary>
-[MessagePackObject]
 public sealed class FilterCondition
 {
     public FilterCondition()
@@ -39,13 +37,10 @@ public sealed class FilterCondition
         Value = value;
     }
 
-    [Key(0)]
     public string Property { get; set; } = string.Empty;
 
-    [Key(1)]
     public FilterOperator Operator { get; set; }
 
-    [Key(2)]
     public object? Value { get; set; }
 
     public override string ToString() => $"{Property} {Operator} {Value}";
@@ -59,7 +54,6 @@ public enum BatchOperationKind
 }
 
 /// <summary>One write of a batch executed in a single server-side transaction.</summary>
-[MessagePackObject]
 public sealed class BatchOperation
 {
     public BatchOperation()
@@ -75,16 +69,12 @@ public sealed class BatchOperation
     }
 
     /// <summary>Name of the entity type (see <see cref="EntityName"/>).</summary>
-    [Key(0)]
     public string Type { get; set; } = string.Empty;
 
-    [Key(1)]
     public BatchOperationKind Kind { get; set; }
 
-    [Key(2)]
     public byte[] Entity { get; set; } = [];
 
     /// <summary>Notification session of the client for this entity type.</summary>
-    [Key(3)]
     public string? ConnectionId { get; set; }
 }

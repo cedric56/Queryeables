@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Shipped inside the "Queryeables" package (Queryeables.Core/Queryeables.nuspec), not as a package of its own. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Remote access, independent of any transport: the client store (RemoteEntityStore), the server handlers, the filter
+    translation and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityRemote on the client,
+    calls EntityRequestDispatcher on the server, and provides an IEntitySerializer. No package references.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+  </ItemGroup>
+
+  <!-- The tests also check the filter translation, which is internal to this project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Queryeables.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -71,6 +71,8 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
+    public void Dispose() { }
+
     private static int IndexOf<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(List<object> rows, T entity)
     {
         var id = IdProperty<T>();

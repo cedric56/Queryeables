@@ -1,5 +1,6 @@
 using Queryeables.Abstraction;
 using Queryeables.Onion;
+using Queryeables.Remote;
 using System.Security.Claims;
 
 namespace Queryeables.Tests.Unit;
@@ -53,7 +54,7 @@ public class RemoteContractTests
     [Fact]
     public void Store_errors_keep_their_code_and_messages()
     {
-        var result = DBResultMessage.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalid", ["a", "b"]));
+        var result = RemoteResult.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalid", ["a", "b"]));
 
         var error = Assert.Throws<EntityStoreException>(() => result.GetDataOrThrow());
         Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
@@ -62,34 +63,34 @@ public class RemoteContractTests
 
     [Fact]
     public void Bad_requests_are_reported_as_such()
-        => Assert.Equal(EntityErrorCode.InvalidRequest, DBResultMessage.FromException(new ArgumentException("filtre")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.InvalidRequest, RemoteResult.FromException(new ArgumentException("filter")).ErrorCode);
 
     [Fact]
     public void Unexpected_errors_are_unknown()
-        => Assert.Equal(EntityErrorCode.Unknown, DBResultMessage.FromException(new InvalidOperationException("base")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.Unknown, RemoteResult.FromException(new InvalidOperationException("database")).ErrorCode);
 
     [Fact]
     public void Success_returns_the_data()
-        => Assert.Equal(new byte[] { 1, 2 }, DBResultMessage.Success([1, 2]).GetDataOrThrow());
+        => Assert.Equal(new byte[] { 1, 2 }, RemoteResult.Success([1, 2]).GetDataOrThrow());
 
     [Fact]
-    public void DBResult_survives_the_wire_form()
+    public void DbResult_survives_the_MagicOnion_message()
     {
         var original = DbResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
 
-        var back = DBResultMessage.From(original).ToDBResult();
+        var back = DBResultMessage.From(RemoteResult.From(original)).ToRemoteResult().ToDbResult();
 
         Assert.False(back.Successful);
         Assert.Equal(EntityErrorCode.Conflict, back.ErrorCode);
         Assert.Equal("changed in the meantime", back.Exception);
         Assert.Equal(new[] { "v1" }, back.Errors);
-        Assert.True(DBResultMessage.From(DbResult.Success()).ToDBResult().Successful);
+        Assert.True(DBResultMessage.From(RemoteResult.Success([7])).ToRemoteResult().Successful);
     }
 
     [Fact]
     public async Task Unknown_types_are_reported()
     {
-        var dispatcher = new EntityRequestDispatcher(new EntityHandlerRegistry());
+        var dispatcher = new EntityRequestDispatcher(new EntityHandlerRegistry(), new JsonTestSerializer());
         var result = await dispatcher.GetAllAsync("Inexistant", EntityRequestContext.Anonymous);
         Assert.Equal(EntityErrorCode.UnknownType, result.ErrorCode);
     }
@@ -97,7 +98,7 @@ public class RemoteContractTests
     [Fact]
     public async Task Batches_need_a_transactional_store()
     {
-        var dispatcher = new EntityRequestDispatcher(new EntityHandlerRegistry());
+        var dispatcher = new EntityRequestDispatcher(new EntityHandlerRegistry(), new JsonTestSerializer());
         var result = await dispatcher.ExecuteBatchAsync([new BatchOperation("x", BatchOperationKind.Insert, [], null)], EntityRequestContext.Anonymous);
         Assert.Equal(EntityErrorCode.NotSupported, result.ErrorCode);
     }

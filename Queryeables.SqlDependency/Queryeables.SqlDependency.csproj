@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
   </ItemGroup>
 
 </Project>

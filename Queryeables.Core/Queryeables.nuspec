@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The "Queryeables" package, packed from Queryeables.Core.csproj (dotnet pack Queryeables.Core). It is written by hand because it
+  holds the assemblies of three projects and the source generator, and the dependencies of those projects are not packages.
+  When a PackageReference of Abstraction, Remote or Core changes, change the dependencies below.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Queryeables</id>
+    <version>$version$</version>
+    <authors>cedric56</authors>
+    <description>One data-access API for .NET, local or remote: IEntityStore over Dommel, EF Core or a remote server, transactions that report a DbResult, entity graphs, in-memory caches that follow the database, and a source generator ([EntityCache], [EntityGraph]). Add a provider package (Queryeables.Sqlite, Queryeables.Dommel, Queryeables.EntityFramework...) or a transport (Queryeables.Onion.Client) to use it.</description>
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/cedric56/Queryeables</projectUrl>
+    <repository type="git" url="https://github.com/cedric56/Queryeables.git" />
+    <copyright>Copyright (c) 2026 cedric56</copyright>
+    <tags>data-access dommel efcore cache sync orm repository</tags>
+    <readme>README.md</readme>
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="Microsoft.Extensions.DependencyInjection.Abstractions" version="10.0.14" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="../README.md" target="" />
+
+    <!-- The libraries, with their symbols and their XML documentation. -->
+    <file src="../Queryeables.Abstraction/bin/$configuration$/net10.0/Queryeables.Abstraction.dll" target="lib/net10.0" />
+    <file src="../Queryeables.Abstraction/bin/$configuration$/net10.0/Queryeables.Abstraction.pdb" target="lib/net10.0" />
+    <file src="../Queryeables.Abstraction/bin/$configuration$/net10.0/Queryeables.Abstraction.xml" target="lib/net10.0" />
+    <file src="../Queryeables.Remote/bin/$configuration$/net10.0/Queryeables.Remote.dll" target="lib/net10.0" />
+    <file src="../Queryeables.Remote/bin/$configuration$/net10.0/Queryeables.Remote.pdb" target="lib/net10.0" />
+    <file src="../Queryeables.Remote/bin/$configuration$/net10.0/Queryeables.Remote.xml" target="lib/net10.0" />
+    <file src="bin/$configuration$/net10.0/Queryeables.Core.dll" target="lib/net10.0" />
+    <file src="bin/$configuration$/net10.0/Queryeables.Core.pdb" target="lib/net10.0" />
+    <file src="bin/$configuration$/net10.0/Queryeables.Core.xml" target="lib/net10.0" />
+
+    <!-- The source generator: an analyzer, it adds nothing to the references of the project. -->
+    <file src="../Queryeables.Generated/bin/$configuration$/netstandard2.0/Queryeables.Generated.dll" target="analyzers/dotnet/cs" />
+  </files>
+</package>

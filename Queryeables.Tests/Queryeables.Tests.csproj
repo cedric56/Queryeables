@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -14,13 +14,21 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
+    <ProjectReference Include="..\Queryeables.Sqlite\Queryeables.Sqlite.csproj" />
     <ProjectReference Include="..\Queryeables.Dommel\Queryeables.Dommel.csproj" />
     <ProjectReference Include="..\Queryeables.EntityFramework\Queryeables.EntityFramework.csproj" />
     <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
+  </ItemGroup>
+
+  <!-- The source generator, run on the test entities like in an application, and called directly by the generator tests. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Generated\Queryeables.Generated.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
   </ItemGroup>
 
   <ItemGroup>

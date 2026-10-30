@@ -84,6 +84,8 @@ public sealed class InMemoryEntityStore : IEntityStore
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
+    public void Dispose() { }
+
     private sealed class Transaction(List<string>? log) : IEntityTransaction
     {
         public Task<DbResult> CommitAsync(CancellationToken ct = default) { log?.Add("COMMIT"); return Task.FromResult(DbResult.Success()); }

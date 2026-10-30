@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
+    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
   </ItemGroup>
 
 </Project>

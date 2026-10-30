@@ -1,15 +1,13 @@
-using MagicOnion;
-using MessagePack;
 using Queryeables.Abstraction;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Diagnostics.CodeAnalysis;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 /// <summary>
-/// Client-side <see cref="IEntityStore"/>, on top of the MagicOnion service. Allows using
-/// <see cref="EntityCache{TEntity, TKey}"/> and transactions remotely just like locally.
+/// Client-side <see cref="IEntityStore"/> on top of any transport (<see cref="IEntityRemote"/>): the same code, caches and
+/// transactions remotely as locally.
 /// <para>
 /// <b>Predicates:</b> comparisons, booleans, <c>list.Contains(e.Prop)</c>, StartsWith/EndsWith/Contains on strings,
 /// all combined with AND or all with OR. Anything else throws <see cref="NotSupportedException"/> before any call.
@@ -25,30 +23,33 @@ namespace Queryeables.Onion;
 /// <see cref="DbResult"/>. Both carry the kind of error (permissions, validation, conflict...).
 /// </para>
 /// </summary>
-/// <example>
-/// <code>
-/// var layer = MagicOnionClient.Create&lt;IMagicOnionLayer&gt;(channel);
-/// var cache = new EntityCache&lt;Customer, long&gt;(
-///     () => new MagicOnionEntityStore(layer, session), c => c.Id, monitor, RecordKey.Parse&lt;long&gt;);
-/// </code>
-/// </example>
-public sealed class MagicOnionEntityStore(
-    IMagicOnionLayer layer,
-    IDbSession? session = null,
-    MessagePackSerializerOptions? options = null) : IEntityStore
+/// <param name="remote">The transport.</param>
+/// <param name="serializer">The entity serializer, the same as the server's.</param>
+/// <param name="session">Notification sessions: the session id goes with every write, so that this client ignores its own changes.</param>
+public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer serializer, IDbSession? session = null) : IEntityStore
 {
+    private readonly IEntityRemote _remote = remote ?? throw new ArgumentNullException(nameof(remote));
+    private readonly IEntitySerializer _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     private RemoteTransaction? _transaction;
+
+    /// <summary>A factory of remote stores (<see cref="IEntityStoreFactory.IsRemote"/> is true).</summary>
+    public static IEntityStoreFactory Factory(IEntityRemote remote, IEntitySerializer serializer, IDbSession? session = null)
+    {
+        ArgumentNullException.ThrowIfNull(remote);
+        ArgumentNullException.ThrowIfNull(serializer);
+        return new EntityStoreFactory(() => new RemoteEntityStore(remote, serializer, session), isRemote: true);
+    }
 
     // ---------- Read ----------
 
     public async Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class
-        => DeserializeMany<TEntity>(await CallAsync(l => l.GetAllAsync(Name<TEntity>()), ct), ct);
+        => DeserializeMany<TEntity>(await CallAsync(_remote.GetAllAsync(Name<TEntity>(), ct)));
 
     public async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         var (conditions, any) = Filters.FromPredicate(predicate);
-        return DeserializeMany<TEntity>(await CallAsync(l => l.SelectAsync(Name<TEntity>(), conditions, any), ct), ct);
+        return DeserializeMany<TEntity>(await CallAsync(_remote.SelectAsync(Name<TEntity>(), conditions, any, ct)));
     }
 
     public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -62,45 +63,45 @@ public sealed class MagicOnionEntityStore(
         Paging.Validate(pageNumber, pageSize);
         var (conditions, any) = Filters.FromPredicate(predicate);
         return DeserializeMany<TEntity>(
-            await CallAsync(l => l.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize), ct), ct);
+            await CallAsync(_remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, ct)));
     }
 
     /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included.</summary>
     public async Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc, CancellationToken ct = default)
         where TEntity : class
         => DeserializeMany<TEntity>(
-            await CallAsync(l => l.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc)), ct), ct);
+            await CallAsync(_remote.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc), ct)));
 
     // ---------- Write ----------
 
     public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        if (Enqueue(BatchOperationKind.Insert, entity, ct))
+        if (Enqueue(BatchOperationKind.Insert, entity))
             return;
 
-        var data = await CallAsync(l => l.InsertAsync(Name<TEntity>(), Serialize(entity, ct), ConnectionId<TEntity>()), ct);
-        ApplyResult(data, entity, ct); // generated key and version
+        var data = await CallAsync(_remote.InsertAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
+        ApplyResult(data, entity); // generated key and version
     }
 
     public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        if (Enqueue(BatchOperationKind.Update, entity, ct))
+        if (Enqueue(BatchOperationKind.Update, entity))
             return true;
 
-        var data = await CallAsync(l => l.UpdateAsync(Name<TEntity>(), Serialize(entity, ct), ConnectionId<TEntity>()), ct);
-        return ApplyResult(data, entity, ct); // empty data: row not found
+        var data = await CallAsync(_remote.UpdateAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
+        return ApplyResult(data, entity); // empty data: row not found
     }
 
     public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
-        if (Enqueue(BatchOperationKind.Delete, entity, ct))
+        if (Enqueue(BatchOperationKind.Delete, entity))
             return true;
 
-        var data = await CallAsync(l => l.DeleteAsync(Name<TEntity>(), Serialize(entity, ct), ConnectionId<TEntity>()), ct);
-        return data is { Length: > 0 } && MessagePackSerializer.Deserialize<bool>(data, options, ct);
+        var data = await CallAsync(_remote.DeleteAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
+        return data is { Length: > 0 } && _serializer.Deserialize<bool>(data);
     }
 
     // ---------- Transactions ----------
@@ -116,20 +117,22 @@ public sealed class MagicOnionEntityStore(
 
     public ValueTask DisposeAsync()
     {
-        _transaction = null; // pending writes discarded
+        Dispose();
         return ValueTask.CompletedTask;
     }
 
+    public void Dispose() => _transaction = null; // pending writes discarded
+
     /// <summary>Queues the write when a transaction is in progress.</summary>
-    private bool Enqueue<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(BatchOperationKind kind, TEntity entity, CancellationToken ct) where TEntity : class
+    private bool Enqueue<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(BatchOperationKind kind, TEntity entity) where TEntity : class
     {
         if (_transaction is null)
             return false;
 
-        var operation = new BatchOperation(Name<TEntity>(), kind, Serialize(entity, ct), ConnectionId<TEntity>());
+        var operation = new BatchOperation(Name<TEntity>(), kind, _serializer.Serialize(entity), ConnectionId<TEntity>());
         Action<byte[]> applyResult = kind == BatchOperationKind.Delete
             ? _ => { }
-            : data => ApplyResult(data, entity, CancellationToken.None);
+            : data => ApplyResult(data, entity);
         _transaction.Add(operation, applyResult);
         return true;
     }
@@ -144,10 +147,10 @@ public sealed class MagicOnionEntityStore(
             return DbResult.Success();
 
         var operations = transaction.Operations.Select(o => o.Operation).ToArray();
-        DBResultMessage response;
+        RemoteResult response;
         try
         {
-            response = await layer.WithCancellationToken(ct).ExecuteBatchAsync(operations);
+            response = await _remote.ExecuteBatchAsync(operations, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -155,10 +158,10 @@ public sealed class MagicOnionEntityStore(
         }
 
         if (!response.Successful)
-            return response.ToDBResult();
+            return response.ToDbResult();
 
         var results = response.Data is { Length: > 0 }
-            ? MessagePackSerializer.Deserialize<byte[][]>(response.Data, options, ct) ?? []
+            ? _serializer.Deserialize<byte[][]>(response.Data) ?? []
             : [];
 
         // Generated keys and new versions copied back into the original entities.
@@ -173,7 +176,7 @@ public sealed class MagicOnionEntityStore(
             _transaction = null;
     }
 
-    private sealed class RemoteTransaction(MagicOnionEntityStore store) : IEntityTransaction
+    private sealed class RemoteTransaction(RemoteEntityStore store) : IEntityTransaction
     {
         public List<(BatchOperation Operation, Action<byte[]> ApplyResult)> Operations { get; } = [];
         private bool _done;
@@ -206,8 +209,7 @@ public sealed class MagicOnionEntityStore(
 
     // ---------- Internals ----------
 
-    private async Task<byte[]?> CallAsync(Func<IMagicOnionLayer, UnaryResult<DBResultMessage>> call, CancellationToken ct)
-        => (await call(layer.WithCancellationToken(ct))).GetDataOrThrow();
+    private static async Task<byte[]?> CallAsync(Task<RemoteResult> call) => (await call).GetDataOrThrow();
 
     /// <summary>Name under which the server registers the type (see <see cref="EntityName"/>).</summary>
     private static string Name<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>() => EntityName.Of<TEntity>();
@@ -215,21 +217,16 @@ public sealed class MagicOnionEntityStore(
     private string? ConnectionId<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>()
         => session is not null && session.TryGetSession(typeof(TEntity), out var current) ? current.session : null;
 
-    private byte[] Serialize<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct)
-        => MessagePackSerializer.Serialize(entity, options, ct);
-
-    private IReadOnlyList<TEntity> DeserializeMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data, CancellationToken ct)
-        => data is { Length: > 0 }
-            ? MessagePackSerializer.Deserialize<TEntity[]>(data, options, ct) ?? []
-            : [];
+    private IReadOnlyList<TEntity> DeserializeMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data)
+        => data is { Length: > 0 } ? _serializer.Deserialize<TEntity[]>(data) ?? [] : [];
 
     /// <summary>Copies the entity returned by the server into the caller's one. False when the server returned nothing.</summary>
-    private bool ApplyResult<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data, TEntity target, CancellationToken ct) where TEntity : class
+    private bool ApplyResult<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data, TEntity target) where TEntity : class
     {
         if (data is not { Length: > 0 })
             return false;
 
-        var source = MessagePackSerializer.Deserialize<TEntity>(data, options, ct);
+        var source = _serializer.Deserialize<TEntity>(data);
         if (source is null)
             return false;
 

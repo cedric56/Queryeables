@@ -1,12 +1,14 @@
 ﻿using MagicOnion;
+using Queryeables.Remote;
 
 namespace Queryeables.Onion;
 
 /// <summary>
-/// Remote entity access service. The server implements it by delegating to
-/// <see cref="EntityRequestDispatcher"/>; the client uses it through <see cref="MagicOnionEntityStore"/>.
+/// MagicOnion service for remote entity access: the MagicOnion form of <see cref="IEntityRemote"/>.
+/// The server implements it by delegating to <see cref="EntityRequestDispatcher"/> (<c>MagicOnionService</c>);
+/// the client uses it through <see cref="MagicOnionRemote"/> and <see cref="RemoteEntityStore"/>.
 /// <para>
-/// Filters are "property operator value" conditions (<see cref="FilterCondition"/>),
+/// Filters are "property operator value" conditions (<see cref="FilterConditionMessage"/>),
 /// all combined with AND (<c>any</c> = false) or all with OR (<c>any</c> = true).
 /// No SQL goes over the wire: only the types registered on the server can be reached, according to their access policies.
 /// </para>
@@ -16,9 +18,9 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
 {
     UnaryResult<DBResultMessage> GetAllAsync(string type);
 
-    UnaryResult<DBResultMessage> SelectAsync(string type, FilterCondition[] conditions, bool any);
+    UnaryResult<DBResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any);
 
-    UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize);
+    UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize);
 
     /// <summary>
     /// Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included (incremental synchronization).
@@ -39,5 +41,5 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
     /// Runs every write in a single transaction: all succeed, or none is applied.
     /// Returns one result per operation (the entity for an insert or an update, true for a delete).
     /// </summary>
-    UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperation[] operations);
+    UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations);
 }

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
 {
@@ -32,7 +32,7 @@ public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
                     $"Give {handler.Type.FullName} a distinct name with [RemoteName]."));
     }
 
-    /// <summary>Registers the handler under its type name, the one used by <see cref="MagicOnionEntityStore"/>.</summary>
+    /// <summary>Registers the handler under its type name, the one used by <see cref="RemoteEntityStore"/>.</summary>
     public void Register(EntityHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);

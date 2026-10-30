@@ -41,6 +41,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<DbMonitorRegistry>();
         services.TryAddSingleton<IDbSession, DbSession>();
+        services.TryAddSingleton<IEntityStoreFactory>(sp =>
+        {
+            var provider = sp.GetRequiredService<DbProviderFactory>();
+            return new EntityStoreFactory(() => DommelEntityStore.Create(provider));
+        });
         services.AddSingleton(options);
         services.AddSingleton<DbProviderFactory>(sp =>
         {

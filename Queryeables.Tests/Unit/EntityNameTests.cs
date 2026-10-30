@@ -1,5 +1,5 @@
 using Queryeables.Abstraction;
-using Queryeables.Onion;
+using Queryeables.Remote;
 
 namespace Queryeables.Tests.Unit;
 

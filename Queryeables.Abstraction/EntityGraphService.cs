@@ -5,43 +5,52 @@ namespace Queryeables.Abstraction;
 /// <summary>
 /// Ready-made <see cref="IDbTransaction{TEntity}"/> for an <see cref="EntityGraph{TParent, TKey}"/>: saves and removes
 /// the parent with its children in one transaction, and loads the children. Works with any store: Dommel, EF Core,
-/// or a remote MagicOnion store.
+/// or a remote server.
 /// </summary>
-/// <param name="storeFactory">Creates a store per call; the service disposes it.</param>
-/// <param name="aggregate">The parent and its child collections.</param>
-/// <param name="childrenSavedByServer">
-/// For a remote store whose server already saves the children (<c>EntityHandler</c> with <c>aggregate:</c>):
-/// save and remove send the parent only, children included in it, in a single call. Loading is unchanged.
-/// </param>
-/// <example>
-/// <code>
-/// public sealed class PersonService(Func&lt;IEntityStore&gt; stores, Aggregate&lt;Person, long&gt; persons)
-///     : AggregateService&lt;Person, long&gt;(stores, persons), IPersonService
-/// {
-///     public Task LoadContactsAsync(Person person, CancellationToken ct = default) => LoadChildrenAsync(person, ct);
-/// }
-/// </code>
-/// </example>
-public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
-    Func<IEntityStore> storeFactory,
-    EntityGraph<TParent, TKey> aggregate,
-    bool childrenSavedByServer = false) : IDbTransaction<TParent>
+/// <remarks>
+/// With a remote store factory (<see cref="IEntityStoreFactory.IsRemote"/>), save and remove send the parent only,
+/// children included, in a single call: the server saves the children with its own graph service.
+/// The source generator writes a <c>{Parent}Service</c> class on top of this one for every <c>[EntityGraph]</c>.
+/// </remarks>
+public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey> : IDbTransaction<TParent>
     where TParent : class
     where TKey : notnull
 {
-    private readonly Func<IEntityStore> _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
+    private readonly Func<IEntityStore> _storeFactory;
+    private readonly bool _childrenSavedByServer;
 
-    public EntityGraph<TParent, TKey> Aggregate { get; } = aggregate ?? throw new ArgumentNullException(nameof(aggregate));
+    /// <param name="stores">Creates a store per call; the service disposes it.</param>
+    /// <param name="graph">The parent and its child collections.</param>
+    /// <param name="childrenSavedByServer">Overrides <see cref="IEntityStoreFactory.IsRemote"/>.</param>
+    public EntityGraphService(IEntityStoreFactory stores, EntityGraph<TParent, TKey> graph, bool? childrenSavedByServer = null)
+        : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, graph,
+            childrenSavedByServer ?? stores.IsRemote)
+    {
+    }
+
+    /// <param name="storeFactory">Creates a store per call; the service disposes it.</param>
+    /// <param name="graph">The parent and its child collections.</param>
+    /// <param name="childrenSavedByServer">
+    /// For a remote store whose server already saves the children: save and remove send the parent only.
+    /// </param>
+    public EntityGraphService(Func<IEntityStore> storeFactory, EntityGraph<TParent, TKey> graph, bool childrenSavedByServer = false)
+    {
+        _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
+        Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _childrenSavedByServer = childrenSavedByServer;
+    }
+
+    public EntityGraph<TParent, TKey> Graph { get; }
 
     public virtual async Task<DbResult> SaveAsync(TParent entity, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
 
-        if (childrenSavedByServer)
-            return await DbResult.RunAsync(() => store.SaveAsync(entity, Aggregate.IsNew, ct));
+        if (_childrenSavedByServer)
+            return await DbResult.RunAsync(() => store.SaveAsync(entity, Graph.IsNew, ct));
 
-        return await store.RunInTransactionAsync(s => Aggregate.SaveAsync(s, entity, ct), ct);
+        return await store.RunInTransactionAsync(s => Graph.SaveAsync(s, entity, ct), ct);
     }
 
     public virtual async Task<DbResult> RemoveAsync(TParent entity, CancellationToken ct = default)
@@ -49,14 +58,14 @@ public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Requir
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
 
-        if (childrenSavedByServer)
+        if (_childrenSavedByServer)
             return await DbResult.RunAsync(async () =>
             {
                 if (!await store.DeleteAsync(entity, ct))
                     throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} not found: nothing was deleted.");
             });
 
-        return await store.RunInTransactionAsync(s => Aggregate.RemoveAsync(s, entity, ct), ct);
+        return await store.RunInTransactionAsync(s => Graph.RemoveAsync(s, entity, ct), ct);
     }
 
     /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="EntityGraph{TParent, TKey}.LoadAsync"/>).</summary>
@@ -64,6 +73,6 @@ public class EntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Requir
     {
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
-        await Aggregate.LoadAsync(store, entity, ct);
+        await Graph.LoadAsync(store, entity, ct);
     }
 }

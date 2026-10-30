@@ -1,4 +1,4 @@
-﻿namespace Queryeables.Onion;
+﻿namespace Queryeables.Remote;
 
 /// <summary>Entity types exposed by the server. A type that is not registered cannot be reached remotely.</summary>
 public interface IEntityHandlerRegistry

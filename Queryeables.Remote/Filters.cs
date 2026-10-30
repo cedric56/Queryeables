@@ -4,10 +4,10 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Queryeables.Onion;
+namespace Queryeables.Remote;
 
 /// <summary>
-/// Conversion between LINQ predicates and conditions that MagicOnion can carry.
+/// Conversion between LINQ predicates and conditions that any transport can carry.
 /// Client: predicate → conditions. Server: conditions → predicate, over a whitelist of operations.
 /// </summary>
 internal static class Filters
@@ -194,7 +194,7 @@ internal static class Filters
             ? constant.Value
             : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile()();
 
-    /// <summary>Reduces the value to a primitive type that MessagePack carries without a special resolver.</summary>
+    /// <summary>Reduces the value to a primitive type that any serializer carries (no custom type to register).</summary>
     private static object? Normalize(object? value) => value switch
     {
         null => null,
@@ -349,7 +349,7 @@ internal static class Filters
     };
 
     /// <summary>
-    /// Converts a received value to the property type. MessagePack does not keep the exact type
+    /// Converts a received value to the property type. A serializer may not keep the exact type
     /// of a number stored in an object (a 5 comes back as a byte): without conversion, Expression.Constant fails.
     /// </summary>
     public static object? ConvertTo(object? value, Type type, string name)

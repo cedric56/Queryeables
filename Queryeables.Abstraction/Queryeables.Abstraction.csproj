@@ -1,30 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
-    <NuspecFile>Queryeables.nuspec</NuspecFile>
-    <NuspecProperties>version=$(Version);configuration=$(Configuration)</NuspecProperties>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Shipped inside the "Queryeables" package (Queryeables.Core/Queryeables.nuspec), not as a package of its own. -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
-
-  <PropertyGroup>
-    <IncludeSymbols>false</IncludeSymbols>
-    <IncludeSource>false</IncludeSource>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="README.md"
-          Pack="true"
-          PackagePath="\" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Generated\Queryeables.Generated.csproj" ReferenceOutputAssembly="false"/>
-  </ItemGroup>
 
   <!-- Agnostic by design: no package references. Data access, serialization and transports live in other projects. -->
 

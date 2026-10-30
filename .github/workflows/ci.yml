@@ -32,7 +32,10 @@ jobs:
         run: dotnet build Queryeables.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test Queryeables.slnx -c Release --no-build -o artifacts -p:Version=0.1.0-ci.10 --logger trx --results-directory TestResults
+        run: dotnet test Queryeables.slnx -c Release --no-build --logger trx --results-directory TestResults
+
+      - name: Run the sample (SQLite, Dommel, generator, cache)
+        run: dotnet run --project Samples/Queryeables.Sample -c Release --no-build
 
       - name: Upload test results
         if: always()

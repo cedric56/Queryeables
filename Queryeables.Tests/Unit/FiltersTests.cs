@@ -1,4 +1,4 @@
-using Queryeables.Onion;
+using Queryeables.Remote;
 using System.Linq.Expressions;
 
 namespace Queryeables.Tests.Unit;

@@ -13,7 +13,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
     <ProjectReference Include="..\Queryeables.Dommel\Queryeables.Dommel.csproj" />
   </ItemGroup>
 
