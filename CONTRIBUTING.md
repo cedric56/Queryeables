@@ -33,5 +33,5 @@ change the nuspec too. The other projects are packed as they are, each with the 
 
 1. Move the `Unreleased` section of `CHANGELOG.md` under the new version.
 2. Tag the commit: `git tag v0.1.0 && git push origin v0.1.0`.
-3. The CI builds, tests, packs and pushes every package to nuget.org. It needs the `NUGET_API_KEY` repository secret
-   (an API key from nuget.org with the "Push" scope for the `Queryeables*` glob).
+3. The CI builds, tests, packs and pushes every package to nuget.org with Trusted Publishing: no API key is stored. The
+   nuget.org account `cedricb` has a trusted publishing policy for `cedric56/Queryeables`, workflow `ci.yml`.
