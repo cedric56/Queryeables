@@ -3,6 +3,9 @@
 Queryeables is a data-access layer for .NET applications whose data lives **either in a local database or behind a server**,
 and that want the same code for both. It sits on top of an ORM (Dommel or EF Core), not instead of it.
 
+It is not a query builder (like Dynamic LINQ or Gridify, which turn query strings into LINQ), not a GraphQL server (like
+Hot Chocolate), and not an ORM: it uses one.
+
 ## The model
 
 | Piece | What it is |

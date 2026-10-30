@@ -12,6 +12,11 @@
 A view model or a service asks for `IPersonService` or `IEntityCache<Person, long>`. It never knows whether the data comes
 from SQLite through Dommel, from SQL Server through EF Core, or from a server across the network.
 
+**What it is not:** not an ORM (it runs on top of Dommel or EF Core, which you keep for complex queries), not a query
+builder or a query-string filter library, and not a GraphQL server. It is the layer above them: the same store API locally
+and remotely, in-memory caches that follow the database, parent-child graphs saved in one transaction, and change
+notifications between clients.
+
 > **Status:** early. Packages are not published on NuGet yet, and the API may still change.
 
 📖 **[Documentation](https://cedric56.github.io/Queryeables/)**: [getting started](docs/getting-started.md),
