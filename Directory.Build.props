@@ -3,7 +3,8 @@
   <!-- Package metadata shared by every project. Versions come from the build: -p:Version=0.1.0 -->
   <PropertyGroup>
     <Version Condition="'$(Version)' == ''">0.1.0-dev</Version>
-    <Authors>cedric56</Authors>
+    <Authors>Cédric Boutin</Authors>
+    <Copyright>Copyright (c) 2026 Cédric Boutin</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/cedric56/Queryeables</PackageProjectUrl>
     <RepositoryUrl>https://github.com/cedric56/Queryeables</RepositoryUrl>
