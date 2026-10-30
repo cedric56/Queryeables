@@ -1,8 +1,13 @@
 <p align="center">
+  <img src="Images/logo-icon.svg" alt="Queryeables" width="96">
+</p>
+
+<p align="center">
   <a href="https://github.com/cedric56/Queryeables/actions/workflows/ci.yml"><img src="https://github.com/cedric56/Queryeables/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
-  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-5B35E0" alt="MIT License"></a>
+  <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-0D9488" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
   <img src="https://img.shields.io/badge/AOT-compatible-2E7D32" alt="AOT compatible">
+  <a href="https://cedric56.github.io/Queryeables/"><img src="https://img.shields.io/badge/docs-site-14B8A6" alt="Documentation"></a>
 </p>
 
 # Queryeables

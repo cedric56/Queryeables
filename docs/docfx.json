@@ -38,10 +38,18 @@
         ]
       }
     ],
+    "resource": [
+      {
+        "files": [
+          "images/**"
+        ]
+      }
+    ],
     "output": "_site",
     "template": [
       "default",
-      "modern"
+      "modern",
+      "templates/queryeables"
     ],
     "globalMetadata": {
       "_appTitle": "Queryeables",
@@ -50,7 +58,10 @@
       "_gitContribute": {
         "repo": "https://github.com/cedric56/Queryeables",
         "branch": "master"
-      }
+      },
+      "_appLogoPath": "images/logo-icon.svg",
+      "_appFaviconPath": "images/logo-icon.svg",
+      "_appName": "Queryeables"
     }
   }
 }
