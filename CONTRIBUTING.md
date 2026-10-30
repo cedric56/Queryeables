@@ -2,6 +2,13 @@
 
 Issues and pull requests are welcome. Please open an issue to discuss larger changes first.
 
+## Contributor License Agreement
+
+Before a pull request can be merged, its author signs the [Contributor License Agreement](CLA.md), once for all their
+contributions: a bot asks for it on the first pull request, and the signature is a comment. You keep the copyright of
+your contributions; the agreement lets the maintainer license, relicense or transfer the project as a whole, so that it
+can keep one owner.
+
 ## Building and testing
 
 The projects target **.NET 10**.
