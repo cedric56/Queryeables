@@ -23,7 +23,7 @@
     </dependencies>
   </metadata>
   <files>
-    <file src="../README.md" target="" />
+    <file src="README.md" target="" />
 
     <!-- The libraries, with their symbols and their XML documentation. -->
     <file src="../Queryeables.Abstraction/bin/$configuration$/net10.0/Queryeables.Abstraction.dll" target="lib/net10.0" />
