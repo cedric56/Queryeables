@@ -63,7 +63,7 @@ setup and the source generator. There is nothing else to add.
 | Data | Package | Setup |
 | --- | --- | --- |
 | SQLite | [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | `q.UseSqlite("Data Source=app.db")`, with change notifications |
-| PostgreSQL | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | `q.UseNpgsql(connectionString)` |
+| PostgreSQL | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | `q.UseNpgsql(connectionString, notifications: n => n.Watch<Person>(p => p.Id))`, with change notifications |
 | SQL Server, MySQL... | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | `q.UseDommel<SqlConnection>(connectionString)` |
 | Any EF Core provider | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | `q.UseEntityFramework(sp => new AppDbContext(options))` |
 | A Queryeables server | [`Queryeables.Onion.Client`](Queryeables.Onion.Client/README.md) | `q.UseMagicOnion("https://server:5001")` |
@@ -156,7 +156,7 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables`](Queryeables.Core/README.md) | [Contracts](Queryeables.Abstraction/README.md), [remote core](Queryeables.Remote/README.md), `UseQueryeables`, [source generator](Queryeables.Generated/README.md). No database, no transport |
 | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | Stores on Dommel: generated keys, optimistic concurrency, SQL logging |
 | [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications |
-| [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | Dommel on PostgreSQL |
+| [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | Dommel on PostgreSQL, with change notifications |
 | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | Stores on EF Core |
 | [`Queryeables.SqlDependency`](Queryeables.SqlDependency/README.md) | SQL Server change notifications |
 | [`Queryeables.Onion`](Queryeables.Onion/README.md) | MagicOnion messages and serializer, shared by client and server |

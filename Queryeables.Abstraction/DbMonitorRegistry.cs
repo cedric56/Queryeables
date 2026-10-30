@@ -37,6 +37,13 @@ public sealed class DbMonitorRegistry
             monitor.Publish(type, table, entityKey, connectionId);
     }
 
+    /// <summary>Tells every monitor that changes may have been missed (see <see cref="IDbMonitor.PublishResync"/>).</summary>
+    public void PublishResync()
+    {
+        foreach (var monitor in _monitors.Keys)
+            monitor.PublishResync();
+    }
+
     /// <summary>Overload for a numeric key, for example the SQLite rowid.</summary>
     public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
         => Publish(type, table, DbRecordKey.Format(rowId), connectionId);

@@ -18,6 +18,22 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A PostgreSQL server for the change notification test (triggers, LISTEN/NOTIFY).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: queryeables
+          POSTGRES_DB: queryeables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUERYEABLES_POSTGRES: Host=localhost;Port=5432;Database=queryeables;Username=postgres;Password=queryeables
     steps:
       - uses: actions/checkout@v4
 

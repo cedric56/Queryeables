@@ -14,6 +14,14 @@ public interface IDbMonitor
     /// </summary>
     /// <param name="entityKey">Row key, in the <see cref="DbRecordKey.Format"/> format.</param>
     void Publish(ChangeType type, string table, string entityKey, string? connectionId);
+
+    /// <summary>
+    /// Reports that some changes may have been missed (a change source that reconnected): subscribers synchronize. A
+    /// record with an empty key means exactly that; <see cref="EntityCache{TEntity, TKey}"/> then calls its synchronization.
+    /// </summary>
+    void PublishResync()
+    {
+    }
 }
 
 /// <summary>Monitor of one entity type: its subscribers (for example <see cref="EntityCache{TEntity, TKey}"/>) react to changes.</summary>
@@ -48,6 +56,8 @@ public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : cla
         ArgumentNullException.ThrowIfNull(record);
         RecordChanged?.Invoke(this, record);
     }
+
+    public void PublishResync() => Publish(new DbRecord<TEntity>(string.Empty, ChangeType.Update, []));
 
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
     {

@@ -23,6 +23,26 @@ declare them with `[Table("person")]` and `[Column("name")]`.
 
 ## Change notifications
 
-This package does not report changes by itself. Notify the monitors from your own source (`LISTEN/NOTIFY`, logical
-replication...) with `DbMonitorRegistry.Publish(type, table, key)`, or let the caches synchronize with `cache.SyncAsync()`
-(`[LastModified]`).
+Like SQLite, PostgreSQL reports changed rows to the monitors, and the caches follow the database. Name the watched tables:
+
+```csharp
+services.UseQueryeables(q => q
+    .UseNpgsql(connectionString, notifications: n => n
+        .Watch<Person>(p => p.Id)
+        .Watch<Contact>(c => c.Id))
+    .AddGeneratedEntities());
+```
+
+- At startup, a trigger is installed on each table (`AFTER INSERT OR UPDATE OR DELETE`), calling `pg_notify` with the
+  table, the operation and the key. Without the right to create triggers, set `n.CreateTriggers = false` and run
+  `n.TriggerScript()` once with an administrator.
+- `PostgresChangeListener`, a hosted service, listens on a dedicated connection and publishes each change. Without a host
+  (console application), call `provider.GetRequiredService<PostgresChangeListener>().StartAsync()`.
+- PostgreSQL delivers a notification at commit, never for a rolled back transaction: a cache reading the row sees its new
+  state. Changes made by any application are reported, not only by this one.
+- The listener reconnects by itself (1 s, doubling up to 30 s), then tells the monitors that changes may have been missed:
+  the caches synchronize.
+- The author of a change is not known to PostgreSQL: the client that made it is notified too (it reads the row again).
+
+The table name is the `[Table]` name of the type, otherwise the type name, as for the monitors; the key column is the
+`[Column]` name of the key property, otherwise its name.

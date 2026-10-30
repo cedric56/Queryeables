@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
     <ProjectReference Include="..\Queryeables.Sqlite\Queryeables.Sqlite.csproj" />
+    <ProjectReference Include="..\Queryeables.PostgreSql\Queryeables.PostgreSql.csproj" />
     <ProjectReference Include="..\Queryeables.Dommel\Queryeables.Dommel.csproj" />
     <ProjectReference Include="..\Queryeables.EntityFramework\Queryeables.EntityFramework.csproj" />
     <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />

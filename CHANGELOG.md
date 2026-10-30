@@ -23,6 +23,9 @@ First public version.
 
 - `CapturedValues`: predicates reach Dommel and the remote filters with constants instead of captured variables, which
   Dommel used to evaluate by compiling a lambda per query.
+- PostgreSQL change notifications: triggers and `LISTEN/NOTIFY`, a hosted listener that reconnects and makes the caches
+  synchronize (`UseNpgsql(..., notifications: n => n.Watch<T>(...))`), tested against a real server in the CI.
+- `IDbMonitor.PublishResync()`: tells subscribers that changes may have been missed.
 - Sorting: `Sort<T>.By(...).ThenByDescending(...)`, `SelectPagedAsync(predicate, page, size, sort)` (in the database with
   EF Core, by the server remotely) and `SelectAsync(predicate, sort)`.
 - Projections: `SelectAsync<T, TResult>(predicate, selector)`, in the database with EF Core.
