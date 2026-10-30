@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -21,6 +22,8 @@ namespace Queryeables.EntityFramework;
 ///     EfConnectionExtensions.UseProvider&lt;SqliteConnection&gt;((b, c) => b.UseSqlite(c));
 ///     EfConnectionExtensions.UseProvider&lt;NpgsqlConnection&gt;((b, c) => b.UseNpgsql(c));
 /// </summary>
+[RequiresUnreferencedCode(EfAot.Trimming)]
+[RequiresDynamicCode(EfAot.DynamicCode)]
 public static class EfConnectionExtensions
 {
     private static readonly ConcurrentDictionary<Type, Action<DbContextOptionsBuilder, DbConnection>> _providers = new();

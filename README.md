@@ -192,7 +192,8 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 
 ## Native AOT
 
-Every library sets `IsAotCompatible` and builds without trimming or AOT warnings. At run time, EF Core and Dapper/Dommel
+Every library sets `IsAotCompatible` and builds without trimming or AOT warnings; the EF Core store is marked as
+requiring unreferenced and dynamic code, like EF Core itself. At run time, EF Core and Dapper/Dommel
 generate code (fine with trimming, not with full Native AOT), MagicOnion clients need the MagicOnion source generator, and
 entities sent over MagicOnion need `[MessagePackObject]`.
 

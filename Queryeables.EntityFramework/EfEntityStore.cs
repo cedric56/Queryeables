@@ -18,6 +18,8 @@ namespace Queryeables.EntityFramework;
 /// entity itself (and its owned types), never the entities it references: children and navigation properties are
 /// written by their own calls, like <see cref="EntityGraph{TParent, TKey}"/> does.
 /// </summary>
+[RequiresUnreferencedCode(EfAot.Trimming)]
+[RequiresDynamicCode(EfAot.DynamicCode)]
 public sealed class EfEntityStore : IEntityStore
 {
     private readonly DbContext _context;

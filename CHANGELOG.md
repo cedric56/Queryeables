@@ -34,5 +34,8 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- EF Core store: `EfEntityStore`, `EfConnectionExtensions` and `UseEntityFramework` carry `RequiresUnreferencedCode` and
+  `RequiresDynamicCode`, like EF Core itself: the build has no trimming warnings, and a trimmed or Native AOT application
+  is warned where it uses them.
 - SQLite: changes are reported once the commit has returned, not from inside the commit hook, so that a cache reading the
   row again never sees its previous state.
