@@ -1,3 +1,5 @@
+using Queryeables.Abstraction;
+
 namespace Queryeables.Remote;
 
 /// <summary>
@@ -19,6 +21,16 @@ public interface IEntityRemote
 
     Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// A page in the given order, sorted by the server. Transports written before sorting existed only support an empty
+    /// sort.
+    /// </summary>
+    Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+        SortKey[] sort, CancellationToken ct = default)
+        => sort is not { Length: > 0 }
+            ? SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct)
+            : Task.FromResult(RemoteResult.Failure(EntityErrorCode.NotSupported, "This transport does not support sorted pages."));
 
     /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included (incremental synchronization).</summary>
     Task<RemoteResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default);

@@ -27,13 +27,26 @@ callers.
 | `SelectAsync<T>(predicate)` | Translated by Dommel, EF Core, or sent as conditions to a server |
 | `FirstOrDefaultAsync<T>(predicate)`, `GetAsync<T>(predicate)` | `GetAsync` throws `NotFound` instead of returning null |
 | `SelectPagedAsync<T>(predicate, page, size)` | Pages start at 1, sorted by key |
+| `SelectPagedAsync<T>(predicate, page, size, sort)` | In the given order: `Sort<T>.By(p => p.Name).ThenByDescending(p => p.Id)` |
+| `SelectAsync<T>(predicate, sort)` | Every matching row, in the given order |
+| `SelectAsync<T, TResult>(predicate, selector)` | A projection: `p => new PersonRow(p.Id, p.Name)` |
 | `CountAsync<T>(predicate)` | Counted in the database |
 | `SelectChangesAsync<T>(sinceUtc)` | Rows changed since a date, soft-deleted ones included (`[LastModified]`) |
 
 Predicates stay simple so that every store understands them: comparisons, booleans, `ids.Contains(e.Id)`, and
 `StartsWith`, `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!`. A `!` is pushed down to the
 terms (`!(a && b)` is sent as `!a || !b`); it cannot negate a `Contains`, a text search, or an ordering on a nullable
-property. For joins, projections, sorting or grouping, use the ORM directly.
+property. For joins or grouping, use the ORM directly.
+
+Where sorting and projections run:
+
+| Store | Sorted pages | Projections |
+| --- | --- | --- |
+| EF Core | In the database, the key breaking ties | In the database: only the selected columns are read |
+| Remote | By the server, with its own store; only the page crosses the network | On the client, after reading the entities (no expression goes over the wire) |
+| Dommel, your own store | In memory, after the filtered read | In memory, after the read |
+
+A sort names properties of the entity, at most 8; a server checks them against the exposed type.
 
 ## Writing
 

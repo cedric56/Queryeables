@@ -142,6 +142,37 @@ public static class EntityStoreExtensions
             throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TEntity).Name} not found: nothing was updated.");
     }
 
+    // ---------- Members with a default implementation, reachable from a variable typed as a concrete store ----------
+    // C# only exposes a default interface member through the interface: these forward to it, so that
+    // `DommelEntityStore store; store.CountAsync(...)` compiles, and runs the store's own version when it has one.
+
+    /// <inheritdoc cref="IEntityStore.CountAsync{TEntity}"/>
+    public static Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+        => store.CountAsync(predicate, ct);
+
+    /// <inheritdoc cref="IEntityStore.SelectPagedAsync{TEntity}(Expression{Func{TEntity, bool}}, int, int, Sort{TEntity}, CancellationToken)"/>
+    public static Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize, Sort<TEntity> sort,
+        CancellationToken ct = default) where TEntity : class
+        => store.SelectPagedAsync(predicate, pageNumber, pageSize, sort, ct);
+
+    /// <inheritdoc cref="IEntityStore.SelectAsync{TEntity, TResult}(Expression{Func{TEntity, bool}}, Expression{Func{TEntity, TResult}}, CancellationToken)"/>
+    public static Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TResult>> selector,
+        CancellationToken ct = default) where TEntity : class
+        => store.SelectAsync(predicate, selector, ct);
+
+    /// <summary>The entities matching the predicate, in the given order (sorted after reading: use paging for large sets).</summary>
+    public static async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Sort<TEntity> sort, CancellationToken ct = default)
+        where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(sort);
+        return sort.Apply(await store.SelectAsync(predicate, ct)).ToList();
+    }
+
     // ---------- Strict read and bulk operations (ideas from ABP repositories, see CREDITS.md) ----------
 
     /// <summary>

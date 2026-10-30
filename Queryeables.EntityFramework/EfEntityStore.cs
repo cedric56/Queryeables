@@ -55,6 +55,49 @@ public sealed class EfEntityStore : IEntityStore
             .ToListAsync(ct);
     }
 
+    /// <summary>Sorted and paged in the database; the primary key breaks ties, so that pages are stable.</summary>
+    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize, Sort<TEntity> sort,
+        CancellationToken ct = default) where TEntity : class
+    {
+        Paging.Validate(pageNumber, pageSize);
+        ArgumentNullException.ThrowIfNull(sort);
+
+        IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking().Where(predicate);
+        IOrderedQueryable<TEntity>? ordered = null;
+        foreach (var key in sort.Keys)
+            ordered = Order(query, ordered, key.Property, key.Descending);
+
+        var primaryKey = _context.Model.FindEntityType(typeof(TEntity))?.FindPrimaryKey()
+            ?? throw new InvalidOperationException($"{typeof(TEntity).Name} has no primary key.");
+        foreach (var property in primaryKey.Properties.Where(p => sort.Keys.All(k => k.Property != p.Name)))
+            ordered = Order(query, ordered, property.Name, descending: false);
+
+        return await (ordered ?? query)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Projected in the database: only the selected columns are read.</summary>
+    public async Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TResult>> selector, CancellationToken ct = default)
+        where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        return await _context.Set<TEntity>().AsNoTracking().Where(predicate).Select(selector).ToListAsync(ct);
+    }
+
+    private static IOrderedQueryable<TEntity> Order<TEntity>(IQueryable<TEntity> query, IOrderedQueryable<TEntity>? ordered,
+        string property, bool descending) where TEntity : class
+        => (ordered, descending) switch
+        {
+            (null, false) => query.OrderBy(e => EF.Property<object>(e, property)),
+            (null, true) => query.OrderByDescending(e => EF.Property<object>(e, property)),
+            (_, false) => ordered.ThenBy(e => EF.Property<object>(e, property)),
+            (_, true) => ordered.ThenByDescending(e => EF.Property<object>(e, property)),
+        };
+
     public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => _context.Set<TEntity>().LongCountAsync(predicate, ct);

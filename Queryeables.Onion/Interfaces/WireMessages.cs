@@ -55,3 +55,20 @@ public sealed class BatchOperationMessage
     public static BatchOperation[] ToOperations(BatchOperationMessage[]? messages)
         => messages is null ? [] : Array.ConvertAll(messages, m => m.ToOperation());
 }
+
+/// <summary>MessagePack form of a <see cref="Queryeables.Abstraction.SortKey"/>.</summary>
+[MessagePackObject]
+public sealed class SortKeyMessage
+{
+    [Key(0)]
+    public string Property { get; set; } = string.Empty;
+
+    [Key(1)]
+    public bool Descending { get; set; }
+
+    public static SortKeyMessage[] From(Queryeables.Abstraction.SortKey[]? keys)
+        => keys is null ? [] : Array.ConvertAll(keys, k => new SortKeyMessage { Property = k.Property, Descending = k.Descending });
+
+    public static Queryeables.Abstraction.SortKey[] ToKeys(SortKeyMessage[]? messages)
+        => messages is null ? [] : Array.ConvertAll(messages, m => new Queryeables.Abstraction.SortKey(m.Property, m.Descending));
+}

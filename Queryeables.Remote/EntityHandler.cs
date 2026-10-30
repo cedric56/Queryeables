@@ -21,6 +21,13 @@ public abstract class EntityHandler
     public abstract Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default);
 
+    /// <summary>A page in the given order. The properties of the sort are checked against the entity type.</summary>
+    public virtual Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
+        int pageSize, SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
+        => sort is not { Length: > 0 }
+            ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
+            : Task.FromResult(RemoteResult.Failure(EntityErrorCode.NotSupported, $"{Type.Name} does not support sorted pages."));
+
     public abstract Task<RemoteResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>Standalone write, in its own store.</summary>
@@ -105,6 +112,20 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             await using var store = _storeFactory();
             return SerializeMany(serializer, await store.SelectPagedAsync(predicate, pageNumber, Math.Min(pageSize, _maxPageSize), ct));
         });
+
+    public override Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
+        int pageSize, SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
+        => sort is not { Length: > 0 }
+            ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
+            : RemoteResult.RunAsync(async () =>
+            {
+                var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
+                var order = Sort<T>.FromKeys(sort);       // only properties of T, at most Sort<T>.MaxKeys
+                await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+                await using var store = _storeFactory();
+                return SerializeMany(serializer,
+                    await store.SelectPagedAsync(predicate, pageNumber, Math.Min(pageSize, _maxPageSize), order, ct));
+            });
 
     public override Task<RemoteResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
         => RemoteResult.RunAsync(async () =>

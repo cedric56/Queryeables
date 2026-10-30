@@ -32,6 +32,13 @@ public sealed class MagicOnionRemote(IMagicOnionLayer layer) : IEntityRemote
         => (await _layer.WithCancellationToken(ct)
             .SelectPagedAsync(type, FilterConditionMessage.From(conditions), any, pageNumber, pageSize)).ToRemoteResult();
 
+    public async Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+        SortKey[] sort, CancellationToken ct = default)
+        => sort is not { Length: > 0 }
+            ? await SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct)
+            : (await _layer.WithCancellationToken(ct).SelectSortedPageAsync(type, FilterConditionMessage.From(conditions), any,
+                pageNumber, pageSize, SortKeyMessage.From(sort))).ToRemoteResult();
+
     public async Task<RemoteResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).GetChangesAsync(type, sinceUtc)).ToRemoteResult();
 

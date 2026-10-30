@@ -43,6 +43,39 @@ public interface IEntityStore : IAsyncDisposable, IDisposable
         int pageSize,
         CancellationToken ct = default) where TEntity : class;
 
+    /// <summary>
+    /// A page of the entities matching the predicate, in the given order. Stores that can sort in the database
+    /// (EF Core, a remote server) override it; the default implementation reads the matching rows, then sorts and pages
+    /// them in memory.
+    /// </summary>
+    /// <param name="pageNumber">Page number, starting at 1.</param>
+    async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate,
+        int pageNumber,
+        int pageSize,
+        Sort<TEntity> sort,
+        CancellationToken ct = default) where TEntity : class
+    {
+        Paging.Validate(pageNumber, pageSize);
+        ArgumentNullException.ThrowIfNull(sort);
+        var rows = await SelectAsync(predicate, ct);
+        return sort.Apply(rows).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+    }
+
+    /// <summary>
+    /// The entities matching the predicate, projected with <paramref name="selector"/> (a DTO, a few columns...). EF Core
+    /// projects in the database; the default implementation reads the entities, then projects them in memory.
+    /// </summary>
+    async Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        Expression<Func<TEntity, bool>> predicate,
+        Expression<Func<TEntity, TResult>> selector,
+        CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        var project = selector.Compile();
+        return (await SelectAsync(predicate, ct)).Select(project).ToList();
+    }
+
     /// <summary>Number of entities matching the predicate.</summary>
     /// <remarks>
     /// The default implementation loads the entities to count them; stores that can count

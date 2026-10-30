@@ -107,6 +107,41 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SelectPaged_sorts_by_the_given_keys()
+    {
+        await InsertAsync("B", sponsorId: 2);
+        await InsertAsync("A", sponsorId: 1);
+        await InsertAsync("C", sponsorId: 2);
+        await InsertAsync("D", sponsorId: null);
+        await InsertAsync("E", active: false);
+
+        await using var store = CreateStore();
+        var byName = await store.SelectPagedAsync<TestClient>(c => c.Active == true, 1, 10,
+            Sort<TestClient>.ByDescending(c => c.Name));
+        var bySponsorThenName = await store.SelectPagedAsync<TestClient>(c => c.SponsorId != null, 1, 10,
+            Sort<TestClient>.ByDescending(c => c.SponsorId).ThenBy(c => c.Name));
+        var secondPage = await store.SelectPagedAsync<TestClient>(c => c.Active == true, 2, 3, Sort<TestClient>.By(c => c.Name));
+
+        Assert.Equal(new[] { "D", "C", "B", "A" }, byName.Select(c => c.Name));
+        Assert.Equal(new[] { "B", "C", "A" }, bySponsorThenName.Select(c => c.Name));
+        Assert.Equal(new[] { "D" }, secondPage.Select(c => c.Name));
+    }
+
+    [Fact]
+    public async Task Select_projects_with_a_selector()
+    {
+        await InsertAsync("A", sponsorId: 1);
+        await InsertAsync("B", active: false);
+
+        await using var store = CreateStore();
+        var names = await store.SelectAsync<TestClient, string>(c => c.Active == true, c => c.Name);
+        var pairs = await store.SelectAsync<TestClient, (string Name, int? Sponsor)>(c => c.Active == true, c => ValueTuple.Create(c.Name, c.SponsorId));
+
+        Assert.Equal(new[] { "A" }, names);
+        Assert.Equal(("A", (int?)1), Assert.Single(pairs));
+    }
+
+    [Fact]
     public async Task SelectPaged_rejects_page_zero()
     {
         await using var store = CreateStore();

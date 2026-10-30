@@ -38,6 +38,10 @@ public sealed class EntityRequestDispatcher(
         EntityRequestContext context, CancellationToken ct = default)
         => Dispatch(type, h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, context, ct));
 
+    public Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+        SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
+        => Dispatch(type, h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, sort ?? [], context, ct));
+
     public Task<RemoteResult> GetChangesAsync(string type, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
         => Dispatch(type, h => h.GetChangesAsync(_serializer, sinceUtc, context, ct));
 
@@ -116,6 +120,10 @@ public sealed class EntityRequestDispatcher(
         public Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
             CancellationToken ct = default)
             => dispatcher.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, caller, ct);
+
+        public Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+            SortKey[] sort, CancellationToken ct = default)
+            => dispatcher.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, sort, caller, ct);
 
         public Task<RemoteResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default)
             => dispatcher.GetChangesAsync(type, sinceUtc, caller, ct);

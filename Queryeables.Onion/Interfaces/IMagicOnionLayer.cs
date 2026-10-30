@@ -23,6 +23,10 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
 
     UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize);
 
+    /// <summary>A page in the given order, sorted by the server.</summary>
+    UnaryResult<DBResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
+        int pageSize, SortKeyMessage[] sort);
+
     /// <summary>
     /// Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included (incremental synchronization).
     /// Requires a [LastModified] property on the type.

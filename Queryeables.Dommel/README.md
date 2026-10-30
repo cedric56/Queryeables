@@ -30,6 +30,8 @@ services.UseQueryeables(q => q
   The resolver is global to Dommel: pass `ignoreNotMapped: false` if you have your own, and wrap it.
 - **Fast reads**: captured variables are passed as constants (Dommel would compile a lambda for each one), and
   `e => e.Column == value` (a key, a foreign key: what caches and graphs read) runs SQL built once per type and column.
+- **Sorted pages and projections**: sorted and projected in memory after the filtered read (EF Core does both in the
+  database).
 - **SQL logging** (`DbLogConnection`): every command with its parameters, at the level you choose. For development.
 - `DommelEntityStore.EnsureSchemaAsync(factory, connectionString, script)` runs a creation script.
 

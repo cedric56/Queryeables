@@ -1,4 +1,4 @@
-﻿using Grpc.Core;
+using Grpc.Core;
 using MagicOnion;
 using MagicOnion.Server;
 using Queryeables.Onion;
@@ -44,6 +44,11 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
 
     public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
         => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize, Caller(), Aborted));
+
+    public UnaryResult<DBResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
+        int pageSize, SortKeyMessage[] sort)
+        => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize,
+            SortKeyMessage.ToKeys(sort), Caller(), Aborted));
 
     public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
         => Reply(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));

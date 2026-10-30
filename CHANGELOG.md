@@ -23,6 +23,9 @@ First public version.
 
 - `CapturedValues`: predicates reach Dommel and the remote filters with constants instead of captured variables, which
   Dommel used to evaluate by compiling a lambda per query.
+- Sorting: `Sort<T>.By(...).ThenByDescending(...)`, `SelectPagedAsync(predicate, page, size, sort)` (in the database with
+  EF Core, by the server remotely) and `SelectAsync(predicate, sort)`.
+- Projections: `SelectAsync<T, TResult>(predicate, selector)`, in the database with EF Core.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed

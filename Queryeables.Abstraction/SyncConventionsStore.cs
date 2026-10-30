@@ -45,6 +45,15 @@ public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock
         int pageNumber, int pageSize, CancellationToken ct = default) where TEntity : class
         => _inner.SelectPagedAsync(SyncMetadata.NotDeleted(predicate), pageNumber, pageSize, ct);
 
+    public Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
+        int pageNumber, int pageSize, Sort<TEntity> sort, CancellationToken ct = default) where TEntity : class
+        => _inner.SelectPagedAsync(SyncMetadata.NotDeleted(predicate), pageNumber, pageSize, sort, ct);
+
+    public Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TResult>> selector, CancellationToken ct = default)
+        where TEntity : class
+        => _inner.SelectAsync(SyncMetadata.NotDeleted(predicate), selector, ct);
+
     public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
         where TEntity : class
         => _inner.CountAsync(SyncMetadata.NotDeleted(predicate), ct);

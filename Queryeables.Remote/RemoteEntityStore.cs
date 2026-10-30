@@ -67,6 +67,18 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
             await CallAsync(_remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, ct)));
     }
 
+    /// <summary>Sorted and paged by the server.</summary>
+    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize, Sort<TEntity> sort,
+        CancellationToken ct = default) where TEntity : class
+    {
+        Paging.Validate(pageNumber, pageSize);
+        ArgumentNullException.ThrowIfNull(sort);
+        var (conditions, any) = Filters.FromPredicate(predicate);
+        return DeserializeMany<TEntity>(await CallAsync(
+            _remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, [.. sort.Keys], ct)));
+    }
+
     /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included.</summary>
     public async Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc, CancellationToken ct = default)
         where TEntity : class

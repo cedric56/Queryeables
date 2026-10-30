@@ -284,6 +284,10 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, Caller));
         public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
             => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize, Caller));
+        public UnaryResult<DBResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
+            int pageSize, SortKeyMessage[] sort)
+            => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize,
+                SortKeyMessage.ToKeys(RoundTrip(sort)), Caller));
         public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
             => Reply(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
         public UnaryResult<DBResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
