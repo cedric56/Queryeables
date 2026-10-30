@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Queryeables.Abstraction/Queryeables.Abstraction.csproj" />
+  <Project Path="Queryeables.Benchmarks/Queryeables.Benchmarks.csproj" />
   <Project Path="Queryeables.Core/Queryeables.Core.csproj" />
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />

@@ -1,5 +1,6 @@
 using Queryeables.Abstraction;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace Sample;
 
@@ -36,9 +37,10 @@ public class Contact
 
     public string Kind { get; set; } = string.Empty;
 
-    [NotMapped]
+    // Navigation properties: not columns, and not sent over the wire (the owner points back to its contacts).
+    [NotMapped, JsonIgnore]
     public Person? Owner { get; set; }
 
-    [NotMapped]
+    [NotMapped, JsonIgnore]
     public Person? Person { get; set; }
 }

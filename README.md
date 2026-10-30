@@ -14,6 +14,10 @@ from SQLite through Dommel, from SQL Server through EF Core, or from a server ac
 
 > **Status:** early. Packages are not published on NuGet yet, and the API may still change.
 
+📖 **[Documentation](https://cedric56.github.io/Queryeables/)**: [getting started](docs/getting-started.md),
+[guides](docs/guides/stores-and-transactions.md), [benchmarks](docs/benchmarks.md),
+[when to choose something else](docs/introduction.md#when-to-choose-something-else).
+
 ## In one minute
 
 ```csharp
@@ -49,7 +53,7 @@ public sealed class PersonsViewModel(IPersonService persons, IEntityCache<Person
 
 Two attributes and one registration call. To use a remote server instead, the client changes one line:
 `UseMagicOnion("https://server:5001")` instead of `UseSqlite(...)`. The [sample](Samples/Queryeables.Sample/Program.cs)
-runs this end to end on SQLite.
+runs this end to end on SQLite, then the same service as a remote client of an in-process server.
 
 ## Start with your provider
 
@@ -137,6 +141,14 @@ Exceptions inside the work and failed commits become a failed `DbResult`; cancel
 failure back into an `EntityStoreException`. Register an `IEntityStoreFactory`, never a store: a store is one connection,
 disposed by its user.
 
+## Is it for you?
+
+Choose Queryeables for an application whose data is local today and may be shared through a server tomorrow, whose clients
+must see each other's changes, or that saves parent-child aggregates as one unit. Choose something else for an
+offline-first mobile app (Datasync Community Toolkit), strong real-time consistency (ActualLab.Fusion), a complete
+application framework (ABP), or complex queries (EF Core or Dapper directly, next to Queryeables). The
+[introduction](docs/introduction.md) compares them.
+
 ## Packages
 
 | Package | Contents |
@@ -170,8 +182,11 @@ entities sent over MagicOnion need `[MessagePackObject]`.
 ```bash
 dotnet test Queryeables.slnx
 dotnet run --project Samples/Queryeables.Sample
+dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 dotnet pack Queryeables.slnx -c Release -o ./artifacts -p:Version=0.1.0
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules of the code and the release steps, and [CHANGELOG.md](CHANGELOG.md).
 
 Design ideas come from the Datasync Community Toolkit, ActualLab.Fusion, ABP and Breeze: see [CREDITS.md](CREDITS.md).
 Released under the [MIT License](LICENSE.txt).

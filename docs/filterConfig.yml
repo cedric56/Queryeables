@@ -1,0 +1,8 @@
+# Members that are public for the generated code but that nobody should call carry
+# [EditorBrowsable(EditorBrowsableState.Never)], and stay out of the API reference too.
+apiRules:
+- exclude:
+    hasAttribute:
+      uid: System.ComponentModel.EditorBrowsableAttribute
+      ctorArguments:
+      - System.ComponentModel.EditorBrowsableState.Never

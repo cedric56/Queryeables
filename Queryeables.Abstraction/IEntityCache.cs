@@ -1,4 +1,4 @@
-﻿namespace Queryeables.Abstraction;
+namespace Queryeables.Abstraction;
 
 /// <summary>
 /// In-memory cache of one entity type, fed by an <see cref="IEntityStore"/>.
@@ -27,4 +27,10 @@ public interface IEntityCache<TEntity, TKey>
 
     /// <summary>Adds the entity to the cache, or replaces the one with the same key.</summary>
     void Track(TEntity entity);
+
+    /// <summary>
+    /// Catches up after a disconnection: reads only the rows changed since the last synchronization when the type has
+    /// [LastModified], reloads everything otherwise.
+    /// </summary>
+    Task SyncAsync(CancellationToken ct = default) => LoadAsync(ct);
 }
