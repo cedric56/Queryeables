@@ -1,16 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Queryeables">
-  <defs>
-    <linearGradient id="qbg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#14B8A6"/>
-      <stop offset="1" stop-color="#0B4F6C"/>
-    </linearGradient>
-  </defs>
-  <rect width="128" height="128" rx="28" fill="url(#qbg)"/>
-  <g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="60" cy="38" rx="28" ry="10"/>
-    <path d="M32 38 V82 A28 10 0 0 0 88 82 V38"/>
-    <path d="M32 60 A28 10 0 0 0 88 60"/>
-    <path d="M78 86 L100 108"/>
-  </g>
-  <circle cx="100" cy="108" r="7" fill="#5EEAD4"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Queryeables"><defs><linearGradient id="qyg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0EA5E9"/><stop offset="1" stop-color="#1E3A8A"/></linearGradient></defs><rect width="128" height="128" rx="28" fill="url(#qyg)"/><g fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+<ellipse cx="64" cy="46" rx="20" ry="7"/><path d="M44 46 V78 A20 7 0 0 0 84 78 V46"/><path d="M44 62 A20 7 0 0 0 84 62"/></g>
+<g fill="none" stroke="#7DD3FC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+<path d="M104 64 A40 40 0 0 1 40 96"/><path d="M24 64 A40 40 0 0 1 88 32"/>
+<path d="M44 104 L40 96 L48 90"/><path d="M84 24 L88 32 L80 38"/></g></svg>
