@@ -128,6 +128,20 @@ builder.Services.UseQueryeables(q => q
 **Client**: `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`. Keep the entities in a shared library:
 `AddGeneratedEntities()` registers them on both sides.
 
+## Queries
+
+```csharp
+var page = await stores.Query<Person>()
+    .Where(p => p.Name.StartsWith(search) || p.Id == id)
+    .OrderBy(p => p.Name).ThenByDescending(p => p.Id)
+    .Skip(50).Take(25)
+    .Select(p => new PersonRow(p.Id, p.Name))
+    .ToListAsync();
+```
+
+The same query locally and remotely: filtered, sorted and paged by the database with EF Core, by the server with a remote
+store. See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
+
 ## Transactions and DbResult
 
 ```csharp

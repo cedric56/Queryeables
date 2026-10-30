@@ -128,6 +128,29 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Query_composes_where_order_skip_take_and_select()
+    {
+        foreach (var name in new[] { "E", "B", "D", "A", "C" })
+            await InsertAsync(name, sponsorId: name is "A" or "B" ? 1 : 2);
+        await InsertAsync("F", active: false);
+
+        await using var store = CreateStore();
+        var active = store.Query<TestClient>().Where(c => c.Active == true);
+
+        var page = await active.OrderBy(c => c.Name).Skip(1).Take(3).Select(c => c.Name).ToListAsync();
+        var unaligned = await active.OrderByDescending(c => c.Name).Skip(1).Take(2).ToListAsync();
+        var filtered = await active.Where(c => c.SponsorId == 2).OrderBy(c => c.Name).ToListAsync();
+        var everything = await store.Query<TestClient>().OrderBy(c => c.Name).Take(2).ToListAsync();
+
+        Assert.Equal(new[] { "B", "C", "D" }, page);
+        Assert.Equal(new[] { "D", "C" }, unaligned.Select(c => c.Name));
+        Assert.Equal(new[] { "C", "D", "E" }, filtered.Select(c => c.Name));
+        Assert.Equal(new[] { "A", "B" }, everything.Select(c => c.Name));
+        Assert.Equal(5L, await active.CountAsync());
+        Assert.Equal("A", (await active.OrderBy(c => c.Name).FirstAsync()).Name);
+    }
+
+    [Fact]
     public async Task Select_projects_with_a_selector()
     {
         await InsertAsync("A", sponsorId: 1);

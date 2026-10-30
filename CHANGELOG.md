@@ -26,6 +26,8 @@ First public version.
 - PostgreSQL change notifications: triggers and `LISTEN/NOTIFY`, a hosted listener that reconnects and makes the caches
   synchronize (`UseNpgsql(..., notifications: n => n.Watch<T>(...))`), tested against a real server in the CI.
 - `IDbMonitor.PublishResync()`: tells subscribers that changes may have been missed.
+- `Query<T>()`: `Where`, `OrderBy`/`ThenBy`, `Skip`, `Take`, `Page`, `Select`, then `ToListAsync`, `FirstOrDefaultAsync`,
+  `FirstAsync`, `CountAsync`, `AnyAsync`, on a store or a factory.
 - Sorting: `Sort<T>.By(...).ThenByDescending(...)`, `SelectPagedAsync(predicate, page, size, sort)` (in the database with
   EF Core, by the server remotely) and `SelectAsync(predicate, sort)`.
 - Projections: `SelectAsync<T, TResult>(predicate, selector)`, in the database with EF Core.

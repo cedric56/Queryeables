@@ -33,6 +33,25 @@ callers.
 | `CountAsync<T>(predicate)` | Counted in the database |
 | `SelectChangesAsync<T>(sinceUtc)` | Rows changed since a date, soft-deleted ones included (`[LastModified]`) |
 
+### Composed queries
+
+`Query<T>()`, on a store or on the factory (a store per execution, disposed after), composes in the LINQ style:
+
+```csharp
+var rows = await stores.Query<Person>()
+    .Where(p => p.Active)
+    .Where(p => p.Name.StartsWith(search))            // several Where are joined with &&
+    .OrderBy(p => p.LastName).ThenByDescending(p => p.Id)
+    .Skip(50).Take(25)                                 // or .Page(3, 25)
+    .Select(p => new PersonRow(p.Id, p.Name))
+    .ToListAsync();                                    // FirstOrDefaultAsync, FirstAsync, CountAsync, AnyAsync
+```
+
+It runs through the methods above: sorted and paged by EF Core and by a server. `Skip` and `Take` follow LINQ (a `Skip`
+after a `Take` shortens it); a `Skip` that is not a multiple of `Take` reads the two pages around it. A query is immutable:
+a base query can be shared. It is not an `IQueryable`: joins, grouping and subqueries do not compile, instead of failing
+at run time.
+
 Predicates stay simple so that every store understands them: comparisons, booleans, `ids.Contains(e.Id)`, and
 `StartsWith`, `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!`. A `!` is pushed down to the
 terms (`!(a && b)` is sent as `!a || !b`); it cannot negate a `Contains`, a text search, or an ordering on a nullable
