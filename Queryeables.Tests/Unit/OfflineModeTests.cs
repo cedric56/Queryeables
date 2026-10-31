@@ -26,6 +26,7 @@ public class OfflineModeTests
         registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
             aggregate: new EntityGraphService<AuditPerson, long>(serverStores, graph)));
         registry.Register(new EntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
+        registry.Register(new EntityHandler<GuidNote>(serverStores, EntityAccessPolicies.AllowAll));
         _network = new NetworkRemote(new EntityRequestDispatcher(registry, _serializer, serverStores).AsRemote());
     }
 
@@ -34,17 +35,19 @@ public class OfflineModeTests
 
     /// <summary>The client: the offline mode, its store factory and a person service sending parents with their children.</summary>
     private (OfflineMode Mode, IEntityStoreFactory Stores, IDbTransaction<AuditPerson> Persons) Client(TimeSpan? probe = null,
-        System.Linq.Expressions.Expression<Func<TestClient, bool>>? clients = null, IOfflineStorage? storage = null)
+        System.Linq.Expressions.Expression<Func<TestClient, bool>>? clients = null, IOfflineStorage? storage = null,
+        DbMonitorRegistry? registry = null)
     {
         var services = new Services();
-        var mode = new OfflineMode(_network, _serializer, storage ?? _storage, services: services)
+        var mode = new OfflineMode(_network, _serializer, storage ?? _storage, registry, services)
         {
             ProbeInterval = probe ?? TimeSpan.FromHours(1),
             ProbeTimeout = TimeSpan.FromSeconds(2),
         }
             .Add<TestClient, long>(c => c.Id, clients)
             .Add<AuditPerson, long>(p => p.Id)
-            .Add<AuditContact, long>(c => c.Id);
+            .Add<AuditContact, long>(c => c.Id)
+            .Add<GuidNote, Guid>(n => n.Id);
         var stores = new OfflineStoreFactory(RemoteEntityStore.Factory(_network, _serializer), mode);
         var persons = new EntityGraphService<AuditPerson, long>(stores, PersonGraph());
         services.Add(typeof(IDbTransaction<AuditPerson>), persons);
@@ -443,6 +446,119 @@ public class OfflineModeTests
             Assert.Equal(["Bob"], (await store.GetAllAsync<TestClient>()).Select(c => c.Name));
     }
 
+    [Fact]
+    public async Task A_connection_lost_during_a_synchronization_keeps_what_was_not_sent()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using (var store = stores.Create())
+        {
+            foreach (var name in new[] { "One", "Two", "Three" })
+                await store.InsertAsync(new TestClient { Name = name });
+        }
+
+        _network.DownAfterWrites = 1;
+        var cut = await mode.GoOnlineAsync();
+
+        Assert.False(cut.Completed);
+        Assert.Equal(1, cut.Sent);
+        Assert.Equal(2, mode.Status.PendingChanges);
+        Assert.Equal(ConnectionMode.Offline, mode.Mode);
+        Assert.Equal(["One"], _server.All<TestClient>().Select(c => c.Name));
+
+        _network.Down = false;
+        var report = await mode.GoOnlineAsync();
+
+        Assert.True(report.Completed);
+        Assert.Equal(2, report.Sent);
+        Assert.Equal(["One", "Three", "Two"], _server.All<TestClient>().Select(c => c.Name).Order());     // nothing sent twice
+    }
+
+    [Fact]
+    public async Task Conflicts_survive_a_restart()
+    {
+        Seed("Ana");
+        var (first, stores, _) = Client();
+        await first.GoOfflineAsync();
+        await using (var store = stores.Create())
+        {
+            var ana = (await store.GetAllAsync<TestClient>()).Single();
+            ana.Name = "";      // refused: [Required]
+            await store.UpdateAsync(ana);
+        }
+        var report = await first.GoOnlineAsync();
+        await first.DisposeAsync();
+
+        var (second, _, _) = Client();
+        await second.InitializeAsync();
+
+        var conflict = Assert.Single(second.Conflicts);
+        Assert.Equal(report.Conflicts[0].Id, conflict.Id);
+        Assert.Equal(EntityErrorCode.Validation, conflict.ErrorCode);
+        Assert.Equal("", second.ReadConflict<TestClient>(conflict)!.Name);
+        await second.KeepServerAsync(conflict);
+        Assert.Empty(second.Conflicts);
+    }
+
+    [Fact]
+    public async Task A_guid_key_created_offline_is_a_new_guid()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using var store = stores.Create();
+
+        var note = new GuidNote { Text = "offline" };
+        await store.InsertAsync(note);
+
+        Assert.NotEqual(Guid.Empty, note.Id);
+        Assert.Equal(note.Id, (await store.GetAllAsync<GuidNote>()).Single().Id);
+    }
+
+    [Fact]
+    public async Task Offline_writes_and_switches_notify_the_monitors()
+    {
+        Seed("Ana");
+        var registry = new DbMonitorRegistry();
+        var monitor = new DbMonitor<TestClient>();
+        registry.Add(monitor);
+        var received = new List<DbRecord<TestClient>>();
+        monitor.RecordChanged += (_, record) => received.Add(record);
+        var (mode, stores, _) = Client(registry: registry);
+
+        await mode.GoOfflineAsync();
+        await using (var store = stores.Create())
+        {
+            var carl = new TestClient { Name = "Carl" };
+            await store.InsertAsync(carl);
+            carl.Name = "Carla";
+            await store.UpdateAsync(carl);
+            await store.DeleteAsync(carl);
+        }
+        await mode.GoOnlineAsync();
+
+        Assert.Equal(
+            ["Update:", "Insert:-1", "Update:-1", "Delete:-1", "Update:"],      // resync, three writes, resync
+            received.Select(r => $"{r.ChangeType}:{r.EntityKey}"));
+    }
+
+    [Fact]
+    public async Task A_new_copy_asks_again_over_the_overlap_window()
+    {
+        Seed("Ana");
+        var (mode, stores, _) = Client();
+        await mode.RefreshSnapshotAsync();
+
+        // Committed late: stamped a moment before the latest date the copy received.
+        var latest = _server.All<TestClient>().Max(c => c.LastModified);
+        new MemoryStore(_server).InsertAsync(new TestClient { Name = "Late", LastModified = latest.AddSeconds(-2) }).GetAwaiter().GetResult();
+
+        await mode.RefreshSnapshotAsync();
+        await mode.GoOfflineAsync();
+
+        await using var store = stores.Create();
+        Assert.Equal(["Ana", "Late"], (await store.GetAllAsync<TestClient>()).Select(c => c.Name).Order());
+    }
+
     /// <summary>Remembers the keys written.</summary>
     private sealed class CountingStorage : IOfflineStorage
     {
@@ -466,8 +582,28 @@ public class OfflineModeTests
     {
         public volatile bool Down;
 
+        /// <summary>The network goes down after this many writes.</summary>
+        public int? DownAfterWrites;
+
         private Task<RemoteResult> Call(Func<Task<RemoteResult>> call)
             => Down ? Task.FromException<RemoteResult>(new HttpRequestException("No network.")) : call();
+
+        private Task<RemoteResult> Write(Func<Task<RemoteResult>> call)
+        {
+            if (DownAfterWrites is { } left)
+            {
+                if (left <= 0)
+                {
+                    Down = true;
+                    DownAfterWrites = null;
+                }
+                else
+                {
+                    DownAfterWrites = left - 1;
+                }
+            }
+            return Call(call);
+        }
 
         /// <summary>Full downloads of TestClient: every row, or every row of a scope.</summary>
         public int FullReads;
@@ -494,16 +630,22 @@ public class OfflineModeTests
             => Call(() => server.GetChangesAsync(type, sinceUtc, ct));
 
         public Task<RemoteResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-            => Call(() => server.InsertAsync(type, entity, connectionId, ct));
+            => Write(() => server.InsertAsync(type, entity, connectionId, ct));
 
         public Task<RemoteResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-            => Call(() => server.UpdateAsync(type, entity, connectionId, ct));
+            => Write(() => server.UpdateAsync(type, entity, connectionId, ct));
 
         public Task<RemoteResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-            => Call(() => server.DeleteAsync(type, entity, connectionId, ct));
+            => Write(() => server.DeleteAsync(type, entity, connectionId, ct));
 
         public Task<RemoteResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => Call(() => server.ExecuteBatchAsync(operations, ct));
+    }
+
+    public sealed class GuidNote
+    {
+        public Guid Id { get; set; }
+        public string Text { get; set; } = string.Empty;
     }
 
     private sealed class Services : IServiceProvider

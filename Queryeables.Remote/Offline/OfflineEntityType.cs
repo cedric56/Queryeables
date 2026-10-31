@@ -292,7 +292,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
     /// <summary>The rows changed on the server since the watermark, and the rows written offline, read again by key.</summary>
     private async Task DownloadChangesAsync(IEntityRemote remote, DateTime since, CancellationToken ct)
     {
-        var changes = Read(await remote.GetChangesAsync(Name, since, ct));
+        var changes = Read(await remote.GetChangesAsync(Name, SyncMetadata.Before(since, _mode.SyncOverlap), ct));
 
         // Read again from the server: what was written offline (sent, refused, or lost) is replaced by what it holds.
         var local = _state.Local.Where(k => !_state.Temporary.Contains(k)).ToList();

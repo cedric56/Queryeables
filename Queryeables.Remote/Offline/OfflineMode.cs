@@ -62,6 +62,9 @@ public sealed class OfflineMode : IAsyncDisposable
     /// <summary>Prefix of the storage keys: change it when several applications share one storage.</summary>
     public string StoragePrefix { get; init; } = "queryeables-offline";
 
+    /// <summary>How far back a new copy asks again before the latest date received (see <see cref="SyncMetadata.DefaultSyncOverlap"/>).</summary>
+    public TimeSpan SyncOverlap { get; init; } = SyncMetadata.DefaultSyncOverlap;
+
     /// <summary>How often the server is checked while it cannot be used.</summary>
     public TimeSpan ProbeInterval { get; init; } = TimeSpan.FromSeconds(30);
 

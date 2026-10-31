@@ -25,6 +25,18 @@ public sealed class SoftDeleteAttribute : Attribute;
 /// <summary>Access to the [LastModified] and [SoftDelete] properties of an entity type.</summary>
 public static class SyncMetadata
 {
+    /// <summary>
+    /// How far back an incremental synchronization asks again, before the latest date already received. A row is stamped
+    /// when it is written, but seen only once its transaction commits: a long transaction, or servers whose clocks differ,
+    /// can show a row stamped earlier than rows already received. Asking again over this window catches it; rows already
+    /// received come back, which is harmless.
+    /// </summary>
+    public static readonly TimeSpan DefaultSyncOverlap = TimeSpan.FromSeconds(5);
+
+    /// <summary><paramref name="since"/> minus <paramref name="overlap"/>, without going before <see cref="DateTime.MinValue"/>.</summary>
+    public static DateTime Before(DateTime since, TimeSpan overlap)
+        => since - DateTime.MinValue > overlap ? DateTime.SpecifyKind(since - overlap, DateTimeKind.Utc) : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
+
     private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete);
 
     private static readonly ConcurrentDictionary<Type, Properties> _cache = new();

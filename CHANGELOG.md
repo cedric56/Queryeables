@@ -26,6 +26,12 @@ First public version.
 - PostgreSQL change notifications: triggers and `LISTEN/NOTIFY`, a hosted listener that reconnects and makes the caches
   synchronize (`UseNpgsql(..., notifications: n => n.Watch<T>(...))`), tested against a real server in the CI.
 - `IDbMonitor.PublishResync()`: tells subscribers that changes may have been missed.
+- Row filters (`EntityRowFilter.For<T, TKey>(key, user => predicate)`, `Expose<T>(policy, rows: ...)`): each user reads and
+  writes its own rows only; someone else's row answers NotFound.
+- `maxReadSize` (10,000 by default): reads that are not paged (every row, a filter, the changes) fail beyond it instead of
+  sending the table.
+- `SyncOverlap` (5 seconds) on caches and the offline mode: incremental synchronization asks again over a window before the
+  latest date received, for late commits and clocks that differ.
 - Offline mode (`WithOfflineMode`, `OfflineMode`): a local copy and a queue of writes when the server cannot be reached,
   temporary keys, coalesced writes, incremental downloads ([LastModified] and [SoftDelete]), a scope per type (`where`),
   storage row by row, graphs and transactions offline, conflicts resolved by the user, storage in the

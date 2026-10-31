@@ -23,6 +23,39 @@ var policy = EntityAccessPolicies.From(r =>
     (r.Operation == EntityOperation.Read || r.User.IsInRole("admin")));
 ```
 
+A policy decides per type and operation: it sees the entity of a write, but not the rows of a read. To keep each user to
+its own rows, add a row filter.
+
+## Row filters
+
+```csharp
+server.Expose<Order>(EntityAccessPolicies.Authenticated,
+    rows: EntityRowFilter.For<Order, long>(o => o.Id, user =>
+    {
+        var tenant = user?.FindFirst("tenant")?.Value;
+        return o => o.TenantId == tenant;
+    }));
+```
+
+The server adds the filter to every read (all rows, filters, pages, changes) and checks every write:
+
+| Operation | Rule |
+| --- | --- |
+| Read | Only the user's rows, whatever the client's filter |
+| Insert | The new row must be one of the user's rows, otherwise `Forbidden` |
+| Update | The stored row must be one of the user's rows (otherwise `NotFound`, as if it did not exist), and so must the new content (otherwise `Forbidden`: a row cannot be given away) |
+| Delete | The stored row must be one of the user's rows, otherwise `NotFound` |
+
+The filter is built for each call from the authenticated user; an anonymous call gets `null`, and `_ => false` refuses it.
+The children of a graph follow their parent: expose a child type with its own filter when clients reach it directly.
+
+## Size of reads
+
+A page is cut to `maxPageSize` (1000). A read that is not paged (every row, a filter, the changes since a date) fails with
+`InvalidRequest` beyond `maxReadSize` (10,000 by default) instead of sending the table: the client pages, or narrows its
+filter. Both are set per type: `Expose<T>(policy, maxPageSize: 200, maxReadSize: 2000)`. With a row filter, only the
+user's rows count.
+
 The user is the one ASP.NET Core authenticated for the call: configure authentication on the server
 (`AddAuthentication`, `UseAuthentication`), and send credentials from the client.
 

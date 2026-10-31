@@ -129,6 +129,8 @@ copies, implement `IOfflineStorage` over IndexedDB.
 
 - The copy is held in memory while the application runs, and offline queries run on it: keep it to the data a user
   works on with `where`, not millions of rows.
+- A full download is one read: beyond the server's `maxReadSize` (10,000 rows by default) it fails. Narrow the copy with
+  `where`, or raise the limit for that type on the server.
 - Without `[LastModified]` and `[SoftDelete]` on the server, a type is downloaded in full at each copy: a hard delete
   cannot be seen in a list of changes.
 - A store keeps the mode it was created in: create a store per unit of work, as services and caches already do.

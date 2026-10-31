@@ -197,6 +197,8 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
   `Authenticated`, `ReadOnly`, or `EntityAccessPolicies.From(request => ...)`.
 - Keep connection strings and certificate passwords out of the source code.
 - No SQL and no expression goes over the wire: only "property, operator, value" conditions on exposed types.
+- Keep each user to its own rows with a row filter: `Expose<Order>(policy, rows: EntityRowFilter.For<Order, long>(o => o.Id,
+  user => o => o.TenantId == TenantOf(user)))`. Reads that are not paged stop at `maxReadSize` (10,000 by default).
 
 ## Native AOT
 

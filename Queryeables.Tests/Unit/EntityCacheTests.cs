@@ -115,3 +115,39 @@ public class EntityCacheTests
         Assert.Equal(2, cache.Entities.Count);
     }
 }
+
+/// <summary>Incremental synchronization and rows that become visible late (long transactions, clocks that differ).</summary>
+public class SyncOverlapTests
+{
+    private static readonly DateTime Now = new(2026, 10, 31, 12, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public async Task A_row_committed_late_is_caught_by_the_overlap_window()
+    {
+        var rows = new List<TestClient> { new() { Id = 1, Name = "Ana", LastModified = Now } };
+        using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id);
+        await cache.LoadAsync();
+
+        rows.Add(new TestClient { Id = 2, Name = "Late", LastModified = Now.AddSeconds(-2) });
+        await cache.SyncAsync();
+
+        Assert.Equal("Late", cache.Find(2)?.Name);
+    }
+
+    [Fact]
+    public async Task Without_an_overlap_window_a_late_row_is_missed()
+    {
+        var rows = new List<TestClient> { new() { Id = 1, Name = "Ana", LastModified = Now } };
+        using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id) { SyncOverlap = TimeSpan.Zero };
+        await cache.LoadAsync();
+
+        rows.Add(new TestClient { Id = 2, Name = "Late", LastModified = Now.AddSeconds(-2) });
+        await cache.SyncAsync();
+
+        Assert.Null(cache.Find(2));
+    }
+
+    [Fact]
+    public void The_window_never_goes_before_the_first_date()
+        => Assert.Equal(DateTime.MinValue, SyncMetadata.Before(DateTime.MinValue.AddSeconds(1), TimeSpan.FromSeconds(5)));
+}

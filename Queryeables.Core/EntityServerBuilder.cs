@@ -26,8 +26,14 @@ public sealed class EntityServerBuilder
     /// <param name="policy">Who may read and write. Never <see cref="EntityAccessPolicies.AllowAll"/> on a public network.</param>
     /// <param name="validate">Validates entities (DataAnnotations) before insert and update.</param>
     /// <param name="maxPageSize">Maximum page size: a larger page is reduced to this size.</param>
+    /// <param name="rows">
+    /// The rows each user may reach, added to every read and checked on every write
+    /// (<see cref="EntityRowFilter.For{T, TKey}"/>). Without it, a user allowed by the policy reaches every row.
+    /// </param>
+    /// <param name="maxReadSize">Most rows a read that is not paged may return; beyond it, the read fails.</param>
     public EntityServerBuilder Expose<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
-        IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000)
+        IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000, EntityRowFilter<TEntity>? rows = null,
+        int maxReadSize = EntityHandler.DefaultMaxReadSize)
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(policy);
@@ -42,7 +48,8 @@ public sealed class EntityServerBuilder
                     "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
                     "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
 
-            return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate);
+            return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate, rows,
+                maxReadSize);
         });
         return this;
     }

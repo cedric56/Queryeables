@@ -16,6 +16,9 @@ public sealed class OfflineModeOptions
     /// <inheritdoc cref="OfflineMode.ProbeTimeout"/>
     public TimeSpan ProbeTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <inheritdoc cref="OfflineMode.SyncOverlap"/>
+    public TimeSpan SyncOverlap { get; set; } = SyncMetadata.DefaultSyncOverlap;
+
     /// <inheritdoc cref="OfflineMode.StoragePrefix"/>
     public string StoragePrefix { get; set; } = "queryeables-offline";
 
@@ -51,6 +54,7 @@ public sealed class OfflineModeOptions
             ProbeInterval = ProbeInterval,
             ProbeTimeout = ProbeTimeout,
             StoragePrefix = StoragePrefix,
+            SyncOverlap = SyncOverlap,
         };
         foreach (var add in _entities)
             add(mode);

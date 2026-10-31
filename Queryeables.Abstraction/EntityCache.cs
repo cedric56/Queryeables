@@ -57,6 +57,12 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     // Timestamp of the most recent row received: starting point of the next synchronization (guarded by _writeLock).
     private DateTime? _syncedUpTo;
 
+    /// <summary>
+    /// How far back a synchronization asks again before the latest date received (see
+    /// <see cref="SyncMetadata.DefaultSyncOverlap"/>): late commits and clocks that differ between servers.
+    /// </summary>
+    public TimeSpan SyncOverlap { get; init; } = SyncMetadata.DefaultSyncOverlap;
+
     // Notification coalescing: one pending full update, and the keys already pending.
     private int _fullRefreshQueued;
     private readonly ConcurrentDictionary<TKey, byte> _queuedKeys = new();
@@ -208,7 +214,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         IReadOnlyList<TEntity> changes;
         await using (var store = _storeFactory())
-            changes = await store.SelectChangesAsync<TEntity>(since.Value, ct);
+            changes = await store.SelectChangesAsync<TEntity>(SyncMetadata.Before(since.Value, SyncOverlap), ct);
 
         lock (_writeLock)
         {
