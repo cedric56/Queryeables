@@ -96,6 +96,9 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .Dommel, .EntityFramew
   `Forbidden`...) instead of an exception.
 - **Remote access without coupling**: the remote core speaks to an `IEntityRemote`, and MagicOnion is one transport among
   others. No SQL from the client, a whitelist of filter operators, an access policy per type.
+- **Offline mode**, `WithOfflineMode`: a remote client keeps working on a local copy (in the browser with WebAssembly),
+  is told when the server is back and when the data differs, and the user chooses when to synchronize.
+  See [offline mode](docs/guides/offline-mode.md).
 - **Change notifications** from SQLite or SQL Server, relayed to clients over MagicOnion or SignalR, without echoing a
   client's own changes.
 - **Sync conventions**: `[LastModified]`, `[SoftDelete]`, optimistic concurrency with `[ConcurrencyCheck]`.
@@ -169,7 +172,7 @@ disposed by its user.
 
 Choose Queryeables for an application whose data is local today and may be shared through a server tomorrow, whose clients
 must see each other's changes, or that saves parent-child aggregates as one unit. Choose something else for an
-offline-first mobile app (Datasync Community Toolkit), strong real-time consistency (ActualLab.Fusion), a complete
+offline-first mobile app with large local databases (Datasync Community Toolkit), strong real-time consistency (ActualLab.Fusion), a complete
 application framework (ABP), or complex queries (EF Core or Dapper directly, next to Queryeables). The
 [introduction](docs/introduction.md) compares them.
 

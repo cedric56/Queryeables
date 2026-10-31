@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Queryeables.Abstraction;
+using Queryeables.Remote;
+using Queryeables.Remote.Offline;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
@@ -15,6 +17,7 @@ public sealed class QueryeablesBuilder
 {
     private Func<IServiceProvider, IEntityStoreFactory>? _stores;
     private bool _syncConventions;
+    private OfflineModeOptions? _offline;
 
     internal QueryeablesBuilder(IServiceCollection services) => Services = services;
 
@@ -46,6 +49,37 @@ public sealed class QueryeablesBuilder
     public QueryeablesBuilder WithSyncConventions()
     {
         _syncConventions = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Lets a remote client work without the server (<see cref="OfflineMode"/>, registered as a singleton): the user is told
+    /// when the server is lost or back and when the data differs, and chooses when to switch. Call
+    /// <see cref="OfflineMode.InitializeAsync"/> once at startup, before the first store is created.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// q.UseMagicOnion(url).AddGeneratedEntities()
+    ///  .WithOfflineMode(o => o
+    ///      .UseStorage(new BrowserOfflineStorage())       // WebAssembly; FileOfflineStorage elsewhere
+    ///      .Entity&lt;Person, long&gt;(p => p.Id)
+    ///      .Entity&lt;Contact, long&gt;(c => c.Id));
+    /// </code>
+    /// </example>
+    public QueryeablesBuilder WithOfflineMode(Action<OfflineModeOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = _offline ?? new OfflineModeOptions();
+        configure(options);
+        if (_offline is null)
+        {
+            _offline = options;
+            Services.TryAddSingleton(sp => options.Create(
+                sp.GetRequiredService<IEntityRemote>(),
+                sp.GetRequiredService<IEntitySerializer>(),
+                sp.GetService<DbMonitorRegistry>(),
+                sp));
+        }
         return this;
     }
 
@@ -121,12 +155,14 @@ public sealed class QueryeablesBuilder
 
         var stores = _stores;
         var syncConventions = _syncConventions;
+        var offline = _offline is not null;
         Services.Replace(ServiceDescriptor.Singleton<IEntityStoreFactory>(sp =>
         {
-            var factory = stores(sp);
-            return syncConventions
-                ? new EntityStoreFactory(() => factory.Create().WithSyncConventions(), factory.IsRemote)
-                : factory;
+            var provider = stores(sp);
+            var factory = syncConventions
+                ? new EntityStoreFactory(() => provider.Create().WithSyncConventions(), provider.IsRemote)
+                : provider;
+            return offline ? new OfflineStoreFactory(factory, sp.GetRequiredService<OfflineMode>()) : factory;
         }));
     }
 }

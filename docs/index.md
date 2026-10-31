@@ -203,7 +203,7 @@ services.UseQueryeables(q =&gt; q
 <li>parent-child aggregates saved as one unit.</li>
 </ul></div>
 <div><h3>Choose something else for</h3><ul>
-<li>offline-first writes: <a href="https://github.com/CommunityToolkit/Datasync">Datasync</a>;</li>
+<li>large offline-first local databases: <a href="https://github.com/CommunityToolkit/Datasync">Datasync</a>;</li>
 <li>fine-grained reactive computations: <a href="https://github.com/ActualLab/Fusion">Fusion</a>;</li>
 <li>joins and reporting: EF Core or Dapper, next to Queryeables.</li>
 </ul></div>
@@ -211,7 +211,7 @@ services.UseQueryeables(q =&gt; q
 
 - [Introduction](introduction.md): the model, and an honest comparison.
 - [Getting started](getting-started.md): a working application in five steps.
-- [Guides](guides/stores-and-transactions.md): stores, queries, graphs, caches, remote access, notifications, security.
+- [Guides](guides/stores-and-transactions.md): stores, queries, graphs, caches, remote access, notifications, [offline mode](guides/offline-mode.md), security.
 - [Benchmarks](benchmarks.md): what the abstraction costs, measured.
 - [API reference](api/Queryeables.html): every public type.
 

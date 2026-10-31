@@ -23,6 +23,14 @@ var stores = RemoteEntityStore.Factory(remote, serializer, session);   // IsRemo
 - After a write, the keys, versions and dates set by the server are copied into your objects. Navigation properties and
   members the serializer does not carry are left as they are.
 
+## Offline mode
+
+`OfflineMode` keeps a local copy of chosen types and a queue of the writes made without the server, and tells the
+application when the server is lost or back and when the data differs; the user chooses when to switch.
+`OfflineStoreFactory` gives remote stores online and stores on the copy offline. Storage: `BrowserOfflineStorage`
+(WebAssembly), `FileOfflineStorage`, `MemoryOfflineStorage`, or your own `IOfflineStorage`. Register it with
+`q.WithOfflineMode(...)`: see the [offline mode guide](https://github.com/cedric56/Queryeables/blob/master/docs/guides/offline-mode.md).
+
 ## Server
 
 `EntityRequestDispatcher` receives the same calls and routes them to the exposed types (`EntityHandler<T>`), each with its

@@ -26,6 +26,11 @@ First public version.
 - PostgreSQL change notifications: triggers and `LISTEN/NOTIFY`, a hosted listener that reconnects and makes the caches
   synchronize (`UseNpgsql(..., notifications: n => n.Watch<T>(...))`), tested against a real server in the CI.
 - `IDbMonitor.PublishResync()`: tells subscribers that changes may have been missed.
+- Offline mode (`WithOfflineMode`, `OfflineMode`): a local copy and a queue of writes when the server cannot be reached,
+  temporary keys, coalesced writes, incremental downloads ([LastModified] and [SoftDelete]), a scope per type (`where`),
+  storage row by row, graphs and transactions offline, conflicts resolved by the user, storage in the
+  browser (`BrowserOfflineStorage`), in files or in memory. The user is told when the server is lost or back and when
+  the data differs; the mode never switches by itself.
 - `Query<T>()`: `Where`, `OrderBy`/`ThenBy`, `Skip`, `Take`, `Page`, `Select`, then `ToListAsync`, `FirstOrDefaultAsync`,
   `FirstAsync`, `CountAsync`, `AnyAsync`, on a store or a factory.
 - Sorting: `Sort<T>.By(...).ThenByDescending(...)`, `SelectPagedAsync(predicate, page, size, sort)` (in the database with

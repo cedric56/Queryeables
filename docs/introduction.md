@@ -38,7 +38,7 @@ Queryeables is young and has a precise scope. Other tools are better in these ca
 
 | Need | Better choice | Why |
 | --- | --- | --- |
-| Offline-first mobile app: write while disconnected, push later | [Datasync Community Toolkit](https://github.com/CommunityToolkit/Datasync) | It keeps an offline queue and resolves conflicts on sync. Queryeables' remote store needs the server to write; its caches only catch up after a reconnection |
+| Offline-first mobile app with large local databases | [Datasync Community Toolkit](https://github.com/CommunityToolkit/Datasync) | It synchronizes into a local SQLite database, table by table. Queryeables' [offline mode](guides/offline-mode.md) keeps the rows a user works on in memory (downloaded incrementally, stored row by row) and lets the user choose when to switch: not meant for millions of rows |
 | Strong real-time consistency, computed values that invalidate themselves | [ActualLab.Fusion](https://github.com/ActualLab/Fusion) | Its dependency tracking and RPC go much further than table-level notifications |
 | A complete application framework: modules, multi-tenancy, UI, identity | [ABP](https://abp.io) | Queryeables is one brick, not a platform |
 | A second-level cache for an existing EF Core application | [EFCoreSecondLevelCacheInterceptor](https://github.com/VahidN/EFCoreSecondLevelCacheInterceptor) | Transparent query caching, no change to your code |

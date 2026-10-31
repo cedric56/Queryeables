@@ -8,6 +8,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Shipped inside the "Queryeables" package (Queryeables.Core/Queryeables.nuspec), not as a package of its own. -->
     <IsPackable>false</IsPackable>
+    <!-- [JSImport] of BrowserOfflineStorage (offline mode in WebAssembly) needs it; no unsafe code is written. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!--

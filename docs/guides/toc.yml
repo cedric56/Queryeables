@@ -8,6 +8,8 @@
   href: remote-access.md
 - name: Change notifications
   href: change-notifications.md
+- name: Offline mode
+  href: offline-mode.md
 - name: Security
   href: security.md
 - name: Native AOT and trimming
