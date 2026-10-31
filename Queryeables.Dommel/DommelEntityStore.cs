@@ -214,12 +214,12 @@ public sealed class DommelEntityStore : IEntityStore
             _inner = inner;
         }
 
-        public Task<DbResult> CommitAsync(CancellationToken ct = default) => DbResult.RunAsync(async () =>
+        public Task<EntityResult> CommitAsync(CancellationToken ct = default) => EntityResult.RunAsync(async () =>
         {
             await _inner.CommitAsync(ct);
             CommittedWrites.Signal(_store._connection); // the changes are visible now
         });
-        public Task<DbResult> RollbackAsync(CancellationToken ct = default) => DbResult.RunAsync(() => _inner.RollbackAsync(ct));
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => EntityResult.RunAsync(() => _inner.RollbackAsync(ct));
 
         public async ValueTask DisposeAsync()
         {

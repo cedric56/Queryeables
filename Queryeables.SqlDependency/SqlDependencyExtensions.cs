@@ -8,7 +8,7 @@ public static class SqlDependencyExtensions
 {
     /// <summary>
     /// Watches the <typeparamref name="TObject"/> table with SQL Server (Service Broker)
-    /// and publishes each change on the monitor.
+    /// and publishes each change on the change feed.
     /// </summary>
     /// <param name="getKey">Entity key passed to subscribers (long, Guid, string, tuple...).</param>
     /// <param name="unsubscribe">Stops watching.</param>
@@ -18,7 +18,7 @@ public static class SqlDependencyExtensions
     /// is notified of it too.
     /// </remarks>
     public static SqlTableDependencyCore<TObject> AddTableDependency<TObject, TKey>(
-        this IDbMonitor<TObject> monitor,
+        this IChangeFeed<TObject> monitor,
         string connectionString,
         Func<TObject, TKey> getKey,
         out Action unsubscribe,
@@ -50,7 +50,7 @@ public static class SqlDependencyExtensions
                 if (!Enum.TryParse<ChangeType>(e.ChangeType.ToString(), out var type) || type == ChangeType.None)
                     return;
 
-                monitor.Publish(new DbRecord<TObject>(DbRecordKey.Format(getKey(e.Entity)), type, []));
+                monitor.Publish(new EntityChange<TObject>(EntityKey.Format(getKey(e.Entity)), type, []));
             }
             catch (Exception ex)
             {

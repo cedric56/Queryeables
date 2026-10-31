@@ -46,7 +46,7 @@ public sealed class OfflineModeOptions
     }
 
     /// <summary>The controller these options describe.</summary>
-    public OfflineMode Create(IEntityRemote remote, IEntitySerializer serializer, DbMonitorRegistry? registry = null,
+    public OfflineMode Create(IEntityTransport remote, IEntitySerializer serializer, ChangeFeedRegistry? registry = null,
         IServiceProvider? services = null)
     {
         var mode = new OfflineMode(remote, serializer, _storage ?? new MemoryOfflineStorage(), registry, services)

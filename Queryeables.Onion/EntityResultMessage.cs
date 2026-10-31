@@ -4,9 +4,9 @@ using Queryeables.Remote;
 
 namespace Queryeables.Onion;
 
-/// <summary>MessagePack form of a <see cref="RemoteResult"/>, the server response.</summary>
+/// <summary>MessagePack form of a <see cref="TransportResult"/>, the server response.</summary>
 [MessagePackObject]
-public sealed class DBResultMessage
+public sealed class EntityResultMessage
 {
     [Key(0)]
     public string? Exception { get; set; }
@@ -24,7 +24,7 @@ public sealed class DBResultMessage
     [Key(4)]
     public string[]? Errors { get; set; }
 
-    public static DBResultMessage From(RemoteResult result)
+    public static EntityResultMessage From(TransportResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
         return new()
@@ -37,8 +37,8 @@ public sealed class DBResultMessage
         };
     }
 
-    public RemoteResult ToRemoteResult()
+    public TransportResult ToTransportResult()
         => Successful
-            ? RemoteResult.Success(Data)
-            : RemoteResult.Failure(ErrorCode, Exception ?? "The remote call failed.", Errors);
+            ? TransportResult.Success(Data)
+            : TransportResult.Failure(ErrorCode, Exception ?? "The remote call failed.", Errors);
 }

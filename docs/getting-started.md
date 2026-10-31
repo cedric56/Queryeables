@@ -54,9 +54,9 @@ await using var provider = services.BuildServiceProvider();
 var cache = provider.GetRequiredService<IEntityCache<Person, long>>();
 await cache.LoadAsync();
 
-var persons = provider.GetRequiredService<IPersonService>();
+var persons = provider.GetRequiredService<IPersonRepository>();
 var ana = new Person { Name = "Ana", Contacts = [new() { Kind = "friend" }] };
-DbResult result = await persons.SaveAsync(ana);     // the person, then its contacts, in one transaction
+EntityResult result = await persons.SaveAsync(ana);     // the person, then its contacts, in one transaction
 
 // A moment later, cache.Entities contains Ana: SQLite reported the insert.
 ```

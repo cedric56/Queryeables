@@ -7,7 +7,7 @@ using System.Text;
 namespace Queryeables.PostgreSql;
 
 /// <summary>
-/// The tables whose changes PostgreSQL reports to the monitors, through triggers and <c>LISTEN/NOTIFY</c>
+/// The tables whose changes PostgreSQL reports to the change feeds, through triggers and <c>LISTEN/NOTIFY</c>
 /// (see <see cref="PostgresChangeListener"/>).
 /// </summary>
 /// <example>
@@ -41,7 +41,7 @@ public sealed class PostgresNotifications
 
     /// <summary>
     /// Watches the table of <typeparamref name="TEntity"/>: its <c>[Table]</c> name, otherwise the type name (the name the
-    /// monitors use).
+    /// change feeds use).
     /// </summary>
     /// <param name="key">The key property; its column value is sent with each change.</param>
     public PostgresNotifications Watch<TEntity>(Expression<Func<TEntity, object?>> key) where TEntity : class

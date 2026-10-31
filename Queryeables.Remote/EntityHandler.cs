@@ -7,7 +7,7 @@ namespace Queryeables.Remote;
 /// <summary>
 /// Handles, server side, the requests for one entity type through <see cref="IEntityStore"/>: it therefore works with
 /// Dommel as well as EF. Each call goes through the access policy, then validation for writes.
-/// Errors are returned in the <see cref="RemoteResult"/>, with their kind. Entities are read and written with the
+/// Errors are returned in the <see cref="TransportResult"/>, with their kind. Entities are read and written with the
 /// <see cref="IEntitySerializer"/> of the server, given by <see cref="EntityRequestDispatcher"/>.
 /// </summary>
 public abstract class EntityHandler
@@ -17,25 +17,25 @@ public abstract class EntityHandler
 
     public abstract Type Type { get; }
 
-    public abstract Task<RemoteResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default);
+    public abstract Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<RemoteResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
+    public abstract Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+    public abstract Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>A page in the given order. The properties of the sort are checked against the entity type.</summary>
-    public virtual Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
+    public virtual Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
         int pageSize, SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
         => sort is not { Length: > 0 }
             ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
-            : Task.FromResult(RemoteResult.Failure(EntityErrorCode.NotSupported, $"{Type.Name} does not support sorted pages."));
+            : Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, $"{Type.Name} does not support sorted pages."));
 
-    public abstract Task<RemoteResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
+    public abstract Task<TransportResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>Standalone write, in its own store.</summary>
-    public abstract Task<RemoteResult> WriteAsync(IEntitySerializer serializer, BatchOperationKind kind, byte[] entity,
+    public abstract Task<TransportResult> WriteAsync(IEntitySerializer serializer, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct = default);
 
     /// <summary>
@@ -58,7 +58,7 @@ public abstract class EntityHandler
 /// <param name="maxPageSize">
 /// Maximum page size: a larger page is reduced to this size (idea taken from Datasync, see CREDITS.md).
 /// </param>
-/// <param name="rows">The rows each user may reach (see <see cref="EntityRowFilter{T}"/>); every row when null.</param>
+/// <param name="rows">The rows each user may reach (see <see cref="RowLevelSecurity{T}"/>); every row when null.</param>
 /// <param name="maxReadSize">
 /// Most rows a read that is not paged may return (every row, a filter, the changes since a date). Beyond it, the read
 /// fails with <see cref="EntityErrorCode.InvalidRequest"/> instead of sending the table: the client pages, or narrows its
@@ -66,9 +66,9 @@ public abstract class EntityHandler
 /// </param>
 /// <param name="aggregate">
 /// When provided, standalone writes go through this service instead of the store: insert and update call
-/// <see cref="IDbTransaction{TEntity}.SaveAsync"/>, delete calls <see cref="IDbTransaction{TEntity}.RemoveAsync"/>.
+/// <see cref="IAggregateRepository{TEntity}.SaveAsync"/>, delete calls <see cref="IAggregateRepository{TEntity}.RemoveAsync"/>.
 /// Use it to save an entity together with its children (a person and its contacts) in one transaction.
-/// Access policy and validation still apply. In a batch, a graph service (<see cref="IEntityGraphService{TEntity}"/>) runs
+/// Access policy and validation still apply. In a batch, a graph repository (<see cref="IGraphRepository{TEntity}"/>) runs
 /// its graph in the batch's transaction; any other service opens its own transaction, so its type cannot be part of a batch.
 /// </param>
 public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(
@@ -76,13 +76,13 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     IEntityAccessPolicy policy,
     bool validate = true,
     int maxPageSize = 1000,
-    IDbTransaction<T>? aggregate = null,
-    EntityRowFilter<T>? rows = null,
+    IAggregateRepository<T>? aggregate = null,
+    RowLevelSecurity<T>? rows = null,
     int maxReadSize = EntityHandler.DefaultMaxReadSize) : EntityHandler where T : class
 {
     /// <inheritdoc cref="EntityHandler{T}"/>
     public EntityHandler(IEntityStoreFactory stores, IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000,
-        IDbTransaction<T>? aggregate = null, EntityRowFilter<T>? rows = null, int maxReadSize = DefaultMaxReadSize)
+        IAggregateRepository<T>? aggregate = null, RowLevelSecurity<T>? rows = null, int maxReadSize = DefaultMaxReadSize)
         : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, policy, validate, maxPageSize, aggregate, rows,
             maxReadSize)
     {
@@ -98,19 +98,19 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     // ---------- Read ----------
 
-    public override Task<RemoteResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default)
-        => RemoteResult.RunAsync(async () =>
+    public override Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default)
+        => TransportResult.RunAsync(async () =>
         {
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
             return SerializeMany(serializer, await ReadBoundedAsync(store, Restrict(All, context), ct));
         });
 
-    public override Task<RemoteResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
+    public override Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default)
         => (conditions?.Length ?? 0) == 0
             ? GetAllAsync(serializer, context, ct)
-            : RemoteResult.RunAsync(async () =>
+            : TransportResult.RunAsync(async () =>
             {
                 var predicate = Filters.ToPredicate<T>(conditions!, any);
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
@@ -118,9 +118,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                 return SerializeMany(serializer, await ReadBoundedAsync(store, Restrict(predicate, context), ct));
             });
 
-    public override Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+    public override Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default)
-        => RemoteResult.RunAsync(async () =>
+        => TransportResult.RunAsync(async () =>
         {
             var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
@@ -129,11 +129,11 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                 await store.SelectPagedAsync(Restrict(predicate, context), pageNumber, Math.Min(pageSize, _maxPageSize), ct));
         });
 
-    public override Task<RemoteResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
+    public override Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
         int pageSize, SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
         => sort is not { Length: > 0 }
             ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
-            : RemoteResult.RunAsync(async () =>
+            : TransportResult.RunAsync(async () =>
             {
                 var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
                 var order = Sort<T>.FromKeys(sort);       // only properties of T, at most Sort<T>.MaxKeys
@@ -143,8 +143,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                     await store.SelectPagedAsync(Restrict(predicate, context), pageNumber, Math.Min(pageSize, _maxPageSize), order, ct));
             });
 
-    public override Task<RemoteResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
-        => RemoteResult.RunAsync(async () =>
+    public override Task<TransportResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
+        => TransportResult.RunAsync(async () =>
         {
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
@@ -165,9 +165,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     // ---------- Write ----------
 
-    public override Task<RemoteResult> WriteAsync(IEntitySerializer serializer, BatchOperationKind kind, byte[] entity,
+    public override Task<TransportResult> WriteAsync(IEntitySerializer serializer, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct = default)
-        => RemoteResult.RunAsync(async () =>
+        => TransportResult.RunAsync(async () =>
         {
             if (aggregate is not null)
                 return await WriteThroughAggregateAsync(serializer, aggregate, kind, entity, context, ct);
@@ -179,7 +179,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     public override async Task<byte[]> WriteAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, bool requireEffect, CancellationToken ct = default)
     {
-        if (aggregate is not null and not IEntityGraphService<T>)
+        if (aggregate is not null and not IGraphRepository<T>)
             throw new EntityStoreException(EntityErrorCode.NotSupported,
                 $"{typeof(T).Name} is saved by its own transactional service: it cannot be part of a batch.");
 
@@ -187,7 +187,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         await CheckRowsAsync(store, kind, value, context, ct);
 
         // A graph: the parent and its children, in the batch's transaction.
-        if (aggregate is IEntityGraphService<T> { Graph: var graph })
+        if (aggregate is IGraphRepository<T> { Graph: var graph })
         {
             using (ChangeContext.Begin(context.ConnectionId))
             {
@@ -225,7 +225,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         }
     }
 
-    private async Task<byte[]> WriteThroughAggregateAsync(IEntitySerializer serializer, IDbTransaction<T> service, BatchOperationKind kind, byte[] entity,
+    private async Task<byte[]> WriteThroughAggregateAsync(IEntitySerializer serializer, IAggregateRepository<T> service, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct)
     {
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
@@ -301,7 +301,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         // The stored row first: someone else's row answers NotFound, whatever the new content says.
         var visible = rows.Rows(context.User);
         if (kind != BatchOperationKind.Insert
-            && await store.FirstOrDefaultAsync(EntityRowFilter<T>.And(rows.SameKey(value), visible), ct) is null)
+            && await store.FirstOrDefaultAsync(RowLevelSecurity<T>.And(rows.SameKey(value), visible), ct) is null)
             throw NotFound();
 
         if (kind != BatchOperationKind.Delete && !visible.Compile()(value))

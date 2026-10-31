@@ -54,7 +54,7 @@ public class RemoteContractTests
     [Fact]
     public void Store_errors_keep_their_code_and_messages()
     {
-        var result = RemoteResult.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalid", ["a", "b"]));
+        var result = TransportResult.FromException(new EntityStoreException(EntityErrorCode.Validation, "invalid", ["a", "b"]));
 
         var error = Assert.Throws<EntityStoreException>(() => result.GetDataOrThrow());
         Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
@@ -63,28 +63,28 @@ public class RemoteContractTests
 
     [Fact]
     public void Bad_requests_are_reported_as_such()
-        => Assert.Equal(EntityErrorCode.InvalidRequest, RemoteResult.FromException(new ArgumentException("filter")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.InvalidRequest, TransportResult.FromException(new ArgumentException("filter")).ErrorCode);
 
     [Fact]
     public void Unexpected_errors_are_unknown()
-        => Assert.Equal(EntityErrorCode.Unknown, RemoteResult.FromException(new InvalidOperationException("database")).ErrorCode);
+        => Assert.Equal(EntityErrorCode.Unknown, TransportResult.FromException(new InvalidOperationException("database")).ErrorCode);
 
     [Fact]
     public void Success_returns_the_data()
-        => Assert.Equal(new byte[] { 1, 2 }, RemoteResult.Success([1, 2]).GetDataOrThrow());
+        => Assert.Equal(new byte[] { 1, 2 }, TransportResult.Success([1, 2]).GetDataOrThrow());
 
     [Fact]
-    public void DbResult_survives_the_MagicOnion_message()
+    public void EntityResult_survives_the_MagicOnion_message()
     {
-        var original = DbResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
+        var original = EntityResult.Failure(EntityErrorCode.Conflict, "changed in the meantime", ["v1"]);
 
-        var back = DBResultMessage.From(RemoteResult.From(original)).ToRemoteResult().ToDbResult();
+        var back = EntityResultMessage.From(TransportResult.From(original)).ToTransportResult().ToDbResult();
 
         Assert.False(back.Successful);
         Assert.Equal(EntityErrorCode.Conflict, back.ErrorCode);
         Assert.Equal("changed in the meantime", back.Exception);
         Assert.Equal(new[] { "v1" }, back.Errors);
-        Assert.True(DBResultMessage.From(RemoteResult.Success([7])).ToRemoteResult().Successful);
+        Assert.True(EntityResultMessage.From(TransportResult.Success([7])).ToTransportResult().Successful);
     }
 
     [Fact]

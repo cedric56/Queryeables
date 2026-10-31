@@ -25,10 +25,10 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
     }
 
     /// <summary>A client reports a change: it is relayed to the other clients.</summary>
-    [HubMethodName(SignalRContract.OnRecordChanged)]
-    public void OnRecordChanged(SignalRRecord message)
+    [HubMethodName(SignalRContract.OnChangeReceived)]
+    public void OnChangeReceived(SignalRChange message)
     {
-        var record = message.ToRecord<TObject>();
+        var record = message.ToChange<TObject>();
 
         // The sender is always excluded, even if it did not add itself.
         if (!record.Contains(Context.ConnectionId))

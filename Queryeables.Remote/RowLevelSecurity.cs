@@ -13,15 +13,15 @@ namespace Queryeables.Remote;
 /// <example>
 /// <code>
 /// server.Expose&lt;Order&gt;(EntityAccessPolicies.Authenticated,
-///     rows: EntityRowFilter.For&lt;Order, long&gt;(o => o.Id, user => o => o.TenantId == user.TenantId()));
+///     rows: RowLevelSecurity.For&lt;Order, long&gt;(o => o.Id, user => o => o.TenantId == user.TenantId()));
 /// </code>
 /// </example>
-public sealed class EntityRowFilter<[DynamicallyAccessedMembers(EntityMembers.Required)] T> where T : class
+public sealed class RowLevelSecurity<[DynamicallyAccessedMembers(EntityMembers.Required)] T> where T : class
 {
     private readonly Func<ClaimsPrincipal?, Expression<Func<T, bool>>> _rows;
     private readonly Func<T, Expression<Func<T, bool>>> _sameKey;
 
-    internal EntityRowFilter(Func<ClaimsPrincipal?, Expression<Func<T, bool>>> rows, Func<T, Expression<Func<T, bool>>> sameKey)
+    internal RowLevelSecurity(Func<ClaimsPrincipal?, Expression<Func<T, bool>>> rows, Func<T, Expression<Func<T, bool>>> sameKey)
     {
         _rows = rows;
         _sameKey = sameKey;
@@ -51,20 +51,20 @@ public sealed class EntityRowFilter<[DynamicallyAccessedMembers(EntityMembers.Re
     }
 }
 
-public static class EntityRowFilter
+public static class RowLevelSecurity
 {
     /// <summary>A row filter for <typeparamref name="T"/>.</summary>
     /// <param name="key">The key, to find the stored row an update or a delete targets.</param>
     /// <param name="rows">The rows the user may reach, for example <c>user => o => o.OwnerId == user.FindFirstValue("sub")</c>.
     /// Anything a remote filter can express: comparisons, <c>list.Contains(e.Prop)</c>, <c>&amp;&amp;</c>, <c>||</c>...</param>
-    public static EntityRowFilter<T> For<[DynamicallyAccessedMembers(EntityMembers.Required)] T, TKey>(
+    public static RowLevelSecurity<T> For<[DynamicallyAccessedMembers(EntityMembers.Required)] T, TKey>(
         Expression<Func<T, TKey>> key, Func<ClaimsPrincipal?, Expression<Func<T, bool>>> rows)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(rows);
         var keyOf = key.Compile();
-        return new EntityRowFilter<T>(rows, entity => Expression.Lambda<Func<T, bool>>(
+        return new RowLevelSecurity<T>(rows, entity => Expression.Lambda<Func<T, bool>>(
             Expression.Equal(key.Body, Expression.Constant(keyOf(entity), typeof(TKey))), key.Parameters));
     }
 }

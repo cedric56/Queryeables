@@ -15,9 +15,9 @@ public class RemoteGraphBatchTests
             .HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id);
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
-            aggregate: new EntityGraphService<AuditPerson, long>(serverStores, graph)));
+            aggregate: new GraphRepository<AuditPerson, long>(serverStores, graph)));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), serverStores);
-        return RemoteEntityStore.Factory(dispatcher.AsRemote(), new JsonTestSerializer());
+        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     [Fact]

@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace Queryeables.PostgreSql;
 
 /// <summary>
-/// Reports the changes of the watched PostgreSQL tables to the monitors of <see cref="DbMonitorRegistry"/>, like the SQLite
+/// Reports the changes of the watched PostgreSQL tables to the change feeds of <see cref="ChangeFeedRegistry"/>, like the SQLite
 /// hooks do: a trigger on each table calls <c>pg_notify</c>, and this listener, on a dedicated connection, publishes each
 /// notification.
 /// <para>
@@ -15,8 +15,8 @@ namespace Queryeables.PostgreSql;
 /// the row again sees its new state. Changes made by any application are reported, not only those of this one.
 /// </para>
 /// <para>
-/// When the listening connection is lost, the listener reconnects, then tells every monitor that changes may have been
-/// missed (<see cref="DbMonitorRegistry.PublishResync"/>): the caches synchronize.
+/// When the listening connection is lost, the listener reconnects, then tells every change feed that changes may have been
+/// missed (<see cref="ChangeFeedRegistry.PublishResync"/>): the caches synchronize.
 /// </para>
 /// </summary>
 /// <remarks>
@@ -26,7 +26,7 @@ namespace Queryeables.PostgreSql;
 public sealed class PostgresChangeListener(
     string connectionString,
     PostgresNotifications notifications,
-    DbMonitorRegistry registry,
+    ChangeFeedRegistry registry,
     ILogger<PostgresChangeListener>? logger = null) : IHostedService, IAsyncDisposable
 {
     private readonly CancellationTokenSource _stop = new();

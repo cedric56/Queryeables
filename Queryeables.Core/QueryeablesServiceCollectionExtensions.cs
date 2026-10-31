@@ -8,7 +8,7 @@ public static class QueryeablesServiceCollectionExtensions
 {
     /// <summary>
     /// Starts Queryeables: one store provider, then the entities.
-    /// Registers <see cref="IEntityStoreFactory"/>, <see cref="DbMonitorRegistry"/> and <see cref="IDbSession"/>,
+    /// Registers <see cref="IEntityStoreFactory"/>, <see cref="ChangeFeedRegistry"/> and <see cref="IChangeSession"/>,
     /// and whatever <paramref name="configure"/> adds.
     /// </summary>
     /// <example>
@@ -22,8 +22,8 @@ public static class QueryeablesServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        services.TryAddSingleton<DbMonitorRegistry>();
-        services.TryAddSingleton<IDbSession, DbSession>();
+        services.TryAddSingleton<ChangeFeedRegistry>();
+        services.TryAddSingleton<IChangeSession, ChangeSession>();
 
         var builder = new QueryeablesBuilder(services);
         configure(builder);

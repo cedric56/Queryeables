@@ -18,8 +18,8 @@ services.UseQueryeables(q => q
         .Expose<Contact>(EntityAccessPolicies.AllowAll)));
 await using var provider = services.BuildServiceProvider();
 
-// Local: a generated graph service, in a transaction.
-var persons = provider.GetRequiredService<IPersonService>();
+// Local: a generated graph repository, in a transaction.
+var persons = provider.GetRequiredService<IPersonRepository>();
 var ana = new Person { Name = "Ana", Active = true, Contacts = [new() { Kind = "mail" }, new() { Kind = "phone" }] };
 Check(await persons.SaveAsync(ana), "local save");
 Expect(ana.Id > 0 && ana.Contacts.All(c => c.Id > 0 && c.PersonId == ana.Id), "keys written back");
@@ -28,7 +28,7 @@ var loaded = new Person { Id = ana.Id };
 await persons.LoadContactsAsync(loaded);
 Expect(loaded.Contacts?.Count == 2 && loaded.Contacts.All(c => c.Owner == loaded), "children loaded, owner set");
 
-// The cache, fed by the stores and updated by its monitor.
+// The cache, fed by the stores and updated by its change feed.
 var cache = provider.GetRequiredService<IEntityCache<Person, long>>();
 await cache.LoadAsync();
 Expect(cache.Find(ana.Id)?.Name == "Ana", "cache loaded");
@@ -38,7 +38,7 @@ cache.EntitiesChanged += (_, _) => changed.TrySetResult();
 var bob = new Person { Name = "Bob" };
 await using (var store = provider.GetRequiredService<IEntityStoreFactory>().Create())
     await store.InsertAsync(bob);
-provider.GetRequiredService<IDbMonitor<Person>>().Publish(new DbRecord<Person>(bob.Id, ChangeType.Insert));
+provider.GetRequiredService<IChangeFeed<Person>>().Publish(new EntityChange<Person>(bob.Id, ChangeType.Insert));
 await changed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 Expect(cache.Find(bob.Id)?.Name == "Bob", "cache updated by its monitor");
 
@@ -46,12 +46,12 @@ Expect(cache.Find(bob.Id)?.Name == "Bob", "cache updated by its monitor");
 var dispatcher = provider.GetRequiredService<EntityRequestDispatcher>();
 var clientServices = new ServiceCollection();
 clientServices.UseQueryeables(q => q
-    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsRemote(), serializer))
+    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
     .AddGeneratedEntities());
 await using var client = clientServices.BuildServiceProvider();
 
 var carl = new Person { Name = "Carl", Contacts = [new() { Kind = "fax" }] };
-Check(await client.GetRequiredService<IPersonService>().SaveAsync(carl), "remote save");
+Check(await client.GetRequiredService<IPersonRepository>().SaveAsync(carl), "remote save");
 Expect(carl.Id > 0 && carl.Contacts[0].Id > 0, "remote keys written back");
 
 await using (var remote = client.GetRequiredService<IEntityStoreFactory>().Create())
@@ -71,7 +71,7 @@ await using (var remote = client.GetRequiredService<IEntityStoreFactory>().Creat
 Console.WriteLine("Queryeables AOT smoke test: OK");
 return 0;
 
-static void Check(DbResult result, string step)
+static void Check(EntityResult result, string step)
 {
     if (!result.Successful)
         throw new InvalidOperationException($"{step}: {result.ErrorCode} {result.Exception}");

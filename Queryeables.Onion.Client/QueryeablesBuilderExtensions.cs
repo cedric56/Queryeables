@@ -25,10 +25,10 @@ public static class QueryeablesBuilderExtensions
         builder.Services.TryAddSingleton(_ =>
             MagicOnionClient.Create<IMagicOnionLayer>(MagicOnionClientExtensions.CreateChannel(url, handler, validateCertificate)));
         builder.Services.TryAddSingleton<IEntitySerializer>(MessagePackEntitySerializer.Default);
-        builder.Services.TryAddSingleton<IEntityRemote>(sp => new MagicOnionRemote(sp.GetRequiredService<IMagicOnionLayer>()));
+        builder.Services.TryAddSingleton<IEntityTransport>(sp => new MagicOnionTransport(sp.GetRequiredService<IMagicOnionLayer>()));
         return builder.UseStores(sp => RemoteEntityStore.Factory(
-            sp.GetRequiredService<IEntityRemote>(),
+            sp.GetRequiredService<IEntityTransport>(),
             sp.GetRequiredService<IEntitySerializer>(),
-            sp.GetService<IDbSession>()));
+            sp.GetService<IChangeSession>()));
     }
 }

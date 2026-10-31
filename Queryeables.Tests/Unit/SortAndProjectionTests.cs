@@ -20,7 +20,7 @@ public class SortAndProjectionTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<AuditContact>(stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), stores);
-        return RemoteEntityStore.Factory(dispatcher.AsRemote(), new JsonTestSerializer());
+        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     [Fact]

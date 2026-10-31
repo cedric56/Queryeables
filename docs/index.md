@@ -191,9 +191,9 @@ services.UseQueryeables(q =&gt; q
 <div><h3>One store API</h3><p>CRUD, filters with <code>&amp;&amp;</code>, <code>||</code> and <code>!</code>, sorting, paging, projections and transactions: identical on Dommel, EF Core and a remote server, proven by the same contract tests.</p></div>
 <div><h3>Caches that follow the database</h3><p><code>[EntityCache]</code>: row by row from SQLite hooks, PostgreSQL <code>LISTEN/NOTIFY</code> or SQL Server; bursts coalesced, incremental resync after a reconnection.</p></div>
 <div><h3>Entity graphs</h3><p><code>[EntityGraph]</code>: a parent saved, removed and loaded with its children in one transaction, navigation properties set, lookups found in their caches.</p></div>
-<div><h3>Results, not exceptions</h3><p>Transactions return a <code>DbResult</code> with an error kind: <code>Validation</code>, <code>Conflict</code>, <code>NotFound</code>, <code>Forbidden</code>.</p></div>
-<div><h3>Remote without coupling</h3><p>The remote core speaks to <code>IEntityRemote</code>; MagicOnion is one transport. An access policy per exposed type, validation on the server.</p></div>
-<div><h3>Generated, AOT-ready</h3><p>A source generator writes the graph services and the registration; a Native AOT smoke app is published and run by the CI.</p></div>
+<div><h3>Results, not exceptions</h3><p>Transactions return a <code>EntityResult</code> with an error kind: <code>Validation</code>, <code>Conflict</code>, <code>NotFound</code>, <code>Forbidden</code>.</p></div>
+<div><h3>Remote without coupling</h3><p>The remote core speaks to <code>IEntityTransport</code>; MagicOnion is one transport. An access policy per exposed type, validation on the server.</p></div>
+<div><h3>Generated, AOT-ready</h3><p>A source generator writes the graph repositories and the registration; a Native AOT smoke app is published and run by the CI.</p></div>
 </div>
 
 <div class="qy-fit">

@@ -11,11 +11,11 @@ You do not reference it directly: [`Queryeables.Onion.Client`](https://github.co
 | Type | Role |
 | --- | --- |
 | `IMagicOnionLayer` | The MagicOnion service: one method per store operation |
-| `DBResultMessage`, `FilterConditionMessage`, `BatchOperationMessage` | Its MessagePack messages |
-| `MagicOnionRemote` | `IEntityRemote` on top of `IMagicOnionLayer`: plugs MagicOnion into `RemoteEntityStore` |
+| `EntityResultMessage`, `FilterConditionMessage`, `BatchOperationMessage` | Its MessagePack messages |
+| `MagicOnionTransport` | `IEntityTransport` on top of `IMagicOnionLayer`: plugs MagicOnion into `RemoteEntityStore` |
 | `MessagePackEntitySerializer` | `IEntitySerializer` with MessagePack (`MessagePackEntitySerializer.Default`) |
-| `IRecordHub<T>`, `IRecordHubReceiver<T>`, `RecordMessage` | The change notification hub |
-| `RecordHubReceiver<T>` | Client side of the hub: publishes the server's changes on the local monitor |
+| `IChangeHub<T>`, `IChangeHubReceiver<T>`, `ChangeMessage` | The change notification hub |
+| `ChangeHubReceiver<T>` | Client side of the hub: publishes the server's changes on the local change feed |
 
 ## Entities
 

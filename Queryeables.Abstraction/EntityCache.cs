@@ -8,7 +8,7 @@ namespace Queryeables.Abstraction;
 /// In-memory cache fed by an <see cref="IEntityStore"/>, whatever the framework (Dommel, EF Core, remote...).
 /// Thread-safe: reads never block, reloads are serialized.
 /// <para>
-/// When an <see cref="IDbMonitor{TEntity}"/> is provided, the cache updates itself on every reported change:
+/// When an <see cref="IChangeFeed{TEntity}"/> is provided, the cache updates itself on every reported change:
 /// row by row when <c>parseKey</c> is provided; otherwise through incremental synchronization when the type has a
 /// [LastModified] property; otherwise through a full reload. A burst of notifications triggers only one update
 /// per row, or a single reload.
@@ -23,12 +23,12 @@ namespace Queryeables.Abstraction;
 /// // Dommel
 /// var cache = new EntityCache&lt;Customer, long&gt;(
 ///     () => DommelEntityStore.Create(SqliteFactory.Instance, connectionString),
-///     c => c.Id, monitor, RecordKey.Parse&lt;long&gt;);
+///     c => c.Id, change feed, EntityKey.Parse&lt;long&gt;);
 ///
 /// // EF Core, Guid key
 /// var cache = new EntityCache&lt;Product, Guid&gt;(
 ///     () => new EfEntityStore(new AppDbContext(options)),
-///     p => p.Id, monitor, RecordKey.Parse&lt;Guid&gt;);
+///     p => p.Id, change feed, EntityKey.Parse&lt;Guid&gt;);
 ///
 /// await cache.LoadAsync();
 /// </code>
@@ -45,7 +45,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private readonly Expression<Func<TEntity, TKey>> _keyExpression;
     private readonly Func<TEntity, TKey> _key;
     private readonly Func<string, TKey>? _parseKey;
-    private readonly IDbMonitor<TEntity>? _monitor;
+    private readonly IChangeFeed<TEntity>? _monitor;
     private readonly bool _incremental = SyncMetadata.LastModified(typeof(TEntity)) is not null;
 
     // One reload at a time; writes to the dictionary go through _writeLock.
@@ -71,25 +71,25 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <param name="key">Entity key, for example <c>c => c.Id</c>.</param>
     /// <param name="monitor">Optional source of change notifications.</param>
     /// <param name="parseKey">
-    /// Reads back the key of a <see cref="DbRecord{T}"/> (<see cref="DbRecord{T}.EntityKey"/>), for row-by-row updates.
-    /// Usually <c>DbRecordKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
+    /// Reads back the key of a <see cref="EntityChange{T}"/> (<see cref="EntityChange{T}.EntityKey"/>), for row-by-row updates.
+    /// Usually <c>EntityKey.Parse&lt;TKey&gt;</c>. The change source must publish the entity key:
     /// with SQLite, the rowid is the key only for an <c>INTEGER PRIMARY KEY</c> table.
     /// When absent, each change triggers a synchronization (or a full reload without [LastModified]).
     /// </param>
     public EntityCache(
         IEntityStoreFactory stores,
         Expression<Func<TEntity, TKey>> key,
-        IDbMonitor<TEntity>? monitor = null,
+        IChangeFeed<TEntity>? monitor = null,
         Func<string, TKey>? parseKey = null)
         : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, key, monitor, parseKey)
     {
     }
 
-    /// <inheritdoc cref="EntityCache{TEntity, TKey}(IEntityStoreFactory, Expression{Func{TEntity, TKey}}, IDbMonitor{TEntity}?, Func{string, TKey}?)"/>
+    /// <inheritdoc cref="EntityCache{TEntity, TKey}(IEntityStoreFactory, Expression{Func{TEntity, TKey}}, IChangeFeed{TEntity}?, Func{string, TKey}?)"/>
     public EntityCache(
         Func<IEntityStore> storeFactory,
         Expression<Func<TEntity, TKey>> key,
-        IDbMonitor<TEntity>? monitor = null,
+        IChangeFeed<TEntity>? monitor = null,
         Func<string, TKey>? parseKey = null)
     {
         _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
@@ -102,7 +102,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             EnsureKeyIsComparable();
 
         if (_monitor != null)
-            _monitor.RecordChanged += OnRecordChanged;
+            _monitor.ChangeReceived += OnChangeReceived;
     }
 
     /// <summary>Snapshot of the current state: safe to enumerate while the cache updates.</summary>
@@ -111,7 +111,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     public event EventHandler? EntitiesChanged;
 
     /// <summary>
-    /// Raised when an update triggered by the monitor fails (database unavailable, timeout...).
+    /// Raised when an update triggered by the change feed fails (database unavailable, timeout...).
     /// The cache then keeps its previous content.
     /// </summary>
     public event EventHandler<Exception>? RefreshFailed;
@@ -172,7 +172,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         if (_disposed) return;
         _disposed = true;
         if (_monitor != null)
-            _monitor.RecordChanged -= OnRecordChanged;
+            _monitor.ChangeReceived -= OnChangeReceived;
     }
 
     // ---------- Loading and synchronization (called under _refreshLock) ----------
@@ -188,7 +188,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         foreach (var entity in entities)
         {
             latest = Latest(latest, entity);
-            // A store without SyncConventionsStore also returns soft-deleted rows.
+            // A store without SyncConventionsDecorator also returns soft-deleted rows.
             if (!SyncMetadata.IsDeleted(entity))
                 byKey[_key(entity)] = entity;
         }
@@ -233,10 +233,10 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private static DateTime? Latest(DateTime? current, TEntity entity)
         => SyncMetadata.LastModifiedUtc(entity) is { } modified && (current is null || modified > current) ? modified : current;
 
-    // ---------- Monitor notifications ----------
+    // ---------- Change feed notifications ----------
 
     // async void is required by the event signature: no exception may escape.
-    private async void OnRecordChanged(object? sender, DbRecord<TEntity> record)
+    private async void OnChangeReceived(object? sender, EntityChange<TEntity> record)
     {
         if (_disposed) return;
         try
@@ -249,7 +249,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         }
     }
 
-    private async Task ApplyAsync(DbRecord<TEntity> record)
+    private async Task ApplyAsync(EntityChange<TEntity> record)
     {
         if (record.ChangeType == ChangeType.None)
             return;

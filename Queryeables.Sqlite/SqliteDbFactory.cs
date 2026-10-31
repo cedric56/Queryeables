@@ -10,7 +10,7 @@ using System.Data.Common;
 namespace Queryeables.Sqlite;
 
 /// <summary>
-/// SQLite connection factory that reports each modified row to the monitors of <see cref="DbMonitorRegistry"/>.
+/// SQLite connection factory that reports each modified row to the change feeds of <see cref="ChangeFeedRegistry"/>.
 /// SQLite only reports changes on the connection that makes them: every connection created here is monitored.
 /// </summary>
 public class SqliteDbFactory : DbFactory<SqliteConnection>
@@ -19,14 +19,14 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
     private const int SqliteInsert = 18;
     private const int SqliteUpdate = 23;
 
-    private readonly DbMonitorRegistry _registry;
+    private readonly ChangeFeedRegistry _registry;
     private readonly bool _notifyOnCommit;
 
     /// <param name="isTransaction">
     /// true: changes are reported after the transaction commits, and forgotten on rollback.
     /// false: each row is reported as soon as it changes.
     /// </param>
-    public SqliteDbFactory(string connectionString, DbMonitorRegistry registry, bool isTransaction = true,
+    public SqliteDbFactory(string connectionString, ChangeFeedRegistry registry, bool isTransaction = true,
         DbFactoryOptions? options = null, ILogger? logger = null)
         : base(connectionString, options, logger)
     {

@@ -7,7 +7,7 @@ using System.Reflection;
 namespace Queryeables.Remote;
 
 /// <summary>
-/// Client-side <see cref="IEntityStore"/> on top of any transport (<see cref="IEntityRemote"/>): the same code, caches and
+/// Client-side <see cref="IEntityStore"/> on top of any transport (<see cref="IEntityTransport"/>): the same code, caches and
 /// transactions remotely as locally.
 /// <para>
 /// <b>Predicates:</b> comparisons, booleans, <c>list.Contains(e.Prop)</c>, StartsWith/EndsWith/Contains on strings,
@@ -21,20 +21,20 @@ namespace Queryeables.Remote;
 /// </para>
 /// <para>
 /// <b>Errors:</b> reads and writes throw <see cref="EntityStoreException"/>; a transaction commit returns a
-/// <see cref="DbResult"/>. Both carry the kind of error (permissions, validation, conflict...).
+/// <see cref="EntityResult"/>. Both carry the kind of error (permissions, validation, conflict...).
 /// </para>
 /// </summary>
 /// <param name="remote">The transport.</param>
 /// <param name="serializer">The entity serializer, the same as the server's.</param>
 /// <param name="session">Notification sessions: the session id goes with every write, so that this client ignores its own changes.</param>
-public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer serializer, IDbSession? session = null) : IEntityStore
+public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer serializer, IChangeSession? session = null) : IEntityStore
 {
-    private readonly IEntityRemote _remote = remote ?? throw new ArgumentNullException(nameof(remote));
+    private readonly IEntityTransport _remote = remote ?? throw new ArgumentNullException(nameof(remote));
     private readonly IEntitySerializer _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     private RemoteTransaction? _transaction;
 
     /// <summary>A factory of remote stores (<see cref="IEntityStoreFactory.IsRemote"/> is true).</summary>
-    public static IEntityStoreFactory Factory(IEntityRemote remote, IEntitySerializer serializer, IDbSession? session = null)
+    public static IEntityStoreFactory Factory(IEntityTransport remote, IEntitySerializer serializer, IChangeSession? session = null)
     {
         ArgumentNullException.ThrowIfNull(remote);
         ArgumentNullException.ThrowIfNull(serializer);
@@ -153,24 +153,24 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
         return true;
     }
 
-    private async Task<DbResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
+    private async Task<EntityResult> CommitAsync(RemoteTransaction transaction, CancellationToken ct)
     {
         if (!ReferenceEquals(_transaction, transaction))
-            return DbResult.Failure(EntityErrorCode.InvalidRequest, "This transaction is no longer active.");
+            return EntityResult.Failure(EntityErrorCode.InvalidRequest, "This transaction is no longer active.");
         _transaction = null;
 
         if (transaction.Operations.Count == 0)
-            return DbResult.Success();
+            return EntityResult.Success();
 
         var operations = transaction.Operations.Select(o => o.Operation).ToArray();
-        RemoteResult response;
+        TransportResult response;
         try
         {
             response = await _remote.ExecuteBatchAsync(operations, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return DbResult.FromException(ex);
+            return EntityResult.FromException(ex);
         }
 
         if (!response.Successful)
@@ -183,7 +183,7 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
         // Generated keys and new versions copied back into the original entities.
         for (var i = 0; i < Math.Min(results.Length, transaction.Operations.Count); i++)
             transaction.Operations[i].ApplyResult(results[i]);
-        return DbResult.Success();
+        return EntityResult.Success();
     }
 
     private void Abandon(RemoteTransaction transaction)
@@ -199,19 +199,19 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
 
         public void Add(BatchOperation operation, Action<byte[]> applyResult) => Operations.Add((operation, applyResult));
 
-        public Task<DbResult> CommitAsync(CancellationToken ct = default)
+        public Task<EntityResult> CommitAsync(CancellationToken ct = default)
         {
             if (_done)
-                return Task.FromResult(DbResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished."));
+                return Task.FromResult(EntityResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished."));
             _done = true;
             return store.CommitAsync(this, ct);
         }
 
-        public Task<DbResult> RollbackAsync(CancellationToken ct = default)
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default)
         {
             _done = true;
             store.Abandon(this); // nothing was sent: forgetting the writes is enough
-            return Task.FromResult(DbResult.Success());
+            return Task.FromResult(EntityResult.Success());
         }
 
         public ValueTask DisposeAsync()
@@ -225,7 +225,7 @@ public sealed class RemoteEntityStore(IEntityRemote remote, IEntitySerializer se
 
     // ---------- Internals ----------
 
-    private static async Task<byte[]?> CallAsync(Task<RemoteResult> call) => (await call).GetDataOrThrow();
+    private static async Task<byte[]?> CallAsync(Task<TransportResult> call) => (await call).GetDataOrThrow();
 
     /// <summary>Name under which the server registers the type (see <see cref="EntityName"/>).</summary>
     private static string Name<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>() => EntityName.Of<TEntity>();

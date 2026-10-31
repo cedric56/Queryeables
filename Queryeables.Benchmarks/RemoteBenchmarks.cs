@@ -7,7 +7,7 @@ namespace Queryeables.Benchmarks;
 
 /// <summary>
 /// What the remote layer costs without the network: the client store, predicate translation, MessagePack, access policy
-/// and the server dispatcher, all in process (<see cref="EntityRequestDispatcher.AsRemote"/>). Add the round trip of your
+/// and the server dispatcher, all in process (<see cref="EntityRequestDispatcher.AsTransport"/>). Add the round trip of your
 /// network to these numbers for a real deployment.
 /// </summary>
 [MemoryDiagnoser]
@@ -27,7 +27,7 @@ public class RemoteBenchmarks
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, _database.Stores);
-        _remote = RemoteEntityStore.Factory(dispatcher.AsRemote(), MessagePackEntitySerializer.Default);
+        _remote = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
         _id = Rows / 2;
     }
 
@@ -64,7 +64,7 @@ public class RemoteBenchmarks
 
     /// <summary>Two writes queued on the client and sent in one batch, applied in one server transaction.</summary>
     [Benchmark]
-    public async Task<DbResult> Remote_InsertDelete_InTransaction()
+    public async Task<EntityResult> Remote_InsertDelete_InTransaction()
     {
         await using var store = _remote.Create();
         var item = new Item { Name = "new", Quantity = 1 };

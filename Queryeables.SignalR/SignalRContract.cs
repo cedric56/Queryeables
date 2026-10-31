@@ -7,5 +7,5 @@ public static class SignalRContract
     public const string DbChanged = "DBChanged";
 
     /// <summary>Hub method called by a client to report a local change.</summary>
-    public const string OnRecordChanged = "OnRecordChanged";
+    public const string OnChangeReceived = "OnChangeReceived";
 }

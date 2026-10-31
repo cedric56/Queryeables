@@ -2,7 +2,7 @@
 
 ### The children are not saved remotely
 
-The server saved the parent without its graph service. Check that the server calls `AddGeneratedEntities()` and that the
+The server saved the parent without its graph repository. Check that the server calls `AddGeneratedEntities()` and that the
 entities are in a library it references (the generator registers the entities of referenced projects). Since this check
 exists, `Expose<T>` fails at startup in that case.
 
@@ -13,7 +13,7 @@ The collection was an empty list instead of null: an entity read from a cache, w
 
 ### The cache does not follow the database
 
-- The monitor listens to a table name: the `[Table]` name of the type, otherwise its name. Dommel pluralizes table names
+- The change feed listens to a table name: the `[Table]` name of the type, otherwise its name. Dommel pluralizes table names
   by default; name the table with `[Table]`.
 - With SQLite, only changes made through the application's connections are reported.
 - Subscribe to `RefreshFailed` on `EntityCache` to see the errors of background updates.

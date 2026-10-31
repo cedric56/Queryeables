@@ -4,7 +4,7 @@ namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Transactional save and removal of an aggregate (an entity with its children), for application services.
-/// Each call runs in its own transaction and reports its outcome as a <see cref="DbResult"/> instead of throwing.
+/// Each call runs in its own transaction and reports its outcome as a <see cref="EntityResult"/> instead of throwing.
 /// </summary>
 /// <remarks>
 /// Not to be confused with <see cref="System.Data.IDbTransaction"/>: this generic interface describes a service,
@@ -13,14 +13,14 @@ namespace Queryeables.Abstraction;
 /// </remarks>
 /// <example>
 /// <code>
-/// public interface IPersonService : IDbTransaction&lt;Person&gt;
+/// public interface IPersonRepository : IAggregateRepository&lt;Person&gt;
 /// {
 ///     Task LoadContactsAsync(Person person, CancellationToken ct = default);
 /// }
 ///
-/// public sealed class PersonService(DbProviderFactory factory) : IPersonService
+/// public sealed class PersonRepository(DbProviderFactory factory) : IPersonRepository
 /// {
-///     public async Task&lt;DbResult&gt; SaveAsync(Person person, CancellationToken ct = default)
+///     public async Task&lt;EntityResult&gt; SaveAsync(Person person, CancellationToken ct = default)
 ///     {
 ///         await using var store = DommelEntityStore.Create(factory);
 ///         return await store.RunInTransactionAsync(async s =>
@@ -34,11 +34,11 @@ namespace Queryeables.Abstraction;
 /// }
 /// </code>
 /// </example>
-public interface IDbTransaction<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity> where TEntity : class
+public interface IAggregateRepository<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity> where TEntity : class
 {
     /// <summary>Inserts or updates <paramref name="entity"/> (and its children) in a single transaction.</summary>
-    Task<DbResult> SaveAsync(TEntity entity, CancellationToken ct = default);
+    Task<EntityResult> SaveAsync(TEntity entity, CancellationToken ct = default);
 
     /// <summary>Removes <paramref name="entity"/> (and its children) in a single transaction.</summary>
-    Task<DbResult> RemoveAsync(TEntity entity, CancellationToken ct = default);
+    Task<EntityResult> RemoveAsync(TEntity entity, CancellationToken ct = default);
 }

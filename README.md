@@ -14,7 +14,7 @@
 
 **One data-access API for .NET, local or remote: your entities, their caches and their children, the same code everywhere.**
 
-A view model or a service asks for `IPersonService` or `IEntityCache<Person, long>`. It never knows whether the data comes
+A view model or a service asks for `IPersonRepository` or `IEntityCache<Person, long>`. It never knows whether the data comes
 from SQLite through Dommel, from SQL Server through EF Core, or from a server across the network.
 
 **What it is not:** not an ORM (it runs on top of Dommel or EF Core, which you keep for complex queries), not a query
@@ -54,10 +54,10 @@ services.UseQueryeables(q => q
 ```
 
 ```csharp
-public sealed class PersonsViewModel(IPersonService persons, IEntityCache<Person, long> cache)
+public sealed class PersonsViewModel(IPersonRepository persons, IEntityCache<Person, long> cache)
 {
     public IReadOnlyCollection<Person> All => cache.Entities;                       // kept up to date by the database
-    public Task<DbResult> SaveAsync(Person person) => persons.SaveAsync(person);    // the person and its contacts, one transaction
+    public Task<EntityResult> SaveAsync(Person person) => persons.SaveAsync(person);    // the person and its contacts, one transaction
 }
 ```
 
@@ -88,13 +88,13 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .Dommel, .EntityFramew
 - **One store API**, `IEntityStore`: async CRUD, filters, paging, counting and transactions, identical for Dommel, EF Core
   and a remote server. Every implementation passes the same [contract tests](Queryeables.Tests/Contract).
 - **Entity graphs**, `[EntityGraph]`: a parent saved, removed and loaded with its children, navigation properties set,
-  related entities found in their caches. The generator writes `I{Parent}Service` and `{Parent}Graph`, and a mistake in
+  related entities found in their caches. The generator writes `I{Parent}Repository` and `{Parent}Graph`, and a mistake in
   the attributes is a compile error (QRY001 to QRY009).
 - **Caches that follow the database**, `[EntityCache]`: row by row, bursts coalesced, incremental resynchronization after
   a reconnection.
-- **Transactions that report their outcome**: a `DbResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
+- **Transactions that report their outcome**: a `EntityResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
   `Forbidden`...) instead of an exception.
-- **Remote access without coupling**: the remote core speaks to an `IEntityRemote`, and MagicOnion is one transport among
+- **Remote access without coupling**: the remote core speaks to an `IEntityTransport`, and MagicOnion is one transport among
   others. No SQL from the client, a whitelist of filter operators, an access policy per type.
 - **Offline mode**, `WithOfflineMode`: a remote client keeps working on a local copy (in the browser with WebAssembly),
   is told when the server is back and when the data differs, and the user chooses when to synchronize.
@@ -109,11 +109,11 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .Dommel, .EntityFramew
 ```mermaid
 flowchart LR
     subgraph Client
-        VM[IPersonService, caches] --> RS[RemoteEntityStore]
-        M[IDbMonitor] --> VM
+        VM[IPersonRepository, caches] --> RS[RemoteEntityStore]
+        M[IChangeFeed] --> VM
     end
     subgraph Server["Server (ASP.NET Core)"]
-        D[EntityRequestDispatcher<br/>policy, validation] --> PS[IPersonService<br/>children saved]
+        D[EntityRequestDispatcher<br/>policy, validation] --> PS[IPersonRepository<br/>children saved]
         PS --> ST[IEntityStore]
         ST --> DB[(SQLite, SQL Server...)]
         DB -. changes .-> H[change hub]
@@ -150,11 +150,11 @@ var page = await stores.Query<Person>()
 The same query locally and remotely: filtered, sorted and paged by the database with EF Core, by the server with a remote
 store. See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
 
-## Transactions and DbResult
+## Transactions and EntityResult
 
 ```csharp
 await using var store = stores.Create();      // IEntityStoreFactory, registered by the provider
-DbResult result = await store.RunInTransactionAsync(async s =>
+EntityResult result = await store.RunInTransactionAsync(async s =>
 {
     await s.SaveAsync(order, o => o.Id);       // insert when the key is 0, update otherwise
     await s.UpdateAsync(customer);
@@ -164,7 +164,7 @@ if (!result.Successful)
     Show(result.ErrorCode, result.Exception, result.Errors);
 ```
 
-Exceptions inside the work and failed commits become a failed `DbResult`; cancellation still throws. `.OrThrow()` turns a
+Exceptions inside the work and failed commits become a failed `EntityResult`; cancellation still throws. `.OrThrow()` turns a
 failure back into an `EntityStoreException`. Register an `IEntityStoreFactory`, never a store: a store is one connection,
 disposed by its user.
 
@@ -197,7 +197,7 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
   `Authenticated`, `ReadOnly`, or `EntityAccessPolicies.From(request => ...)`.
 - Keep connection strings and certificate passwords out of the source code.
 - No SQL and no expression goes over the wire: only "property, operator, value" conditions on exposed types.
-- Keep each user to its own rows with a row filter: `Expose<Order>(policy, rows: EntityRowFilter.For<Order, long>(o => o.Id,
+- Keep each user to its own rows with a row filter: `Expose<Order>(policy, rows: RowLevelSecurity.For<Order, long>(o => o.Id,
   user => o => o.TenantId == TenantOf(user)))`. Reads that are not paged stop at `maxReadSize` (10,000 by default).
 
 ## Native AOT

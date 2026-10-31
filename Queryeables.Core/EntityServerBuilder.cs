@@ -20,7 +20,7 @@ public sealed class EntityServerBuilder
     }
 
     /// <summary>
-    /// Exposes <typeparamref name="TEntity"/>. When an <see cref="IDbTransaction{TEntity}"/> is registered for it (an entity
+    /// Exposes <typeparamref name="TEntity"/>. When an <see cref="IAggregateRepository{TEntity}"/> is registered for it (an entity
     /// graph), writes go through it: the entity is saved with its children.
     /// </summary>
     /// <param name="policy">Who may read and write. Never <see cref="EntityAccessPolicies.AllowAll"/> on a public network.</param>
@@ -28,23 +28,23 @@ public sealed class EntityServerBuilder
     /// <param name="maxPageSize">Maximum page size: a larger page is reduced to this size.</param>
     /// <param name="rows">
     /// The rows each user may reach, added to every read and checked on every write
-    /// (<see cref="EntityRowFilter.For{T, TKey}"/>). Without it, a user allowed by the policy reaches every row.
+    /// (<see cref="RowLevelSecurity.For{T, TKey}"/>). Without it, a user allowed by the policy reaches every row.
     /// </param>
     /// <param name="maxReadSize">Most rows a read that is not paged may return; beyond it, the read fails.</param>
     public EntityServerBuilder Expose<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
-        IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000, EntityRowFilter<TEntity>? rows = null,
+        IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000, RowLevelSecurity<TEntity>? rows = null,
         int maxReadSize = EntityHandler.DefaultMaxReadSize)
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(policy);
         _handlers.Add(sp =>
         {
-            var aggregate = sp.GetService<IDbTransaction<TEntity>>();
+            var aggregate = sp.GetService<IAggregateRepository<TEntity>>();
 
-            // Without its graph service, the server would save the parent and silently drop the children it received.
+            // Without its graph repository, the server would save the parent and silently drop the children it received.
             if (aggregate is null && HasEntityGraph(typeof(TEntity)))
                 throw new InvalidOperationException(
-                    $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IDbTransaction<{typeof(TEntity).Name}> is registered " +
+                    $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IAggregateRepository<{typeof(TEntity).Name}> is registered " +
                     "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
                     "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
 

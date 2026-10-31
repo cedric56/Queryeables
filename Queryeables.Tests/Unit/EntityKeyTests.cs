@@ -2,12 +2,12 @@ using Queryeables.Abstraction;
 
 namespace Queryeables.Tests.Unit;
 
-public class RecordKeyTests
+public class EntityKeyTests
 {
     public enum Kind { A, B }
 
     private static void AssertRoundTrip<TKey>(TKey key) where TKey : notnull
-        => Assert.Equal(key, DbRecordKey.Parse<TKey>(DbRecordKey.Format(key)));
+        => Assert.Equal(key, EntityKey.Parse<TKey>(EntityKey.Format(key)));
 
     [Fact] public void Long() => AssertRoundTrip(42L);
     [Fact] public void Negative_int() => AssertRoundTrip(-7);
@@ -21,16 +21,16 @@ public class RecordKeyTests
 
     [Fact]
     public void Long_is_formatted_without_culture()
-        => Assert.Equal("1234567", DbRecordKey.Format(1234567L));
+        => Assert.Equal("1234567", EntityKey.Format(1234567L));
 
     [Fact]
     public void Wrong_number_of_parts_is_rejected()
-        => Assert.Throws<FormatException>(() => DbRecordKey.Parse<(int, int)>("1"));
+        => Assert.Throws<FormatException>(() => EntityKey.Parse<(int, int)>("1"));
 
     [Fact]
     public void Record_from_rowid_uses_the_same_format()
     {
-        var record = new DbRecord<TestClient>(42L, ChangeType.Update);
-        Assert.Equal(42L, DbRecordKey.Parse<long>(record.EntityKey));
+        var record = new EntityChange<TestClient>(42L, ChangeType.Update);
+        Assert.Equal(42L, EntityKey.Parse<long>(record.EntityKey));
     }
 }

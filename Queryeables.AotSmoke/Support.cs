@@ -100,9 +100,9 @@ internal sealed class MemoryStore(MemoryDatabase database, IEntitySerializer ser
 
     private sealed class Transaction : IEntityTransaction
     {
-        public Task<DbResult> CommitAsync(CancellationToken ct = default) => Task.FromResult(DbResult.Success());
+        public Task<EntityResult> CommitAsync(CancellationToken ct = default) => Task.FromResult(EntityResult.Success());
 
-        public Task<DbResult> RollbackAsync(CancellationToken ct = default) => Task.FromResult(DbResult.Success());
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => Task.FromResult(EntityResult.Success());
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

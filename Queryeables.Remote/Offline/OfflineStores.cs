@@ -100,7 +100,7 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
     /// <summary>A remote commit returns its failure: an unexplained one may be a lost network, so the server is checked.</summary>
     private sealed class WatchedTransaction(IEntityTransaction inner, OfflineMode mode) : IEntityTransaction
     {
-        public async Task<DbResult> CommitAsync(CancellationToken ct = default)
+        public async Task<EntityResult> CommitAsync(CancellationToken ct = default)
         {
             var result = await inner.CommitAsync(ct);
             if (result.ErrorCode == EntityErrorCode.Unknown)
@@ -108,7 +108,7 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
             return result;
         }
 
-        public Task<DbResult> RollbackAsync(CancellationToken ct = default) => inner.RollbackAsync(ct);
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => inner.RollbackAsync(ct);
 
         public ValueTask DisposeAsync() => inner.DisposeAsync();
     }
@@ -369,9 +369,9 @@ internal sealed class ReplicaStore(OfflineMode mode) : IEntityStore
     {
         public static readonly NoTransaction Instance = new();
 
-        public Task<DbResult> CommitAsync(CancellationToken ct = default) => Task.FromResult(DbResult.Success());
+        public Task<EntityResult> CommitAsync(CancellationToken ct = default) => Task.FromResult(EntityResult.Success());
 
-        public Task<DbResult> RollbackAsync(CancellationToken ct = default) => Task.FromResult(DbResult.Success());
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => Task.FromResult(EntityResult.Success());
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

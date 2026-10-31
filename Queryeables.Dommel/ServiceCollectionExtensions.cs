@@ -11,7 +11,7 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the connection factory (<see cref="DbProviderFactory"/>), as well as
-    /// <see cref="DbMonitorRegistry"/> and <see cref="IDbSession"/> when they are not registered yet.
+    /// <see cref="ChangeFeedRegistry"/> and <see cref="IChangeSession"/> when they are not registered yet.
     /// </summary>
     /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL").</param>
     /// <param name="factory">Custom factory, for example a <c>SqliteDbFactory</c>. Default: <see cref="DbFactory{TDbConnection}"/>.</param>
@@ -39,8 +39,8 @@ public static class ServiceCollectionExtensions
             CommandLogLevel = commandLogLevel
         };
 
-        services.TryAddSingleton<DbMonitorRegistry>();
-        services.TryAddSingleton<IDbSession, DbSession>();
+        services.TryAddSingleton<ChangeFeedRegistry>();
+        services.TryAddSingleton<IChangeSession, ChangeSession>();
         services.TryAddSingleton<IEntityStoreFactory>(sp =>
         {
             var provider = sp.GetRequiredService<DbProviderFactory>();

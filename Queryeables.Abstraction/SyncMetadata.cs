@@ -6,7 +6,7 @@ using System.Reflection;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Last modification date, kept up to date by <see cref="SyncConventionsStore"/>.
+/// Last modification date, kept up to date by <see cref="SyncConventionsDecorator"/>.
 /// Enables incremental synchronization: a client only fetches what changed since its last synchronization.
 /// The property must be a <see cref="DateTime"/> (UTC) or a <see cref="DateTimeOffset"/>.
 /// </summary>
@@ -15,7 +15,7 @@ namespace Queryeables.Abstraction;
 public sealed class LastModifiedAttribute : Attribute;
 
 /// <summary>
-/// Soft delete: <see cref="SyncConventionsStore"/> sets this boolean to true instead of deleting the row,
+/// Soft delete: <see cref="SyncConventionsDecorator"/> sets this boolean to true instead of deleting the row,
 /// and hides it from reads. Synchronizing clients learn about the deletion this way.
 /// </summary>
 /// <remarks>Idea taken from Datasync Community Toolkit (Deleted), see CREDITS.md.</remarks>

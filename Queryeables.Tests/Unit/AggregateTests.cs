@@ -31,7 +31,7 @@ public class AggregateTests
                     contact.Owner = person;
             });
 
-    private EntityGraphService<AggregatePerson, long> Service(bool childrenSavedByServer = false)
+    private GraphRepository<AggregatePerson, long> Service(bool childrenSavedByServer = false)
         => new(() => new MemoryStore(_database), Persons(), childrenSavedByServer);
 
     private static AggregatePerson Ana() => new()

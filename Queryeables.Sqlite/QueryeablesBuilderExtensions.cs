@@ -6,7 +6,7 @@ namespace Queryeables.Sqlite;
 public static class QueryeablesBuilderExtensions
 {
     /// <summary>
-    /// Stores with Dommel on SQLite. Every row changed through these stores is reported to the monitors
+    /// Stores with Dommel on SQLite. Every row changed through these stores is reported to the change feeds
     /// (see <see cref="SqliteDbFactory"/>): the caches follow the database.
     /// </summary>
     /// <param name="isTransaction">True: changes are reported after the commit, and forgotten on rollback.</param>

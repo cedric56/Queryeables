@@ -10,8 +10,8 @@ namespace Queryeables.Generated;
 /// Writes the code behind <c>[EntityCache]</c> and <c>[EntityGraph]</c>:
 /// <list type="bullet">
 /// <item>for each parent of an <c>[EntityGraph]</c> collection: <c>I{Parent}Graph</c> / <c>{Parent}Graph</c> (navigation
-/// properties set after loading, with the caches of the lookup navigations), and <c>I{Parent}Service</c> /
-/// <c>{Parent}Service</c> (save, remove and load the parent with its children);</item>
+/// properties set after loading, with the caches of the lookup navigations), and <c>I{Parent}Repository</c> /
+/// <c>{Parent}Repository</c> (save, remove and load the parent with its children);</item>
 /// <item><c>AddGeneratedEntities()</c> on <c>QueryeablesBuilder</c>, which registers the caches, graphs and services of this
 /// project <b>and of the referenced projects</b>: each project with entities also gets a public module class
 /// (<c>Queryeables.Generated.Modules.*</c>) that the projects referencing it call. Entities kept in a shared library are
@@ -385,7 +385,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
             .GroupBy(l => l.TypeName, StringComparer.Ordinal).Select(g => g.First()).ToArray();
 
         public string Graph => ParentName + "Graph";
-        public string Service => ParentName + "Service";
+        public string Repository => ParentName + "Repository";
         public string Qualified(string name) => Namespace is null ? "global::" + name : "global::" + Namespace + "." + name;
     }
 
@@ -501,10 +501,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
         sb.AppendLine("}");
         sb.AppendLine();
 
-        // ---- I{Parent}Service / {Parent}Service
+        // ---- I{Parent}Repository / {Parent}Repository
         sb.AppendLine("/// <summary>Saves, removes and loads a <see cref=\"" + Cref(parent) + "\"/> with its children.</summary>");
-        sb.Append("public partial interface I").Append(graph.Service).Append(" : ").Append(Abstraction)
-          .Append(".IDbTransaction<").Append(parent).AppendLine(">");
+        sb.Append("public partial interface I").Append(graph.Repository).Append(" : ").Append(Abstraction)
+          .Append(".IAggregateRepository<").Append(parent).AppendLine(">");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>Reads the children of the entity into its collections.</summary>");
         sb.Append("    global::System.Threading.Tasks.Task LoadChildrenAsync(").Append(parent)
@@ -518,10 +518,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
         }
         sb.AppendLine("}");
         sb.AppendLine();
-        sb.Append("public sealed partial class ").Append(graph.Service).Append(" : ").Append(Abstraction)
-          .Append(".EntityGraphService<").Append(parent).Append(", ").Append(key).Append(">, I").Append(graph.Service).AppendLine();
+        sb.Append("public sealed partial class ").Append(graph.Repository).Append(" : ").Append(Abstraction)
+          .Append(".GraphRepository<").Append(parent).Append(", ").Append(key).Append(">, I").Append(graph.Repository).AppendLine();
         sb.AppendLine("{");
-        sb.Append("    public ").Append(graph.Service).Append('(').Append(Abstraction).Append(".IEntityStoreFactory stores, ")
+        sb.Append("    public ").Append(graph.Repository).Append('(').Append(Abstraction).Append(".IEntityStoreFactory stores, ")
           .Append(entityGraph).AppendLine(" graph)");
         sb.AppendLine("        : base(stores, graph)");
         sb.AppendLine("    {");
@@ -567,8 +567,8 @@ public sealed class EntityGenerator : IIncrementalGenerator
         sb.AppendLine("    {");
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// Registers what [EntityCache] and [EntityGraph] describe, in this project and in the referenced projects:");
-        sb.AppendLine("        /// the caches (and their monitors), the graphs and their services (<c>I{Parent}Service</c>, also registered as");
-        sb.AppendLine("        /// <c>IDbTransaction&lt;Parent&gt;</c>).");
+        sb.AppendLine("        /// the caches (and their change feeds), the graphs and their repositories (<c>I{Parent}Repository</c>, also registered as");
+        sb.AppendLine("        /// <c>IAggregateRepository&lt;Parent&gt;</c>).");
         sb.AppendLine("        /// </summary>");
         sb.Append("        public static ").Append(Builder).Append(" AddGeneratedEntities(this ").Append(Builder).AppendLine(" builder)");
         sb.AppendLine("        {");
@@ -611,7 +611,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
             var parent = graph.ParentTypeName;
             var key = graph.Key.Type;
             var graphInterface = graph.Qualified("I" + graph.Graph);
-            var serviceInterface = graph.Qualified("I" + graph.Service);
+            var serviceInterface = graph.Qualified("I" + graph.Repository);
 
             sb.AppendLine();
             sb.Append("        // ").AppendLine(graph.ParentName);
@@ -621,13 +621,13 @@ public sealed class EntityGenerator : IIncrementalGenerator
               .Append(graph.Qualified(graph.Graph)).Append(".Create(").Append(Di)
               .Append(".ServiceProviderServiceExtensions.GetRequiredService<").Append(graphInterface).AppendLine(">(sp)));");
             sb.Append("        ").Append(Di).Append(".Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<")
-              .Append(serviceInterface).Append(">(services, sp => new ").Append(graph.Qualified(graph.Service)).AppendLine("(");
+              .Append(serviceInterface).Append(">(services, sp => new ").Append(graph.Qualified(graph.Repository)).AppendLine("(");
             sb.Append("            ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
               .Append(Abstraction).AppendLine(".IEntityStoreFactory>(sp),");
             sb.Append("            ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
               .Append(Abstraction).Append(".EntityGraph<").Append(parent).Append(", ").Append(key).AppendLine(">>(sp)));");
             sb.Append("        ").Append(Di).Append(".Extensions.ServiceCollectionDescriptorExtensions.Replace(services, ")
-              .Append(Di).Append(".ServiceDescriptor.Singleton<").Append(Abstraction).Append(".IDbTransaction<").Append(parent)
+              .Append(Di).Append(".ServiceDescriptor.Singleton<").Append(Abstraction).Append(".IAggregateRepository<").Append(parent)
               .Append(">>(sp => ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
               .Append(serviceInterface).AppendLine(">(sp)));");
         }
@@ -671,7 +671,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
 
     private static string Field(CacheModel cache) => "_" + ShortName(cache) + "Cache";
 
-    /// <summary>A collection named Children already has LoadChildrenAsync, from EntityGraphService.</summary>
+    /// <summary>A collection named Children already has LoadChildrenAsync, from GraphRepository.</summary>
     private static bool HasOwnLoadMethod(RelationModel relation) => relation.Collection != "Children";
 
     private static string LookupVariable(RelationModel relation) => "__" + relation.LookupForeignKey!.Name;

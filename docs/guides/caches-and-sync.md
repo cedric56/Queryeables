@@ -1,7 +1,7 @@
 # Caches and synchronization
 
 `IEntityCache<T, TKey>` is an in-memory copy of a table: `Entities` (a snapshot, safe to enumerate), `Find(key)`, and
-`EntitiesChanged`. `[EntityCache]` on the class registers it with its monitor; by hand, `q.AddCache<T, TKey>(e => e.Id)`.
+`EntitiesChanged`. `[EntityCache]` on the class registers it with its change feed; by hand, `q.AddCache<T, TKey>(e => e.Id)`.
 
 ```csharp
 var cache = provider.GetRequiredService<IEntityCache<Person, long>>();
@@ -15,7 +15,7 @@ cache.EntitiesChanged += (_, _) => Refresh(cache.Entities);
 
 ## How it follows the database
 
-Each notification of the monitor (`IDbMonitor<T>`) updates the cache:
+Each notification of the change feed (`IChangeFeed<T>`) updates the cache:
 
 | The type has | A notification |
 | --- | --- |

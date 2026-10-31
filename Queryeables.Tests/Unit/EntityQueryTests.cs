@@ -21,7 +21,7 @@ public class EntityQueryTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<AuditContact>(Local(), EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), Local());
-        return RemoteEntityStore.Factory(dispatcher.AsRemote(), new JsonTestSerializer());
+        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     private static IEnumerable<AuditContact> All()

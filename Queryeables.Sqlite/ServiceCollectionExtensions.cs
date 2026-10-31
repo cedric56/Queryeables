@@ -9,8 +9,8 @@ namespace Queryeables.Sqlite;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a <see cref="SqliteDbFactory"/>: database changes are reported to the monitors
-    /// of <see cref="DbMonitorRegistry"/>.
+    /// Registers a <see cref="SqliteDbFactory"/>: database changes are reported to the change feeds
+    /// of <see cref="ChangeFeedRegistry"/>.
     /// </summary>
     public static IServiceCollection UseSqliteFactory(
         this IServiceCollection services,
@@ -22,7 +22,7 @@ public static class ServiceCollectionExtensions
         => services.UseFactory<SqliteConnection>(connectionString, logCommands,
             (sp, options, logger) =>
             {
-                var factory = new SqliteDbFactory(connectionString, sp.GetRequiredService<DbMonitorRegistry>(), isTransaction, options, logger);
+                var factory = new SqliteDbFactory(connectionString, sp.GetRequiredService<ChangeFeedRegistry>(), isTransaction, options, logger);
                 createDb?.Invoke(factory);
                 return factory;
             },

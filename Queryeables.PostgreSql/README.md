@@ -23,7 +23,7 @@ declare them with `[Table("person")]` and `[Column("name")]`.
 
 ## Change notifications
 
-Like SQLite, PostgreSQL reports changed rows to the monitors, and the caches follow the database. Name the watched tables:
+Like SQLite, PostgreSQL reports changed rows to the change feeds, and the caches follow the database. Name the watched tables:
 
 ```csharp
 services.UseQueryeables(q => q
@@ -40,9 +40,9 @@ services.UseQueryeables(q => q
   (console application), call `provider.GetRequiredService<PostgresChangeListener>().StartAsync()`.
 - PostgreSQL delivers a notification at commit, never for a rolled back transaction: a cache reading the row sees its new
   state. Changes made by any application are reported, not only by this one.
-- The listener reconnects by itself (1 s, doubling up to 30 s), then tells the monitors that changes may have been missed:
+- The listener reconnects by itself (1 s, doubling up to 30 s), then tells the change feeds that changes may have been missed:
   the caches synchronize.
 - The author of a change is not known to PostgreSQL: the client that made it is notified too (it reads the row again).
 
-The table name is the `[Table]` name of the type, otherwise the type name, as for the monitors; the key column is the
+The table name is the `[Table]` name of the type, otherwise the type name, as for the change feeds; the key column is the
 `[Column]` name of the key property, otherwise its name.

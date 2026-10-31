@@ -19,7 +19,7 @@ public class Person
 
 The generator writes, for each parent:
 
-- `IPersonService` / `PersonService` (also registered as `IDbTransaction<Person>`): `SaveAsync`, `RemoveAsync`,
+- `IPersonRepository` / `PersonRepository` (also registered as `IAggregateRepository<Person>`): `SaveAsync`, `RemoveAsync`,
   `LoadChildrenAsync` (every collection) and `LoadContactsAsync` (this collection only);
 - `IPersonGraph` / `PersonGraph`: sets `Owner` and `Person` on the loaded contacts; it receives `IEntityCache<Person, long>`
   for the lookup.
@@ -69,7 +69,7 @@ Load the contacts first (`LoadContactsAsync`): the selection is the complete lis
 ## Remotely
 
 With a remote provider, `SaveAsync` sends the parent with its children in one call; the server saves them with its own
-`IPersonService`. The server must therefore register the graph: `AddGeneratedEntities()` on the server, with the entities
+`IPersonRepository`. The server must therefore register the graph: `AddGeneratedEntities()` on the server, with the entities
 in a library both sides reference. `Expose<Person>` fails at startup otherwise.
 
 ## Without the generator

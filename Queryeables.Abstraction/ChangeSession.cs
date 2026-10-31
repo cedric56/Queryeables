@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Queryeables.Abstraction;
 
-public sealed class DbSession : IDbSession
+public sealed class ChangeSession : IChangeSession
 {
     private readonly ConcurrentDictionary<Type, (string session, Func<Task> unsubscribe)> _sessions = new();
 

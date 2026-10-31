@@ -26,11 +26,11 @@ public class TestClient
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public long Version { get; set; }
 
-    /// <summary>Kept up to date by <see cref="SyncConventionsStore"/>.</summary>
+    /// <summary>Kept up to date by <see cref="SyncConventionsDecorator"/>.</summary>
     [LastModified]
     public DateTime LastModified { get; set; }
 
-    /// <summary>Soft delete, applied by <see cref="SyncConventionsStore"/>.</summary>
+    /// <summary>Soft delete, applied by <see cref="SyncConventionsDecorator"/>.</summary>
     [SoftDelete]
     public bool Deleted { get; set; }
 

@@ -19,7 +19,7 @@ namespace Queryeables.Abstraction;
 /// </code>
 /// </example>
 /// <remarks>Idea taken from the Datasync Community Toolkit (UpdatedAt, Deleted, incremental synchronization), see CREDITS.md.</remarks>
-public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock = null) : IEntityStore
+public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? clock = null) : IEntityStore
 {
     private readonly IEntityStore _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
@@ -123,9 +123,9 @@ public sealed class SyncConventionsStore(IEntityStore inner, TimeProvider? clock
     public void Dispose() => _inner.Dispose();
 }
 
-public static class SyncConventionsStoreExtensions
+public static class SyncConventionsDecoratorExtensions
 {
-    /// <summary>Applies [LastModified] and [SoftDelete] (see <see cref="SyncConventionsStore"/>).</summary>
+    /// <summary>Applies [LastModified] and [SoftDelete] (see <see cref="SyncConventionsDecorator"/>).</summary>
     public static IEntityStore WithSyncConventions(this IEntityStore store, TimeProvider? clock = null)
-        => store as SyncConventionsStore ?? new SyncConventionsStore(store, clock);
+        => store as SyncConventionsDecorator ?? new SyncConventionsDecorator(store, clock);
 }

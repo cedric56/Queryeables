@@ -18,8 +18,8 @@ public interface IEntityGraph<[DynamicallyAccessedMembers(EntityMembers.Required
     Task LoadAsync(IEntityStore store, TParent parent, CancellationToken ct = default);
 }
 
-/// <summary>An <see cref="IDbTransaction{TEntity}"/> backed by an entity graph (<see cref="EntityGraphService{TParent, TKey}"/>).</summary>
-public interface IEntityGraphService<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent> : IDbTransaction<TParent>
+/// <summary>An <see cref="IAggregateRepository{TEntity}"/> backed by an entity graph (<see cref="GraphRepository{TParent, TKey}"/>).</summary>
+public interface IGraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent> : IAggregateRepository<TParent>
     where TParent : class
 {
     /// <summary>The graph, to run its work in a transaction opened elsewhere.</summary>

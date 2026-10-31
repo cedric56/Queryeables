@@ -15,7 +15,7 @@ Always run in `Release`, on a machine doing nothing else, and compare numbers on
 
 | Class | Question it answers |
 | --- | --- |
-| `StoreBenchmarks` | What does `IEntityStore` cost over Dommel and over hand-written SQL with Dapper? One row by key, 1000 rows, an insert and a delete (the store version runs them in a transaction that returns a `DbResult`). The baseline is Dommel called directly |
+| `StoreBenchmarks` | What does `IEntityStore` cost over Dommel and over hand-written SQL with Dapper? One row by key, 1000 rows, an insert and a delete (the store version runs them in a transaction that returns a `EntityResult`). The baseline is Dommel called directly |
 | `CacheBenchmarks` | What does a cache save? `Find` against a database read by key, the cost of a snapshot (`Entities`), and of a full reload, for 1 000 and 100 000 rows |
 | `RemoteBenchmarks` | What does the remote layer cost without the network? Predicate translation, MessagePack, access policy and dispatcher, in process, against the local store. Add your network round trip to these numbers |
 
@@ -24,7 +24,7 @@ Every class runs `MemoryDiagnoser`: read the `Allocated` column next to the time
 ## How to read the results
 
 - **Store overhead**: the `Ratio` of `Store_*` to `Dommel_*`. The store adds a factory call, an `await using` and, for
-  transactions, the `DbResult`; the database work is the same.
+  transactions, the `EntityResult`; the database work is the same.
 - **Cache**: `Cache_Find` against `Store_FirstOrDefault` is what a cached lookup saves per read. `Cache_Load` is the
   price of a full reload, paid at startup and after a change on a type without an integer key and without `[LastModified]`.
 - **Remote**: `Remote_*` minus `Local_*` is the serialization and dispatch cost per call. Batching writes in a transaction
@@ -46,7 +46,7 @@ Every class runs `MemoryDiagnoser`: read the `Allocated` column next to the time
 | `Store_InsertDelete_InTransaction` | 74.6 µs | 8.38 KB | 0.29 |
 
 - The store adds nothing measurable to Dommel on reads; on writes, the difference is the transaction (`BEGIN`/`COMMIT`
-  and the `DbResult`) that the Dommel row does not open.
+  and the `EntityResult`) that the Dommel row does not open.
 - A read by key with a predicate cost five times hand-written SQL: Dommel compiled a lambda to read the captured `id`
   on every query (about 210 µs and 7 KB). `DommelEntityStore` now replaces captured variables with constants before
   handing the predicate to Dommel (`CapturedValues`); the remote filters do the same.

@@ -43,7 +43,7 @@ public sealed class QueryeablesBuilder
     }
 
     /// <summary>
-    /// Applies [LastModified] and [SoftDelete] to every store (see <see cref="SyncConventionsStore"/>). On a remote client,
+    /// Applies [LastModified] and [SoftDelete] to every store (see <see cref="SyncConventionsDecorator"/>). On a remote client,
     /// apply it on the server instead.
     /// </summary>
     public QueryeablesBuilder WithSyncConventions()
@@ -75,25 +75,25 @@ public sealed class QueryeablesBuilder
         {
             _offline = options;
             Services.TryAddSingleton(sp => options.Create(
-                sp.GetRequiredService<IEntityRemote>(),
+                sp.GetRequiredService<IEntityTransport>(),
                 sp.GetRequiredService<IEntitySerializer>(),
-                sp.GetService<DbMonitorRegistry>(),
+                sp.GetService<ChangeFeedRegistry>(),
                 sp));
         }
         return this;
     }
 
     /// <summary>
-    /// Registers the change monitor of <typeparamref name="TEntity"/> (<see cref="IDbMonitor{TEntity}"/>), added to
-    /// <see cref="DbMonitorRegistry"/> so that the changes of the database reach it.
+    /// Registers the change change feed of <typeparamref name="TEntity"/> (<see cref="IChangeFeed{TEntity}"/>), added to
+    /// <see cref="ChangeFeedRegistry"/> so that the changes of the database reach it.
     /// </summary>
     /// <param name="table">Name of the table; by default the name of the type.</param>
-    public QueryeablesBuilder AddMonitor<TEntity>(string? table = null) where TEntity : class
+    public QueryeablesBuilder AddChangeFeed<TEntity>(string? table = null) where TEntity : class
     {
-        Services.TryAddSingleton<IDbMonitor<TEntity>>(sp =>
+        Services.TryAddSingleton<IChangeFeed<TEntity>>(sp =>
         {
-            var monitor = new DbMonitor<TEntity>(table);
-            sp.GetService<DbMonitorRegistry>()?.Add(monitor);
+            var monitor = new ChangeFeed<TEntity>(table);
+            sp.GetService<ChangeFeedRegistry>()?.Add(monitor);
             return monitor;
         });
         return this;
@@ -101,7 +101,7 @@ public sealed class QueryeablesBuilder
 
     /// <summary>
     /// Registers the in-memory cache of <typeparamref name="TEntity"/> (<see cref="IEntityCache{TEntity, TKey}"/>), fed by the
-    /// stores and kept up to date by the monitor of the type. <c>[EntityCache]</c> on the class does it for you.
+    /// stores and kept up to date by the change feed of the type. <c>[EntityCache]</c> on the class does it for you.
     /// </summary>
     /// <remarks>
     /// With an integer key, each notification updates its row only: the change sources (the SQLite rowid of an
@@ -114,18 +114,18 @@ public sealed class QueryeablesBuilder
         where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(key);
-        AddMonitor<TEntity>();
+        AddChangeFeed<TEntity>();
         Services.TryAddSingleton<IEntityCache<TEntity, TKey>>(sp => new EntityCache<TEntity, TKey>(
             sp.GetRequiredService<IEntityStoreFactory>(),
             key,
-            sp.GetRequiredService<IDbMonitor<TEntity>>(),
-            IsInteger(typeof(TKey)) ? DbRecordKey.Parse<TKey> : null));
+            sp.GetRequiredService<IChangeFeed<TEntity>>(),
+            IsInteger(typeof(TKey)) ? EntityKey.Parse<TKey> : null));
         return this;
     }
 
     /// <summary>
-    /// Registers an entity graph (a parent and its children) and its service, <see cref="IDbTransaction{TParent}"/>
-    /// (<see cref="EntityGraphService{TParent, TKey}"/>). <c>[EntityGraph]</c> on a collection does it for you.
+    /// Registers an entity graph (a parent and its children) and its repository, <see cref="IAggregateRepository{TParent}"/>
+    /// (<see cref="GraphRepository{TParent, TKey}"/>). <c>[EntityGraph]</c> on a collection does it for you.
     /// </summary>
     public QueryeablesBuilder AddGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey>(
         Func<IServiceProvider, EntityGraph<TParent, TKey>> graph)
@@ -134,7 +134,7 @@ public sealed class QueryeablesBuilder
     {
         ArgumentNullException.ThrowIfNull(graph);
         Services.TryAddSingleton(graph);
-        Services.TryAddSingleton<IDbTransaction<TParent>>(sp => new EntityGraphService<TParent, TKey>(
+        Services.TryAddSingleton<IAggregateRepository<TParent>>(sp => new GraphRepository<TParent, TKey>(
             sp.GetRequiredService<IEntityStoreFactory>(),
             sp.GetRequiredService<EntityGraph<TParent, TKey>>()));
         return this;

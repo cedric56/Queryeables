@@ -1,14 +1,14 @@
 using MessagePack;
 using Queryeables.Abstraction;
 
-namespace Queryeables.Onion;
+namespace Queryeables.SignalR;
 
 /// <summary>
-/// Wire form of <see cref="DbRecord{T}"/> for the MagicOnion hub. Annotated for MessagePack so that its source
-/// generator can produce the formatter at build time (no runtime code generation, AOT friendly).
+/// Wire form of <see cref="EntityChange{T}"/> for the SignalR hub (MessagePack protocol). Annotated so that the MessagePack
+/// source generator can produce its formatter at build time (no runtime code generation, AOT friendly).
 /// </summary>
 [MessagePackObject]
-public sealed class RecordMessage
+public sealed class SignalRChange
 {
     [Key(0)]
     public string EntityKey { get; set; } = string.Empty;
@@ -19,11 +19,11 @@ public sealed class RecordMessage
     [Key(2)]
     public List<string>? Connections { get; set; }
 
-    public static RecordMessage From<T>(DbRecord<T> record) where T : class
+    public static SignalRChange From<T>(EntityChange<T> record) where T : class
     {
         ArgumentNullException.ThrowIfNull(record);
         return new() { EntityKey = record.EntityKey, ChangeType = record.ChangeType, Connections = record.Connections };
     }
 
-    public DbRecord<T> ToRecord<T>() where T : class => new(EntityKey, ChangeType, Connections);
+    public EntityChange<T> ToChange<T>() where T : class => new(EntityKey, ChangeType, Connections);
 }

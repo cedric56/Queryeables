@@ -20,7 +20,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
     /// <summary>False for a store that does not support transactions.</summary>
     protected virtual bool SupportsTransactions => true;
 
-    /// <summary>True when the store applies [LastModified] and [SoftDelete] (<see cref="SyncConventionsStore"/>).</summary>
+    /// <summary>True when the store applies [LastModified] and [SoftDelete] (<see cref="SyncConventionsDecorator"/>).</summary>
     protected virtual bool UsesSyncConventions => false;
 
     private async Task<TestClient> InsertAsync(string name, bool active = true, int? sponsorId = null)
@@ -302,7 +302,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Single(await store.GetAllAsync<TestClient>());
     }
 
-    // ---------- Incremental synchronization (stores with SyncConventionsStore) ----------
+    // ---------- Incremental synchronization (stores with SyncConventionsDecorator) ----------
 
     [Fact]
     public async Task Writes_set_LastModified()

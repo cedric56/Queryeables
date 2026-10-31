@@ -7,13 +7,13 @@ call to its own stores.
 
 | Layer | Client | Server |
 | --- | --- | --- |
-| Your code | `IPersonService`, `IEntityCache<Person, long>` | (the same entities) |
+| Your code | `IPersonRepository`, `IEntityCache<Person, long>` | (the same entities) |
 | Remote core (`Queryeables`) | `RemoteEntityStore` | `EntityRequestDispatcher`, `EntityHandler<T>` |
-| Transport | `IEntityRemote` | forwards to the dispatcher |
+| Transport | `IEntityTransport` | forwards to the dispatcher |
 | MagicOnion | `Queryeables.Onion.Client` | `Queryeables.Server` |
 
-The remote core does not depend on MagicOnion: a transport implements `IEntityRemote` on the client and calls the
-dispatcher on the server. `dispatcher.AsRemote()` connects both in process, which the sample and the tests use.
+The remote core does not depend on MagicOnion: a transport implements `IEntityTransport` on the client and calls the
+dispatcher on the server. `dispatcher.AsTransport()` connects both in process, which the sample and the tests use.
 
 ## Server
 
@@ -33,7 +33,7 @@ app.MapMagicOnionService();
 ```
 
 For each call, the server checks the policy of the type, validates the entity (DataAnnotations) for inserts and updates,
-then uses its stores. A type with a graph service is saved with its children.
+then uses its stores. A type with a graph repository is saved with its children.
 
 ## Client
 
@@ -49,7 +49,7 @@ services.UseQueryeables(q => q
   `UpdateAsync` and `DeleteAsync` return true, an inserted entity has no key yet, and reads do not see the pending writes.
 - **Results**: after a write, the keys, versions and dates set by the server are copied into your objects; navigation
   properties and members the serializer ignores are kept.
-- **Errors**: reads and writes throw `EntityStoreException` with the server's error kind; transactions return a `DbResult`.
+- **Errors**: reads and writes throw `EntityStoreException` with the server's error kind; transactions return a `EntityResult`.
 
 ## Entities on the wire
 

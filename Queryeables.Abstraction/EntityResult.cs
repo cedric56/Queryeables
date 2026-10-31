@@ -6,7 +6,7 @@ namespace Queryeables.Abstraction;
 /// </summary>
 /// <remarks>
 /// Cancellation is not a failure: an <see cref="OperationCanceledException"/> is never turned into a
-/// <see cref="DbResult"/> and propagates as usual.
+/// <see cref="EntityResult"/> and propagates as usual.
 /// </remarks>
 /// <example>
 /// <code>
@@ -19,11 +19,11 @@ namespace Queryeables.Abstraction;
 ///     ShowError(result.ErrorCode, result.Exception);
 /// </code>
 /// </example>
-public class DbResult
+public class EntityResult
 {
-    private static readonly DbResult s_success = new(true, EntityErrorCode.None, null, null);
+    private static readonly EntityResult s_success = new(true, EntityErrorCode.None, null, null);
 
-    protected DbResult(bool successful, EntityErrorCode errorCode, string? exception, IReadOnlyList<string>? errors)
+    protected EntityResult(bool successful, EntityErrorCode errorCode, string? exception, IReadOnlyList<string>? errors)
     {
         Successful = successful;
         ErrorCode = successful ? EntityErrorCode.None : errorCode == EntityErrorCode.None ? EntityErrorCode.Unknown : errorCode;
@@ -42,18 +42,18 @@ public class DbResult
     /// <summary>Validation messages, one per broken rule.</summary>
     public IReadOnlyList<string> Errors { get; }
 
-    public static DbResult Success() => s_success;
+    public static EntityResult Success() => s_success;
 
-    public static DbResult<T> Success<T>(T data) => new(data);
+    public static EntityResult<T> Success<T>(T data) => new(data);
 
-    public static DbResult Failure(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
+    public static EntityResult Failure(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
         => new(false, errorCode, message, errors);
 
-    public static DbResult<T> Failure<T>(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
+    public static EntityResult<T> Failure<T>(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
         => new(errorCode, message, errors);
 
     /// <summary>Converts an exception into a failure, with the right error kind.</summary>
-    public static DbResult FromException(Exception exception)
+    public static EntityResult FromException(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
         return exception switch
@@ -67,7 +67,7 @@ public class DbResult
     }
 
     /// <summary>Runs <paramref name="action"/> and returns its outcome; exceptions become failures.</summary>
-    public static async Task<DbResult> RunAsync(Func<Task> action)
+    public static async Task<EntityResult> RunAsync(Func<Task> action)
     {
         ArgumentNullException.ThrowIfNull(action);
         try
@@ -82,7 +82,7 @@ public class DbResult
     }
 
     /// <summary>Runs <paramref name="action"/> and returns its value; exceptions become failures.</summary>
-    public static async Task<DbResult<T>> RunAsync<T>(Func<Task<T>> action)
+    public static async Task<EntityResult<T>> RunAsync<T>(Func<Task<T>> action)
     {
         ArgumentNullException.ThrowIfNull(action);
         try
@@ -96,11 +96,11 @@ public class DbResult
     }
 
     /// <summary>The same failure, typed. Only valid on a failure.</summary>
-    public DbResult<T> As<T>()
+    public EntityResult<T> As<T>()
     {
         if (Successful)
             throw new InvalidOperationException("Only a failure can be converted to another result type.");
-        return this as DbResult<T> ?? new DbResult<T>(ErrorCode, Exception, Errors);
+        return this as EntityResult<T> ?? new EntityResult<T>(ErrorCode, Exception, Errors);
     }
 
     /// <summary>The error as an <see cref="EntityStoreException"/>, for code that prefers exceptions.</summary>
@@ -121,12 +121,12 @@ public class DbResult
     public override string ToString() => Successful ? "Success" : $"{ErrorCode}: {Exception}";
 }
 
-/// <summary><see cref="DbResult"/> that carries a value on success.</summary>
-public sealed class DbResult<T> : DbResult
+/// <summary><see cref="EntityResult"/> that carries a value on success.</summary>
+public sealed class EntityResult<T> : EntityResult
 {
-    internal DbResult(T data) : base(true, EntityErrorCode.None, null, null) => Data = data;
+    internal EntityResult(T data) : base(true, EntityErrorCode.None, null, null) => Data = data;
 
-    internal DbResult(EntityErrorCode errorCode, string? exception, IReadOnlyList<string>? errors)
+    internal EntityResult(EntityErrorCode errorCode, string? exception, IReadOnlyList<string>? errors)
         : base(false, errorCode, exception, errors) { }
 
     /// <summary>Value on success; default on failure.</summary>
@@ -140,13 +140,13 @@ public sealed class DbResult<T> : DbResult
     }
 }
 
-public static class DBResultTaskExtensions
+public static class EntityResultTaskExtensions
 {
     /// <summary>Awaits the result and throws <see cref="EntityStoreException"/> on failure.</summary>
-    public static async Task OrThrow(this Task<DbResult> task)
+    public static async Task OrThrow(this Task<EntityResult> task)
         => (await task.ConfigureAwait(false)).ThrowIfFailed();
 
     /// <summary>Awaits the result and returns its value, or throws <see cref="EntityStoreException"/> on failure.</summary>
-    public static async Task<T> OrThrow<T>(this Task<DbResult<T>> task)
+    public static async Task<T> OrThrow<T>(this Task<EntityResult<T>> task)
         => (await task.ConfigureAwait(false)).GetDataOrThrow();
 }

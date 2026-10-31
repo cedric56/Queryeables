@@ -10,7 +10,7 @@ For every parent of an `[EntityGraph]` collection:
 
 - `I{Parent}Graph` / `{Parent}Graph`: sets the navigation properties after loading; it receives the cache of each
   looked-up type (`LookupNavigation`);
-- `I{Parent}Service` / `{Parent}Service`: `SaveAsync`, `RemoveAsync`, `LoadChildrenAsync`, and one `Load{Collection}Async`
+- `I{Parent}Repository` / `{Parent}Repository`: `SaveAsync`, `RemoveAsync`, `LoadChildrenAsync`, and one `Load{Collection}Async`
   per collection. Both classes are `partial`.
 
 For every project with entities, a public module `Queryeables.Generated.Modules.Entities_{Assembly}`; and in every project

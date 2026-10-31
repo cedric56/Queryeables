@@ -2,7 +2,7 @@ namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Marks a collection of child entities: the parent is saved, removed and loaded with its children. The source generator
-/// writes <c>{Parent}Graph</c> and <c>{Parent}Service</c> (an <see cref="IDbTransaction{TEntity}"/>), registered by
+/// writes <c>{Parent}Graph</c> and <c>{Parent}Repository</c> (an <see cref="IAggregateRepository{TEntity}"/>), registered by
 /// <c>AddGeneratedEntities()</c>.
 /// </summary>
 /// <example>

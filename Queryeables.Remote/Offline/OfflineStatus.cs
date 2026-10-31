@@ -67,7 +67,7 @@ public sealed class OfflineStatusChangedEventArgs(OfflineEvent reason, OfflineSt
 /// <param name="Id">Identifies the conflict.</param>
 /// <param name="Type">The entity type, as named on the wire.</param>
 /// <param name="Kind">Insert, update or delete.</param>
-/// <param name="Key">The key of the entity, formatted (see <see cref="DbRecordKey"/>).</param>
+/// <param name="Key">The key of the entity, formatted (see <see cref="EntityKey"/>).</param>
 /// <param name="Payload">The entity as it was written offline (see <see cref="OfflineMode.ReadConflict{TEntity}"/>).</param>
 /// <param name="ErrorCode">Why: Conflict (someone else changed it), NotFound (deleted on the server), Validation, Forbidden...</param>
 /// <param name="Message">The server's message.</param>

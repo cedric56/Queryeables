@@ -23,9 +23,9 @@ namespace Queryeables.Remote.Offline;
 /// </summary>
 public sealed class OfflineMode : IAsyncDisposable
 {
-    private readonly IEntityRemote _remote;
+    private readonly IEntityTransport _remote;
     private readonly IOfflineStorage _storage;
-    private readonly DbMonitorRegistry? _registry;
+    private readonly ChangeFeedRegistry? _registry;
     private readonly IServiceProvider? _services;
     private readonly Dictionary<Type, OfflineEntityType> _types = [];
     private readonly Outbox _outbox = new();
@@ -46,9 +46,9 @@ public sealed class OfflineMode : IAsyncDisposable
     /// <param name="serializer">The entity serializer, the same as the server's; it also writes the local copy.</param>
     /// <param name="storage">Where the local copy, the queue and the mode survive a restart.</param>
     /// <param name="registry">Notified of the writes made offline, so that the caches follow the local copy.</param>
-    /// <param name="services">Gives the entity graphs (<see cref="IDbTransaction{TEntity}"/>): offline, a parent and its children are saved together too.</param>
-    public OfflineMode(IEntityRemote remote, IEntitySerializer serializer, IOfflineStorage storage,
-        DbMonitorRegistry? registry = null, IServiceProvider? services = null)
+    /// <param name="services">Gives the entity graphs (<see cref="IAggregateRepository{TEntity}"/>): offline, a parent and its children are saved together too.</param>
+    public OfflineMode(IEntityTransport remote, IEntitySerializer serializer, IOfflineStorage storage,
+        ChangeFeedRegistry? registry = null, IServiceProvider? services = null)
     {
         _remote = remote ?? throw new ArgumentNullException(nameof(remote));
         Serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -137,14 +137,14 @@ public sealed class OfflineMode : IAsyncDisposable
     /// <summary>
     /// Takes a fresh local copy from the server. Refused while offline writes are waiting: synchronize them first.
     /// </summary>
-    public async Task<DbResult> RefreshSnapshotAsync(CancellationToken ct = default)
+    public async Task<EntityResult> RefreshSnapshotAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _gate.WaitAsync(ct);
         try
         {
             if (_outbox.Count > 0)
-                return DbResult.Failure(EntityErrorCode.InvalidRequest,
+                return EntityResult.Failure(EntityErrorCode.InvalidRequest,
                     "Offline writes are waiting: synchronize them before taking a new copy.");
 
             var result = await DownloadAllAsync(ct);
@@ -158,27 +158,27 @@ public sealed class OfflineMode : IAsyncDisposable
         }
 
         Raise(OfflineEvent.SnapshotRefreshed);
-        return DbResult.Success();
+        return EntityResult.Success();
     }
 
     /// <summary>
     /// Works offline from now on. The local copy is refreshed first when the server answers; without network, the stored
     /// copy is used, and the switch is refused when there is none.
     /// </summary>
-    public async Task<DbResult> GoOfflineAsync(CancellationToken ct = default)
+    public async Task<EntityResult> GoOfflineAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _gate.WaitAsync(ct);
         try
         {
             if (Mode == ConnectionMode.Offline)
-                return DbResult.Success();
+                return EntityResult.Success();
 
             if (_outbox.Count == 0)
             {
                 var refreshed = await DownloadAllAsync(ct);
                 if (!refreshed.Successful && _state.SnapshotTakenAt is null)
-                    return DbResult.Failure(EntityErrorCode.Unknown,
+                    return EntityResult.Failure(EntityErrorCode.Unknown,
                         "No local copy: connect to the server once to download the data before working offline.");
             }
 
@@ -193,7 +193,7 @@ public sealed class OfflineMode : IAsyncDisposable
         StartProbing();
         _registry?.PublishResync();      // the caches now read the local copy
         Raise(OfflineEvent.ModeChanged);
-        return DbResult.Success();
+        return EntityResult.Success();
     }
 
     /// <summary>
@@ -217,7 +217,7 @@ public sealed class OfflineMode : IAsyncDisposable
             var refused = new List<OfflineConflict>();
             foreach (var entry in _outbox.Snapshot())
             {
-                RemoteResult result;
+                TransportResult result;
                 try
                 {
                     result = await SendAsync(entry, ct);
@@ -262,7 +262,7 @@ public sealed class OfflineMode : IAsyncDisposable
     }
 
     /// <summary>Resolves a conflict in favor of the offline write: sent again over the server's current row.</summary>
-    public async Task<DbResult> KeepMineAsync(OfflineConflict conflict, CancellationToken ct = default)
+    public async Task<EntityResult> KeepMineAsync(OfflineConflict conflict, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(conflict);
         await _gate.WaitAsync(ct);
@@ -271,7 +271,7 @@ public sealed class OfflineMode : IAsyncDisposable
             var type = _types.Values.FirstOrDefault(t => t.Name == conflict.Type)
                 ?? throw new InvalidOperationException($"{conflict.Type} is not available offline.");
 
-            RemoteResult result;
+            TransportResult result;
             try
             {
                 result = await type.SendAgainAsync(_remote, conflict, ct);
@@ -279,7 +279,7 @@ public sealed class OfflineMode : IAsyncDisposable
             catch (Exception ex) when (IsTransportFailure(ex, ct))
             {
                 SetReachable(false);
-                return DbResult.FromException(ex);
+                return EntityResult.FromException(ex);
             }
 
             if (!result.Successful)
@@ -297,7 +297,7 @@ public sealed class OfflineMode : IAsyncDisposable
         }
 
         Raise(OfflineEvent.Synchronized);
-        return DbResult.Success();
+        return EntityResult.Success();
     }
 
     /// <summary>Resolves a conflict in favor of the server: the offline write is dropped.</summary>
@@ -391,7 +391,7 @@ public sealed class OfflineMode : IAsyncDisposable
 
     /// <summary>The entity graph of <typeparamref name="TEntity"/>, when one is registered.</summary>
     internal IEntityGraph<TEntity>? GraphOf<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>() where TEntity : class
-        => (_services?.GetService(typeof(IDbTransaction<TEntity>)) as IEntityGraphService<TEntity>)?.Graph;
+        => (_services?.GetService(typeof(IAggregateRepository<TEntity>)) as IGraphRepository<TEntity>)?.Graph;
 
     internal void MarkDirty(OfflineEntityType type) => _dirty.Add(type);
 
@@ -456,7 +456,7 @@ public sealed class OfflineMode : IAsyncDisposable
             await InitializeAsync(ct);
     }
 
-    private async Task<RemoteResult> SendAsync(OutboxEntry entry, CancellationToken ct)
+    private async Task<TransportResult> SendAsync(OutboxEntry entry, CancellationToken ct)
     {
         var type = _types.Values.FirstOrDefault(t => t.Name == entry.Type)
             ?? throw new InvalidOperationException($"{entry.Type} is not available offline anymore.");
@@ -471,11 +471,11 @@ public sealed class OfflineMode : IAsyncDisposable
 
         // An update with no row: deleted on the server meanwhile. A delete with no row: already done.
         return entry.Kind == BatchOperationKind.Update && result is { Successful: true, Data: not { Length: > 0 } }
-            ? RemoteResult.Failure(EntityErrorCode.NotFound, $"{entry.Type} {entry.Key} was deleted on the server.")
+            ? TransportResult.Failure(EntityErrorCode.NotFound, $"{entry.Type} {entry.Key} was deleted on the server.")
             : result;
     }
 
-    private async Task<DbResult> DownloadAllAsync(CancellationToken ct)
+    private async Task<EntityResult> DownloadAllAsync(CancellationToken ct)
     {
         var before = SnapshotTypes();
         try
@@ -488,7 +488,7 @@ public sealed class OfflineMode : IAsyncDisposable
             _state = _state with { SnapshotTakenAt = DateTimeOffset.UtcNow };
             _serverChanges = 0;
             SetReachable(true, raise: false);
-            return DbResult.Success();
+            return EntityResult.Success();
         }
         catch (Exception ex)
         {
@@ -496,7 +496,7 @@ public sealed class OfflineMode : IAsyncDisposable
             if (!IsTransportFailure(ex, ct))
                 throw;
             SetReachable(false, raise: false);
-            return DbResult.FromException(ex);
+            return EntityResult.FromException(ex);
         }
     }
 
@@ -609,10 +609,10 @@ public sealed class OfflineMode : IAsyncDisposable
     {
         private bool _done;
 
-        public async Task<DbResult> CommitAsync(CancellationToken ct = default)
+        public async Task<EntityResult> CommitAsync(CancellationToken ct = default)
         {
             if (_done)
-                return DbResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished.");
+                return EntityResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished.");
             _done = true;
             await mode._gate.WaitAsync(ct);
             try
@@ -625,13 +625,13 @@ public sealed class OfflineMode : IAsyncDisposable
                 mode._gate.Release();
             }
             mode.AfterWrite();
-            return DbResult.Success();
+            return EntityResult.Success();
         }
 
-        public async Task<DbResult> RollbackAsync(CancellationToken ct = default)
+        public async Task<EntityResult> RollbackAsync(CancellationToken ct = default)
         {
             if (_done)
-                return DbResult.Success();
+                return EntityResult.Success();
             _done = true;
             await mode._gate.WaitAsync(ct);
             try
@@ -647,7 +647,7 @@ public sealed class OfflineMode : IAsyncDisposable
                 mode._gate.Release();
             }
             mode._registry?.PublishResync();
-            return DbResult.Success();
+            return EntityResult.Success();
         }
 
         public async ValueTask DisposeAsync() => await RollbackAsync();

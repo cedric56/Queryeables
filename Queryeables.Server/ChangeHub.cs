@@ -6,11 +6,11 @@ namespace Queryeables.Server;
 
 /// <summary>
 /// MagicOnion hub that broadcasts the changes of one entity type to subscribed clients,
-/// through the shared <see cref="RecordHubRepository{TObject}"/>.
+/// through the shared <see cref="ChangeHubConnections{TObject}"/>.
 /// </summary>
-public class RecordHub<TObject>(RecordHubRepository<TObject> repository) :
-    StreamingHubBase<IRecordHub<TObject>, IRecordHubReceiver<TObject>>,
-    IRecordHub<TObject> where TObject : class
+public class ChangeHub<TObject>(ChangeHubConnections<TObject> repository) :
+    StreamingHubBase<IChangeHub<TObject>, IChangeHubReceiver<TObject>>,
+    IChangeHub<TObject> where TObject : class
 {
     /// <summary>One broadcast group per entity type.</summary>
     private static readonly string GroupName = "queryeables:" + typeof(TObject).FullName;
@@ -30,9 +30,9 @@ public class RecordHub<TObject>(RecordHubRepository<TObject> repository) :
     }
 
     /// <summary>A client reports a change: it is relayed to the other clients.</summary>
-    public void OnRecordChanged(RecordMessage e)
+    public void OnChangeReceived(ChangeMessage e)
     {
-        var record = e.ToRecord<TObject>();
+        var record = e.ToChange<TObject>();
 
         // The sender is always excluded, even if it did not add itself.
         var self = Context.ContextId.ToString();

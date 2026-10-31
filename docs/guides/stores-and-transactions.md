@@ -6,7 +6,7 @@
 `IEntityStoreFactory` (the providers do it), create a store per operation, and dispose it:
 
 ```csharp
-public sealed class OrderService(IEntityStoreFactory stores)
+public sealed class OrderRepository(IEntityStoreFactory stores)
 {
     public async Task<IReadOnlyList<Order>> OpenOrdersAsync(long customerId)
     {
@@ -78,7 +78,7 @@ stale entity throws `EntityStoreException` with `EntityErrorCode.Conflict`.
 ## Transactions
 
 ```csharp
-DbResult result = await store.RunInTransactionAsync(async s =>
+EntityResult result = await store.RunInTransactionAsync(async s =>
 {
     await s.InsertAsync(order);
     await s.InsertManyAsync(lines);
@@ -88,16 +88,16 @@ if (!result.Successful)
     logger.LogWarning("{Code}: {Message} {Errors}", result.ErrorCode, result.Exception, result.Errors);
 ```
 
-- An exception inside the work, or a failed commit, becomes a failed `DbResult`; the transaction is rolled back.
+- An exception inside the work, or a failed commit, becomes a failed `EntityResult`; the transaction is rolled back.
 - Cancellation is not a failure: `OperationCanceledException` propagates.
-- `RunInTransactionAsync<T>` returns a `DbResult<T>` with the value of the work.
+- `RunInTransactionAsync<T>` returns a `EntityResult<T>` with the value of the work.
 - `.OrThrow()` on the task turns a failure into an `EntityStoreException`, for code that prefers exceptions.
 
 `InsertManyAsync`, `UpdateManyAsync` and `DeleteManyAsync` run in one transaction: if one row fails, none is written.
 
 ## Sync conventions
 
-`q.WithSyncConventions()` wraps every store in `SyncConventionsStore`:
+`q.WithSyncConventions()` wraps every store in `SyncConventionsDecorator`:
 
 - `[LastModified]` (`DateTime` UTC or `DateTimeOffset`) is set on every insert, update and soft delete;
 - `[SoftDelete]` (`bool`): `DeleteAsync` sets it instead of deleting, and reads hide the row; `SelectChangesAsync` still

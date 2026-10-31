@@ -80,9 +80,9 @@ public class StoreBenchmarks
         await connection.DeleteAsync(item);
     }
 
-    /// <summary>The same writes, in a transaction that reports a <see cref="DbResult"/>.</summary>
+    /// <summary>The same writes, in a transaction that reports a <see cref="EntityResult"/>.</summary>
     [Benchmark]
-    public async Task<DbResult> Store_InsertDelete_InTransaction()
+    public async Task<EntityResult> Store_InsertDelete_InTransaction()
     {
         await using var store = _database.Stores.Create();
         return await store.RunInTransactionAsync(async s =>

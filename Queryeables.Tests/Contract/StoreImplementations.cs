@@ -51,7 +51,7 @@ public sealed class DommelEntityStoreContractTests : SqliteContractTests
     protected override IEntityStore CreateStore() => CreateDommelStore();
 }
 
-/// <summary>Same contract, through <see cref="SyncConventionsStore"/>: timestamps and soft delete on top.</summary>
+/// <summary>Same contract, through <see cref="SyncConventionsDecorator"/>: timestamps and soft delete on top.</summary>
 public sealed class DommelWithSyncConventionsContractTests : SqliteContractTests
 {
     protected override bool UsesSyncConventions => true;
@@ -84,7 +84,7 @@ public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Remote store, transport-agnostic: <see cref="RemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsRemote"/>
+/// Remote store, transport-agnostic: <see cref="RemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsTransport"/>
 /// → <see cref="EntityHandler{T}"/> → Dommel, with a JSON serializer: nothing of MagicOnion is involved.
 /// </summary>
 public sealed class RemoteEntityStoreContractTests : SqliteContractTests
@@ -94,12 +94,12 @@ public sealed class RemoteEntityStoreContractTests : SqliteContractTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), CreateDommelStore);
-        return new RemoteEntityStore(dispatcher.AsRemote(), new JsonTestSerializer());
+        return new RemoteEntityStore(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 }
 
 /// <summary>
-/// Remote store over MagicOnion: <see cref="RemoteEntityStore"/> → <see cref="MagicOnionRemote"/> → MessagePack messages
+/// Remote store over MagicOnion: <see cref="RemoteEntityStore"/> → <see cref="MagicOnionTransport"/> → MessagePack messages
 /// → <see cref="EntityRequestDispatcher"/> → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
 /// </summary>
 public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
@@ -118,7 +118,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     }
 
     private static IEntityStore Client(EntityRequestDispatcher dispatcher)
-        => MagicOnionRemote.Stores(new InProcessLayer(dispatcher)).Create();
+        => MagicOnionTransport.Stores(new InProcessLayer(dispatcher)).Create();
 
     [Fact]
     public async Task Server_caps_the_page_size()
@@ -238,15 +238,15 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     }
 
     /// <summary>Aggregate service that saves through a Dommel store and records its calls.</summary>
-    private sealed class RecordingService(Func<IEntityStore> storeFactory, bool fail = false) : IDbTransaction<TestClient>
+    private sealed class RecordingService(Func<IEntityStore> storeFactory, bool fail = false) : IAggregateRepository<TestClient>
     {
         public List<string> Calls { get; } = [];
 
-        public async Task<DbResult> SaveAsync(TestClient entity, CancellationToken ct = default)
+        public async Task<EntityResult> SaveAsync(TestClient entity, CancellationToken ct = default)
         {
             Calls.Add($"SAVE {entity.Name}");
             if (fail)
-                return DbResult.Failure(EntityErrorCode.Conflict, "conflit");
+                return EntityResult.Failure(EntityErrorCode.Conflict, "conflit");
 
             await using var store = storeFactory();
             return await store.RunInTransactionAsync(async s =>
@@ -256,7 +256,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             }, ct);
         }
 
-        public async Task<DbResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
+        public async Task<EntityResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
         {
             Calls.Add($"REMOVE {entity.Name}");
             await using var store = storeFactory();
@@ -279,29 +279,29 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     {
         private static readonly EntityRequestContext Caller = EntityRequestContext.Anonymous;
 
-        public UnaryResult<DBResultMessage> GetAllAsync(string type) => Reply(dispatcher.GetAllAsync(type, Caller));
-        public UnaryResult<DBResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
+        public UnaryResult<EntityResultMessage> GetAllAsync(string type) => Reply(dispatcher.GetAllAsync(type, Caller));
+        public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
             => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, Caller));
-        public UnaryResult<DBResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
+        public UnaryResult<EntityResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
             => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize, Caller));
-        public UnaryResult<DBResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
+        public UnaryResult<EntityResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
             int pageSize, SortKeyMessage[] sort)
             => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize,
                 SortKeyMessage.ToKeys(RoundTrip(sort)), Caller));
-        public UnaryResult<DBResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
+        public UnaryResult<EntityResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
             => Reply(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
-        public UnaryResult<DBResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
+        public UnaryResult<EntityResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
             => Reply(dispatcher.InsertAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<DBResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
+        public UnaryResult<EntityResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
             => Reply(dispatcher.UpdateAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<DBResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
+        public UnaryResult<EntityResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
             => Reply(dispatcher.DeleteAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<DBResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
+        public UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
             => Reply(dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(RoundTrip(operations)), Caller));
 
-        private static UnaryResult<DBResultMessage> Reply(Task<RemoteResult> call) => new(ReplyAsync(call));
+        private static UnaryResult<EntityResultMessage> Reply(Task<TransportResult> call) => new(ReplyAsync(call));
 
-        private static async Task<DBResultMessage> ReplyAsync(Task<RemoteResult> call) => RoundTrip(DBResultMessage.From(await call));
+        private static async Task<EntityResultMessage> ReplyAsync(Task<TransportResult> call) => RoundTrip(EntityResultMessage.From(await call));
 
         private static T RoundTrip<T>(T value)
             => MessagePack.MessagePackSerializer.Deserialize<T>(MessagePack.MessagePackSerializer.Serialize(value));

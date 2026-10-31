@@ -38,4 +38,4 @@ services.UseQueryeables(q => q
 ## Table names
 
 Dommel pluralizes table names (`Person` → `Persons`). Name the table with `[Table("Person")]` when it is singular; change
-monitors use the same attribute.
+change feeds use the same attribute.

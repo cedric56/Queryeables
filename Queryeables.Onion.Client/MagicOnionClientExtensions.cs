@@ -16,7 +16,7 @@ public delegate bool CertificateValidator(X509Certificate2? certificate, X509Cha
 
 /// <summary>
 /// MagicOnion client helpers: gRPC channel creation (WebSocket bridge, usable in the browser) and subscription of a
-/// monitor to the change hub (<see cref="IRecordHub{TObject}"/>).
+/// change feed to the change hub (<see cref="IChangeHub{TObject}"/>).
 /// </summary>
 /// <example>
 /// <code>
@@ -24,7 +24,7 @@ public delegate bool CertificateValidator(X509Certificate2? certificate, X509Cha
 /// services.AddSingleton(sp => sp.Create&lt;IMagicOnionLayer&gt;(Constants.ServerUrl));
 ///
 /// // Change notifications for Person
-/// var unsubscribe = await monitor.AddStreamingHub(Constants.ServerUrl, session, logger: logger);
+/// var unsubscribe = await change feed.AddStreamingHub(Constants.ServerUrl, session, logger: logger);
 /// ...
 /// await unsubscribe();
 /// </code>
@@ -68,26 +68,26 @@ public static class MagicOnionClientExtensions
 
     /// <summary>
     /// Subscribes <paramref name="monitor"/> to the MagicOnion change hub of <typeparamref name="TObject"/>:
-    /// changes received from the server are published on the monitor (except this client's own changes),
+    /// changes received from the server are published on the change feed (except this client's own changes),
     /// and local changes are sent to the server.
     /// </summary>
     /// <param name="session">Receives the hub session id, sent with writes so that this client ignores its own changes.</param>
-    /// <param name="registry">When provided, the monitor is added to it to receive the local database changes.</param>
+    /// <param name="registry">When provided, the change feed is added to it to receive the local database changes.</param>
     /// <returns>
-    /// Function that leaves the hub and detaches the monitor. When the server is unreachable, the error is logged and
+    /// Function that leaves the hub and detaches the change feed. When the server is unreachable, the error is logged and
     /// a function that does nothing is returned; call this method again later to retry.
     /// </returns>
     /// <remarks>
     /// The streaming hub does not reconnect by itself. After a reconnection, call <see cref="EntityCache{TEntity, TKey}.SyncAsync"/>
-    /// on the caches fed by this monitor to catch up with the changes missed in the meantime.
+    /// on the caches fed by this change feed to catch up with the changes missed in the meantime.
     /// </remarks>
     public static async Task<Func<Task>> AddStreamingHub<TObject>(
-        this IDbMonitor<TObject> monitor,
+        this IChangeFeed<TObject> monitor,
         string url,
-        IDbSession session,
+        IChangeSession session,
         HttpMessageHandler? handler = null,
         ILogger? logger = null,
-        DbMonitorRegistry? registry = null,
+        ChangeFeedRegistry? registry = null,
         CertificateValidator? validateCertificate = null)
         where TObject : class
     {
@@ -99,18 +99,18 @@ public static class MagicOnionClientExtensions
             return existing.unsubscribe;
 
         var channel = CreateChannel(url, handler, validateCertificate);
-        IRecordHub<TObject>? hub = null;
-        var receiver = new RecordHubReceiver<TObject>(monitor, session,
+        IChangeHub<TObject>? hub = null;
+        var receiver = new ChangeHubReceiver<TObject>(monitor, session,
             send: record =>
             {
-                hub?.OnRecordChanged(RecordMessage.From(record));
+                hub?.OnChangeReceived(ChangeMessage.From(record));
                 return Task.CompletedTask;
             },
             onError: ex => logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name));
 
         try
         {
-            hub = await StreamingHubClient.ConnectAsync<IRecordHub<TObject>, IRecordHubReceiver<TObject>>(channel, receiver);
+            hub = await StreamingHubClient.ConnectAsync<IChangeHub<TObject>, IChangeHubReceiver<TObject>>(channel, receiver);
             var id = await hub.AddReceiverAsync();
             registry?.Add(monitor);
             session.SetSession(typeof(TObject), (id.ToString(), UnsubscribeAsync));

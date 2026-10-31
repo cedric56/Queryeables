@@ -4,15 +4,15 @@ using System.Reflection;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Change monitor without an entity type: this is what the notification source sees
-/// (SQLite update hook, trigger...), through <see cref="DbMonitorRegistry"/>.
+/// Change change feed without an entity type: this is what the notification source sees
+/// (SQLite update hook, trigger...), through <see cref="ChangeFeedRegistry"/>.
 /// </summary>
-public interface IDbMonitor
+public interface IChangeFeed
 {
     /// <summary>
-    /// Reports that a row changed. The monitor ignores the tables it does not care about.
+    /// Reports that a row changed. The change feed ignores the tables it does not care about.
     /// </summary>
-    /// <param name="entityKey">Row key, in the <see cref="DbRecordKey.Format"/> format.</param>
+    /// <param name="entityKey">Row key, in the <see cref="EntityKey.Format"/> format.</param>
     void Publish(ChangeType type, string table, string entityKey, string? connectionId);
 
     /// <summary>
@@ -24,40 +24,40 @@ public interface IDbMonitor
     }
 }
 
-/// <summary>Monitor of one entity type: its subscribers (for example <see cref="EntityCache{TEntity, TKey}"/>) react to changes.</summary>
-public interface IDbMonitor<TEntity> : IDbMonitor where TEntity : class
+/// <summary>Change feed of one entity type: its subscribers (for example <see cref="EntityCache{TEntity, TKey}"/>) react to changes.</summary>
+public interface IChangeFeed<TEntity> : IChangeFeed where TEntity : class
 {
-    event EventHandler<DbRecord<TEntity>>? RecordChanged;
+    event EventHandler<EntityChange<TEntity>>? ChangeReceived;
 
-    /// <summary>Raises <see cref="RecordChanged"/> with a change received as is (for example from a hub).</summary>
-    void Publish(DbRecord<TEntity> record);
+    /// <summary>Raises <see cref="ChangeReceived"/> with a change received as is (for example from a hub).</summary>
+    void Publish(EntityChange<TEntity> record);
 }
 
 /// <summary>
 /// Standard implementation. Server side, the change source calls
 /// <see cref="Publish(ChangeType, string, string, string?)"/>; client side, the hub receiver calls
-/// <see cref="Publish(DbRecord{TEntity})"/>.
+/// <see cref="Publish(EntityChange{TEntity})"/>.
 /// </summary>
-public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : class
+public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : class
 {
     /// <param name="table">
     /// Name of the monitored table. Defaults to the name given by [Table] on the entity type, otherwise the type name.
     /// </param>
-    public DbMonitor(string? table = null)
+    public ChangeFeed(string? table = null)
         => Table = table ?? typeof(TEntity).GetCustomAttribute<TableAttribute>()?.Name ?? typeof(TEntity).Name;
 
     /// <summary>Name of the monitored table.</summary>
     public string Table { get; }
 
-    public event EventHandler<DbRecord<TEntity>>? RecordChanged;
+    public event EventHandler<EntityChange<TEntity>>? ChangeReceived;
 
-    public void Publish(DbRecord<TEntity> record)
+    public void Publish(EntityChange<TEntity> record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        RecordChanged?.Invoke(this, record);
+        ChangeReceived?.Invoke(this, record);
     }
 
-    public void PublishResync() => Publish(new DbRecord<TEntity>(string.Empty, ChangeType.Update, []));
+    public void PublishResync() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.Update, []));
 
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
     {
@@ -65,6 +65,6 @@ public sealed class DbMonitor<TEntity> : IDbMonitor<TEntity> where TEntity : cla
             return;
 
         List<string> connections = string.IsNullOrWhiteSpace(connectionId) ? [] : [connectionId];
-        Publish(new DbRecord<TEntity>(entityKey, type, connections));
+        Publish(new EntityChange<TEntity>(entityKey, type, connections));
     }
 }

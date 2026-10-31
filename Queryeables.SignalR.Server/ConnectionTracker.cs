@@ -10,8 +10,8 @@ namespace Queryeables.SignalR.Server;
 /// </summary>
 public sealed class ConnectionTracker<TObject>(
     IHubContext<SignalRHub<TObject>> hubContext,
-    IDbMonitor<TObject> monitor,
-    DbMonitorRegistry? registry = null,
+    IChangeFeed<TObject> monitor,
+    ChangeFeedRegistry? registry = null,
     ILogger<ConnectionTracker<TObject>>? logger = null)
     : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
 {
@@ -27,10 +27,10 @@ public sealed class ConnectionTracker<TObject>(
             logger?.LogInformation("Client disconnected: {ConnectionId}", connectionId);
     }
 
-    protected override Task SendAsync(DbRecord<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+    protected override Task SendAsync(EntityChange<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
         logger?.LogDebug("Broadcasting {Record}", record);
-        return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRRecord.From(record), ct);
+        return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRChange.From(record), ct);
     }
 
     protected override void OnError(Exception exception)

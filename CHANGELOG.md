@@ -7,11 +7,26 @@ may change the API.
 
 First public version.
 
+### Changed
+- Names aligned on known concepts, one vocabulary per idea:
+
+  | Before | After |
+  | --- | --- |
+  | `DbRecord<T>`, `DbRecordKey` | `EntityChange<T>`, `EntityKey` |
+  | `IDbMonitor<T>`, `DbMonitor<T>`, `DbMonitorRegistry`, `AddMonitor<T>()`, `RecordChanged` | `IChangeFeed<T>`, `ChangeFeed<T>`, `ChangeFeedRegistry`, `AddChangeFeed<T>()`, `ChangeReceived` |
+  | `RecordHub`, `RecordHubReceiver`, `RecordHubRepository`, `RecordMessage`, `SignalRRecord` | `ChangeHub`, `ChangeHubReceiver`, `ChangeHubConnections`, `ChangeMessage`, `SignalRChange` |
+  | `IDbSession`, `DbSession` | `IChangeSession`, `ChangeSession` |
+  | `IDbTransaction<T>`, `IEntityGraphService<T>`, `EntityGraphService<,>`, generated `I{Parent}Service` | `IAggregateRepository<T>`, `IGraphRepository<T>`, `GraphRepository<,>`, generated `I{Parent}Repository` |
+  | `DbResult`, `DbResult<T>`, `RemoteResult` | `EntityResult`, `EntityResult<T>`, `TransportResult` |
+  | `IEntityRemote`, `MagicOnionRemote`, `AsRemote()` | `IEntityTransport`, `MagicOnionTransport`, `AsTransport()` |
+  | `EntityRowFilter` | `RowLevelSecurity` |
+  | `SyncConventionsStore` | `SyncConventionsDecorator` |
+
 ### Added
-- `IEntityStore` on Dommel, EF Core and a remote server, with transactions that return a `DbResult`.
+- `IEntityStore` on Dommel, EF Core and a remote server, with transactions that return a `EntityResult`.
 - Providers: SQLite (with change notifications), PostgreSQL, any Dommel database, EF Core, MagicOnion client.
 - `[EntityGraph]`: parents saved, removed and loaded with their children; `[EntityCache]`: caches that follow the database.
-- Source generator: graph services, registration (`AddGeneratedEntities()`, including referenced projects), QRY001-QRY009.
+- Source generator: graph repositories, registration (`AddGeneratedEntities()`, including referenced projects), QRY001-QRY009.
 - Remote access independent of the transport; MagicOnion transport; change notifications over MagicOnion and SignalR.
 - `[LastModified]`, `[SoftDelete]`, `[ConcurrencyCheck]`; incremental synchronization of caches.
 - Documentation site, benchmarks, in-process remote sample.
@@ -25,8 +40,8 @@ First public version.
   Dommel used to evaluate by compiling a lambda per query.
 - PostgreSQL change notifications: triggers and `LISTEN/NOTIFY`, a hosted listener that reconnects and makes the caches
   synchronize (`UseNpgsql(..., notifications: n => n.Watch<T>(...))`), tested against a real server in the CI.
-- `IDbMonitor.PublishResync()`: tells subscribers that changes may have been missed.
-- Row filters (`EntityRowFilter.For<T, TKey>(key, user => predicate)`, `Expose<T>(policy, rows: ...)`): each user reads and
+- `IChangeFeed.PublishResync()`: tells subscribers that changes may have been missed.
+- Row filters (`RowLevelSecurity.For<T, TKey>(key, user => predicate)`, `Expose<T>(policy, rows: ...)`): each user reads and
   writes its own rows only; someone else's row answers NotFound.
 - `maxReadSize` (10,000 by default): reads that are not paged (every row, a filter, the changes) fail beyond it instead of
   sending the table.

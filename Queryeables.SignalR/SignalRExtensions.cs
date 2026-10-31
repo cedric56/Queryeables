@@ -10,13 +10,13 @@ namespace Queryeables.SignalR;
 public static class SignalRExtensions
 {
     /// <summary>
-    /// Connects a monitor to a SignalR hub:
-    /// changes received from the hub are published on the monitor, and local changes are sent to the hub.
+    /// Connects a change feed to a SignalR hub:
+    /// changes received from the hub are published on the change feed, and local changes are sent to the hub.
     /// </summary>
     /// <param name="session">Receives the connection id, which changes on every reconnection.</param>
     /// <param name="factory">Custom HTTP handler, for example for SSL validation on Android.</param>
-    /// <param name="registry">When provided, the monitor is added to it to receive the local database changes.</param>
-    /// <returns>Function that stops the connection and detaches the monitor.</returns>
+    /// <param name="registry">When provided, the change feed is added to it to receive the local database changes.</param>
+    /// <returns>Function that stops the connection and detaches the change feed.</returns>
     /// <remarks>
     /// When the server is unreachable at startup, the method does not throw:
     /// it retries in the background according to <paramref name="retryPolicy"/>.
@@ -24,13 +24,13 @@ public static class SignalRExtensions
     [RequiresUnreferencedCode(
     "This SignalR configuration uses APIs that may not be compatible with trimming.")]
     public static async Task<Func<Task>> AddSignalR<[DynamicallyAccessedMembers(EntityMembers.Required)] TObject>(
-        this IDbMonitor<TObject> monitor,
+        this IChangeFeed<TObject> monitor,
         string url,
-        IDbSession session,
+        IChangeSession session,
         IRetryPolicy? retryPolicy = null,
         Func<HttpMessageHandler, HttpMessageHandler>? factory = null,
         ILogger? logger = null,
-        DbMonitorRegistry? registry = null)
+        ChangeFeedRegistry? registry = null)
         where TObject : class
     {
         ArgumentNullException.ThrowIfNull(monitor);
@@ -59,14 +59,14 @@ public static class SignalRExtensions
         // Logic shared by the transports: ignore our own changes, never send back those received from the hub.
         var relay = new ChangeRelay<TObject>(monitor,
             connectionId: () => hub.State == HubConnectionState.Connected ? hub.ConnectionId : null,
-            send: record => hub.InvokeAsync(SignalRContract.OnRecordChanged, SignalRRecord.From(record), stop.Token),
+            send: record => hub.InvokeAsync(SignalRContract.OnChangeReceived, SignalRChange.From(record), stop.Token),
             onError: ex =>
             {
                 if (!stop.IsCancellationRequested)
                     logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name);
             });
 
-        hub.On<SignalRRecord>(SignalRContract.DbChanged, message => relay.Receive(message.ToRecord<TObject>()));
+        hub.On<SignalRChange>(SignalRContract.DbChanged, message => relay.Receive(message.ToChange<TObject>()));
 
         registry?.Add(monitor);
         hub.Reconnected += OnReconnected;

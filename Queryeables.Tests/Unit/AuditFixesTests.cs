@@ -52,7 +52,7 @@ public class AuditFixesTests
             onLoaded: (person, contacts) => { foreach (var c in contacts) c.Owner = person; })
         .HasMany(p => p.Notes, foreignKey: n => n.PersonId, key: n => n.Id);
 
-    private EntityGraphService<AuditPerson, long> LocalService() => new(() => new MemoryStore(_database), Graph());
+    private GraphRepository<AuditPerson, long> LocalService() => new(() => new MemoryStore(_database), Graph());
 
     private static AuditPerson Ana() => new()
     {
@@ -146,10 +146,10 @@ public class AuditFixesTests
         var serverStores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
-            aggregate: new EntityGraphService<AuditPerson, long>(serverStores, Graph())));
+            aggregate: new GraphRepository<AuditPerson, long>(serverStores, Graph())));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer());
-        var client = new EntityGraphService<AuditPerson, long>(
-            RemoteEntityStore.Factory(dispatcher.AsRemote(), new JsonTestSerializer()), Graph());
+        var client = new GraphRepository<AuditPerson, long>(
+            RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer()), Graph());
 
         var ana = Ana();
         ana.LocalTag = "selected";
@@ -167,15 +167,15 @@ public class AuditFixesTests
         Assert.True(ana.Notes![0].Id > 0);
     }
 
-    // ---------- Cache and monitors ----------
+    // ---------- Cache and change feeds ----------
 
     [Fact]
     public async Task A_key_that_cannot_be_parsed_synchronizes_the_cache()
     {
         var rows = new List<TestClient> { new() { Id = 1, Name = "Ana" } };
-        var monitor = new DbMonitor<TestClient>();
+        var monitor = new ChangeFeed<TestClient>();
         using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id, monitor,
-            DbRecordKey.Parse<long>);
+            EntityKey.Parse<long>);
         await cache.LoadAsync();
         Exception? failure = null;
         cache.RefreshFailed += (_, ex) => failure = ex;
@@ -183,7 +183,7 @@ public class AuditFixesTests
         rows.Add(new TestClient { Id = 2, Name = "Bob" });
         var changed = new TaskCompletionSource();
         cache.EntitiesChanged += (_, _) => changed.TrySetResult();
-        monitor.Publish(new DbRecord<TestClient>("not-a-number", ChangeType.Insert));
+        monitor.Publish(new EntityChange<TestClient>("not-a-number", ChangeType.Insert));
         await changed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Null(failure);
@@ -193,9 +193,9 @@ public class AuditFixesTests
     [Fact]
     public void A_monitor_follows_the_table_attribute()
     {
-        Assert.Equal("Audit_Rows", new DbMonitor<AuditTableEntity>().Table);
-        Assert.Equal(nameof(AuditPerson), new DbMonitor<AuditPerson>().Table);
-        Assert.Equal("Other", new DbMonitor<AuditTableEntity>("Other").Table);
+        Assert.Equal("Audit_Rows", new ChangeFeed<AuditTableEntity>().Table);
+        Assert.Equal(nameof(AuditPerson), new ChangeFeed<AuditPerson>().Table);
+        Assert.Equal("Other", new ChangeFeed<AuditTableEntity>("Other").Table);
     }
 
     // ---------- Filters ----------

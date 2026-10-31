@@ -19,7 +19,7 @@ public class EntityCacheTests
         return store;
     }
 
-    /// <summary>Monitor notifications are handled in the background: wait for the event.</summary>
+    /// <summary>Change feed notifications are handled in the background: wait for the event.</summary>
     private static async Task WaitForChangeAsync(IEntityCache<TestClient, long> cache, Action trigger)
     {
         var changed = new TaskCompletionSource();
@@ -45,12 +45,12 @@ public class EntityCacheTests
     [Fact]
     public async Task Update_notification_reloads_only_that_row()
     {
-        var monitor = new DbMonitor<TestClient>();
-        using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor, DbRecordKey.Parse<long>);
+        var monitor = new ChangeFeed<TestClient>();
+        using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor, EntityKey.Parse<long>);
         await cache.LoadAsync();
 
         _rows[1].Name = "Bob updated";
-        await WaitForChangeAsync(cache, () => monitor.Publish(new DbRecord<TestClient>(2L, ChangeType.Update)));
+        await WaitForChangeAsync(cache, () => monitor.Publish(new EntityChange<TestClient>(2L, ChangeType.Update)));
 
         Assert.Equal("Bob updated", cache.Find(2)?.Name);
         Assert.Equal(0, _stores[0].SelectCalls);       // full load: no filtered query
@@ -60,11 +60,11 @@ public class EntityCacheTests
     [Fact]
     public async Task Delete_notification_removes_the_row()
     {
-        var monitor = new DbMonitor<TestClient>();
-        using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor, DbRecordKey.Parse<long>);
+        var monitor = new ChangeFeed<TestClient>();
+        using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor, EntityKey.Parse<long>);
         await cache.LoadAsync();
 
-        await WaitForChangeAsync(cache, () => monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Delete)));
+        await WaitForChangeAsync(cache, () => monitor.Publish(new EntityChange<TestClient>(1L, ChangeType.Delete)));
 
         Assert.Null(cache.Find(1));
         Assert.Single(cache.Entities);
@@ -73,12 +73,12 @@ public class EntityCacheTests
     [Fact]
     public async Task Without_parseKey_a_notification_reloads_everything()
     {
-        var monitor = new DbMonitor<TestClient>();
+        var monitor = new ChangeFeed<TestClient>();
         using var cache = new EntityCache<TestClient, long>(NewStore, c => c.Id, monitor);
         await cache.LoadAsync();
 
         _rows.Add(new TestClient { Id = 3, Name = "Cid" });
-        await WaitForChangeAsync(cache, () => monitor.Publish(new DbRecord<TestClient>(3L, ChangeType.Insert)));
+        await WaitForChangeAsync(cache, () => monitor.Publish(new EntityChange<TestClient>(3L, ChangeType.Insert)));
 
         Assert.Equal(3, cache.Entities.Count);
     }
@@ -99,17 +99,17 @@ public class EntityCacheTests
     [Fact]
     public async Task Failed_refresh_raises_RefreshFailed_and_keeps_the_content()
     {
-        var monitor = new DbMonitor<TestClient>();
+        var monitor = new ChangeFeed<TestClient>();
         var fail = false;
         using var cache = new EntityCache<TestClient, long>(
             () => fail ? throw new InvalidOperationException("base indisponible") : NewStore(),
-            c => c.Id, monitor, DbRecordKey.Parse<long>);
+            c => c.Id, monitor, EntityKey.Parse<long>);
         await cache.LoadAsync();
 
         var failed = new TaskCompletionSource<Exception>();
         cache.RefreshFailed += (_, ex) => failed.TrySetResult(ex);
         fail = true;
-        monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Update));
+        monitor.Publish(new EntityChange<TestClient>(1L, ChangeType.Update));
 
         Assert.Equal("base indisponible", (await failed.Task.WaitAsync(TimeSpan.FromSeconds(5))).Message);
         Assert.Equal(2, cache.Entities.Count);

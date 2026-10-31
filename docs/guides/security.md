@@ -30,7 +30,7 @@ its own rows, add a row filter.
 
 ```csharp
 server.Expose<Order>(EntityAccessPolicies.Authenticated,
-    rows: EntityRowFilter.For<Order, long>(o => o.Id, user =>
+    rows: RowLevelSecurity.For<Order, long>(o => o.Id, user =>
     {
         var tenant = user?.FindFirst("tenant")?.Value;
         return o => o.TenantId == tenant;

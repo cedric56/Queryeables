@@ -17,7 +17,7 @@ services.UseQueryeables(q => q
 ```
 
 `IEntityStoreFactory` then creates `RemoteEntityStore` instances (`IsRemote` is true): the generated services send a parent
-with its children in one call, and the server saves the children with its own graph service.
+with its children in one call, and the server saves the children with its own graph repository.
 
 The channel goes through the gRPC WebSocket bridge by default, which works everywhere, the browser included; the server must
 enable the bridge. Pass `handler` to use your own `HttpMessageHandler`, and `validateCertificate` to accept a known
@@ -26,13 +26,13 @@ self-signed certificate (ignored in the browser). An `https://` URL needs a serv
 ## Change notifications
 
 ```csharp
-var monitor = provider.GetRequiredService<IDbMonitor<Person>>();
-var unsubscribe = await monitor.AddStreamingHub("https://server:5001", provider.GetRequiredService<IDbSession>(), logger: logger);
+var monitor = provider.GetRequiredService<IChangeFeed<Person>>();
+var unsubscribe = await monitor.AddStreamingHub("https://server:5001", provider.GetRequiredService<IChangeSession>(), logger: logger);
 ...
 await unsubscribe();
 ```
 
-The server's changes reach the monitor, hence the caches; this client's own changes are not echoed back. When the server is
+The server's changes reach the change feed, hence the caches; this client's own changes are not echoed back. When the server is
 unreachable, the error is logged and nothing is subscribed: call it again later. The hub does not reconnect by itself:
 after a reconnection, call `cache.SyncAsync()` to catch up.
 

@@ -29,7 +29,7 @@ await offline.InitializeAsync();
 ```
 
 `WithOfflineMode` puts an `OfflineStoreFactory` in front of the provider's factory. Services, caches and queries keep
-asking for `IEntityStoreFactory`, `IPersonService` or `IEntityCache<Person, long>`: they do not change.
+asking for `IEntityStoreFactory`, `IPersonRepository` or `IEntityCache<Person, long>`: they do not change.
 
 ## What the user is told
 
@@ -67,7 +67,7 @@ The event is raised on the thread that noticed the change: a user interface disp
 ## The user's choices
 
 ```csharp
-DbResult result = await offline.GoOfflineAsync();    // refreshes the copy when the server answers, otherwise uses the stored one
+EntityResult result = await offline.GoOfflineAsync();    // refreshes the copy when the server answers, otherwise uses the stored one
 SyncReport report = await offline.GoOnlineAsync();   // sends the queue, takes a fresh copy, back online
 await offline.RefreshSnapshotAsync();                // a fresh copy, without changing the mode (refused while writes wait)
 ```
@@ -82,7 +82,7 @@ await offline.RefreshSnapshotAsync();                // a fresh copy, without ch
   the real key when the row is sent; the copy is then taken again from the server.
 - Writes on the same row are **coalesced**: an insert then updates is sent as one insert, an insert then a delete is not
   sent at all.
-- A parent saved through its graph service is saved with its children in the copy, and queued as **one** write: the
+- A parent saved through its graph repository is saved with its children in the copy, and queued as **one** write: the
   server saves the children again when it receives it, as it does online.
 - Offline transactions work: a transaction not committed restores the copy and the queue.
 - The caches follow the copy: each offline write notifies them, and each switch makes them synchronize.
@@ -135,4 +135,4 @@ copies, implement `IOfflineStorage` over IndexedDB.
   cannot be seen in a list of changes.
 - A store keeps the mode it was created in: create a store per unit of work, as services and caches already do.
 - A child inserted on its own, under a parent created offline, is sent with the parent's temporary key: save
-  aggregates through their service.
+  aggregates through their repository.

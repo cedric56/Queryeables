@@ -12,7 +12,7 @@ public static class QueryeablesBuilderExtensions
     /// <summary>Stores with Dommel on PostgreSQL (Npgsql).</summary>
     /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL"). For development.</param>
     /// <param name="notifications">
-    /// The tables whose changes are reported to the monitors, like the SQLite hooks: triggers and <c>LISTEN/NOTIFY</c>,
+    /// The tables whose changes are reported to the change feeds, like the SQLite hooks: triggers and <c>LISTEN/NOTIFY</c>,
     /// through a <see cref="PostgresChangeListener"/> registered as a hosted service. Without it, nothing is reported.
     /// </param>
     /// <example>
@@ -33,7 +33,7 @@ public static class QueryeablesBuilderExtensions
             notifications(options);
             builder.Services.TryAddSingleton(options);
             builder.Services.TryAddSingleton(sp => new PostgresChangeListener(connectionString, options,
-                sp.GetRequiredService<DbMonitorRegistry>(), sp.GetService<ILogger<PostgresChangeListener>>()));
+                sp.GetRequiredService<ChangeFeedRegistry>(), sp.GetService<ILogger<PostgresChangeListener>>()));
             builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<PostgresChangeListener>());
         }
 

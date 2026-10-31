@@ -12,7 +12,7 @@ public class SyncAndCoalescingTests
 
     private static readonly DateTime T0 = new(2026, 10, 26, 8, 0, 0, DateTimeKind.Utc);
 
-    // ---------- SyncConventionsStore ----------
+    // ---------- SyncConventionsDecorator ----------
 
     [Fact]
     public async Task Insert_and_update_set_LastModified()
@@ -117,7 +117,7 @@ public class SyncAndCoalescingTests
     {
         var rows = new List<TestClient> { new() { Id = 1, Name = "Ana", LastModified = T0 } };
         var storesCreated = 0;
-        var monitor = new DbMonitor<TestClient>();
+        var monitor = new ChangeFeed<TestClient>();
         using var cache = new EntityCache<TestClient, long>(() =>
         {
             Interlocked.Increment(ref storesCreated);
@@ -128,7 +128,7 @@ public class SyncAndCoalescingTests
         var refreshes = 0;
         cache.EntitiesChanged += (_, _) => Interlocked.Increment(ref refreshes);
         for (var i = 0; i < 20; i++)
-            monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Update));
+            monitor.Publish(new EntityChange<TestClient>(1L, ChangeType.Update));
 
         await Task.Delay(600);
 
@@ -141,17 +141,17 @@ public class SyncAndCoalescingTests
     {
         var rows = new List<TestClient> { new() { Id = 1, Name = "Ana" } };
         var stores = new List<InMemoryEntityStore>();
-        var monitor = new DbMonitor<TestClient>();
+        var monitor = new ChangeFeed<TestClient>();
         using var cache = new EntityCache<TestClient, long>(() =>
         {
             var store = new InMemoryEntityStore(rows) { Delay = TimeSpan.FromMilliseconds(100) };
             lock (stores) stores.Add(store);
             return store;
-        }, c => c.Id, monitor, DbRecordKey.Parse<long>);
+        }, c => c.Id, monitor, EntityKey.Parse<long>);
         await cache.LoadAsync();
 
         for (var i = 0; i < 20; i++)
-            monitor.Publish(new DbRecord<TestClient>(1L, ChangeType.Update));
+            monitor.Publish(new EntityChange<TestClient>(1L, ChangeType.Update));
         await Task.Delay(600);
 
         int rowReads;

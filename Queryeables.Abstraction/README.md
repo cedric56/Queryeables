@@ -6,11 +6,11 @@ published on its own: it ships inside the [`Queryeables`](https://github.com/ced
 | Area | Types |
 | --- | --- |
 | Stores | `IEntityStore`, `IEntityTransaction`, `IEntityStoreFactory`, `EntityStoreFactory`, `EntityStoreExtensions`, `Paging` |
-| Results and errors | `DbResult`, `DbResult<T>`, `EntityErrorCode`, `EntityStoreException`, `EntityValidator` |
-| Graphs | `EntityGraph`, `EntityGraph<TParent, TKey>`, `EntityGraphService<TParent, TKey>`, `IDbTransaction<T>`, `[EntityGraph]` |
+| Results and errors | `EntityResult`, `EntityResult<T>`, `EntityErrorCode`, `EntityStoreException`, `EntityValidator` |
+| Graphs | `EntityGraph`, `EntityGraph<TParent, TKey>`, `GraphRepository<TParent, TKey>`, `IAggregateRepository<T>`, `[EntityGraph]` |
 | Caches | `IEntityCache<T, TKey>`, `EntityCache<T, TKey>`, `[EntityCache]` |
-| Synchronization | `[LastModified]`, `[SoftDelete]`, `SyncConventionsStore`, `SyncMetadata`, `ConcurrencyToken` |
-| Change notifications | `IDbMonitor<T>`, `DbMonitor<T>`, `DbMonitorRegistry`, `DbRecord<T>`, `DbRecordKey`, `ChangeContext`, `IDbSession` |
+| Synchronization | `[LastModified]`, `[SoftDelete]`, `SyncConventionsDecorator`, `SyncMetadata`, `ConcurrencyToken` |
+| Change notifications | `IChangeFeed<T>`, `ChangeFeed<T>`, `ChangeFeedRegistry`, `EntityChange<T>`, `EntityKey`, `ChangeContext`, `IChangeSession` |
 | Transports | `ChangeBroadcaster<T>` (server), `ChangeRelay<T>` (client): shared by MagicOnion and SignalR |
 | Helpers | `CollectionExtensions.Update`: aligns a collection with a selection, in place |
 

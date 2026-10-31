@@ -1,7 +1,7 @@
 # Queryeables.Sqlite
 
 [Queryeables](https://github.com/cedric56/Queryeables) on SQLite, with Dommel, **with change notifications**: every row
-changed through Queryeables is reported to the monitors, and the caches follow the database. Targets **.NET 10**.
+changed through Queryeables is reported to the change feeds, and the caches follow the database. Targets **.NET 10**.
 
 ```bash
 dotnet add package Queryeables.Sqlite

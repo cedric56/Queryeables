@@ -5,18 +5,18 @@ using System.Runtime.CompilerServices;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Text representation of an entity key, carried by <see cref="DbRecord{T}"/>:
+/// Text representation of an entity key, carried by <see cref="EntityChange{T}"/>:
 /// works for any key type (long, int, Guid, string, enum, date) and for composite keys as tuples.
 /// </summary>
 /// <example>
 /// <code>
-/// RecordKey.Format(42L);                       // "42"
-/// RecordKey.Format((OrderId: 7, Line: 2));     // composite key
-/// RecordKey.Parse&lt;long&gt;("42");             // 42
-/// RecordKey.Parse&lt;(int, int)&gt;(text);       // (7, 2)
+/// EntityKey.Format(42L);                       // "42"
+/// EntityKey.Format((OrderId: 7, Line: 2));     // composite key
+/// EntityKey.Parse&lt;long&gt;("42");             // 42
+/// EntityKey.Parse&lt;(int, int)&gt;(text);       // (7, 2)
 /// </code>
 /// </example>
-public static class DbRecordKey
+public static class EntityKey
 {
     // Separator of the parts of a composite key: a control character, absent from ordinary values.
     private const char Separator = '\u001F';

@@ -38,7 +38,7 @@ public static class EntityGraph
 /// </list>
 /// Save and remove must run in a transaction, for example inside
 /// <see cref="EntityStoreExtensions.RunInTransactionAsync(IEntityStore, Func{IEntityStore, Task}, CancellationToken)"/>,
-/// or through <see cref="EntityGraphService{TParent, TKey}"/>.
+/// or through <see cref="GraphRepository{TParent, TKey}"/>.
 /// </remarks>
 public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent, TKey> : IEntityGraph<TParent>
     where TParent : class

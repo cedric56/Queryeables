@@ -24,19 +24,19 @@ public class OfflineModeTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(serverStores, EntityAccessPolicies.AllowAll));
         registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
-            aggregate: new EntityGraphService<AuditPerson, long>(serverStores, graph)));
+            aggregate: new GraphRepository<AuditPerson, long>(serverStores, graph)));
         registry.Register(new EntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
         registry.Register(new EntityHandler<GuidNote>(serverStores, EntityAccessPolicies.AllowAll));
-        _network = new NetworkRemote(new EntityRequestDispatcher(registry, _serializer, serverStores).AsRemote());
+        _network = new NetworkRemote(new EntityRequestDispatcher(registry, _serializer, serverStores).AsTransport());
     }
 
     private static EntityGraph<AuditPerson, long> PersonGraph()
         => EntityGraph.For<AuditPerson, long>(p => p.Id).HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id);
 
     /// <summary>The client: the offline mode, its store factory and a person service sending parents with their children.</summary>
-    private (OfflineMode Mode, IEntityStoreFactory Stores, IDbTransaction<AuditPerson> Persons) Client(TimeSpan? probe = null,
+    private (OfflineMode Mode, IEntityStoreFactory Stores, IAggregateRepository<AuditPerson> Persons) Client(TimeSpan? probe = null,
         System.Linq.Expressions.Expression<Func<TestClient, bool>>? clients = null, IOfflineStorage? storage = null,
-        DbMonitorRegistry? registry = null)
+        ChangeFeedRegistry? registry = null)
     {
         var services = new Services();
         var mode = new OfflineMode(_network, _serializer, storage ?? _storage, registry, services)
@@ -49,8 +49,8 @@ public class OfflineModeTests
             .Add<AuditContact, long>(c => c.Id)
             .Add<GuidNote, Guid>(n => n.Id);
         var stores = new OfflineStoreFactory(RemoteEntityStore.Factory(_network, _serializer), mode);
-        var persons = new EntityGraphService<AuditPerson, long>(stores, PersonGraph());
-        services.Add(typeof(IDbTransaction<AuditPerson>), persons);
+        var persons = new GraphRepository<AuditPerson, long>(stores, PersonGraph());
+        services.Add(typeof(IAggregateRepository<AuditPerson>), persons);
         return (mode, stores, persons);
     }
 
@@ -317,10 +317,10 @@ public class OfflineModeTests
     {
         Seed("Ana");
         var services = new ServiceCollection();
-        services.AddSingleton<IEntityRemote>(_network);
+        services.AddSingleton<IEntityTransport>(_network);
         services.AddSingleton<IEntitySerializer>(_serializer);
         services.UseQueryeables(q => q
-            .UseStores(sp => RemoteEntityStore.Factory(sp.GetRequiredService<IEntityRemote>(), sp.GetRequiredService<IEntitySerializer>()))
+            .UseStores(sp => RemoteEntityStore.Factory(sp.GetRequiredService<IEntityTransport>(), sp.GetRequiredService<IEntitySerializer>()))
             .WithOfflineMode(o => o.UseStorage(_storage).Entity<TestClient, long>(c => c.Id)));
         await using var provider = services.BuildServiceProvider();
 
@@ -518,11 +518,11 @@ public class OfflineModeTests
     public async Task Offline_writes_and_switches_notify_the_monitors()
     {
         Seed("Ana");
-        var registry = new DbMonitorRegistry();
-        var monitor = new DbMonitor<TestClient>();
+        var registry = new ChangeFeedRegistry();
+        var monitor = new ChangeFeed<TestClient>();
         registry.Add(monitor);
-        var received = new List<DbRecord<TestClient>>();
-        monitor.RecordChanged += (_, record) => received.Add(record);
+        var received = new List<EntityChange<TestClient>>();
+        monitor.ChangeReceived += (_, record) => received.Add(record);
         var (mode, stores, _) = Client(registry: registry);
 
         await mode.GoOfflineAsync();
@@ -578,17 +578,17 @@ public class OfflineModeTests
     }
 
     /// <summary>A transport whose network can be cut: every call then fails like a lost connection.</summary>
-    private sealed class NetworkRemote(IEntityRemote server) : IEntityRemote
+    private sealed class NetworkRemote(IEntityTransport server) : IEntityTransport
     {
         public volatile bool Down;
 
         /// <summary>The network goes down after this many writes.</summary>
         public int? DownAfterWrites;
 
-        private Task<RemoteResult> Call(Func<Task<RemoteResult>> call)
-            => Down ? Task.FromException<RemoteResult>(new HttpRequestException("No network.")) : call();
+        private Task<TransportResult> Call(Func<Task<TransportResult>> call)
+            => Down ? Task.FromException<TransportResult>(new HttpRequestException("No network.")) : call();
 
-        private Task<RemoteResult> Write(Func<Task<RemoteResult>> call)
+        private Task<TransportResult> Write(Func<Task<TransportResult>> call)
         {
             if (DownAfterWrites is { } left)
             {
@@ -608,37 +608,37 @@ public class OfflineModeTests
         /// <summary>Full downloads of TestClient: every row, or every row of a scope.</summary>
         public int FullReads;
 
-        public Task<RemoteResult> GetAllAsync(string type, CancellationToken ct = default)
+        public Task<TransportResult> GetAllAsync(string type, CancellationToken ct = default)
         {
             if (type == EntityName.Of<TestClient>())
                 FullReads++;
             return Call(() => server.GetAllAsync(type, ct));
         }
 
-        public Task<RemoteResult> SelectAsync(string type, FilterCondition[] conditions, bool any, CancellationToken ct = default)
+        public Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any, CancellationToken ct = default)
             => Call(() => server.SelectAsync(type, conditions, any, ct));
 
-        public Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+        public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
             CancellationToken ct = default)
             => Call(() => server.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct));
 
-        public Task<RemoteResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
+        public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
             SortKey[] sort, CancellationToken ct = default)
             => Call(() => server.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, sort, ct));
 
-        public Task<RemoteResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default)
+        public Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default)
             => Call(() => server.GetChangesAsync(type, sinceUtc, ct));
 
-        public Task<RemoteResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
+        public Task<TransportResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
             => Write(() => server.InsertAsync(type, entity, connectionId, ct));
 
-        public Task<RemoteResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
+        public Task<TransportResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
             => Write(() => server.UpdateAsync(type, entity, connectionId, ct));
 
-        public Task<RemoteResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
+        public Task<TransportResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
             => Write(() => server.DeleteAsync(type, entity, connectionId, ct));
 
-        public Task<RemoteResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
+        public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => Call(() => server.ExecuteBatchAsync(operations, ct));
     }
 

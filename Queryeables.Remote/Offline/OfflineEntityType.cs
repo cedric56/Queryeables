@@ -16,7 +16,7 @@ internal abstract class OfflineEntityType
     /// <summary>The name of the type on the wire (<see cref="EntityName"/>).</summary>
     public abstract string Name { get; }
 
-    /// <summary>The table its monitor watches: the [Table] name, otherwise the type name.</summary>
+    /// <summary>The table its change feed watches: the [Table] name, otherwise the type name.</summary>
     public abstract string Table { get; }
 
     public abstract Task LoadAsync(IOfflineStorage storage, string prefix, CancellationToken ct);
@@ -28,10 +28,10 @@ internal abstract class OfflineEntityType
     /// Brings the copy up to date with the server: only the rows changed since the last download when the type allows it
     /// ([LastModified] and [SoftDelete]), the whole scope otherwise. Throws when the server cannot be reached.
     /// </summary>
-    public abstract Task DownloadAsync(IEntityRemote remote, CancellationToken ct);
+    public abstract Task DownloadAsync(IEntityTransport remote, CancellationToken ct);
 
     /// <summary>Rows changed on the server since the copy; null when the type has no [LastModified].</summary>
-    public abstract Task<int?> CountServerChangesAsync(IEntityRemote remote, DateTime since, CancellationToken ct);
+    public abstract Task<int?> CountServerChangesAsync(IEntityTransport remote, DateTime since, CancellationToken ct);
 
     /// <summary>The payload as the server expects it: temporary keys (parent and children) back to their default value.</summary>
     public abstract byte[] PrepareForSend(byte[] payload, BatchOperationKind kind);
@@ -40,7 +40,7 @@ internal abstract class OfflineEntityType
     public abstract void ResetIfTemporary(object entity);
 
     /// <summary>Sends a refused write again, adapted to the server's current row (its version, or an insert when it is gone).</summary>
-    public abstract Task<RemoteResult> SendAgainAsync(IEntityRemote remote, OfflineConflict conflict, CancellationToken ct);
+    public abstract Task<TransportResult> SendAgainAsync(IEntityTransport remote, OfflineConflict conflict, CancellationToken ct);
 
     /// <summary>The next download reads this row again from the server, whatever its modification date.</summary>
     public abstract void MarkLocal(string keyText);
@@ -51,7 +51,7 @@ internal abstract class OfflineEntityType
     /// <summary>Writes into the copy. An insert gives a default key a temporary one; false when an updated or deleted row is missing.</summary>
     public abstract bool Apply(BatchOperationKind kind, object entity);
 
-    /// <summary>The formatted key of <paramref name="entity"/> (see <see cref="DbRecordKey"/>).</summary>
+    /// <summary>The formatted key of <paramref name="entity"/> (see <see cref="EntityKey"/>).</summary>
     public abstract string KeyTextOf(object entity);
 
     public abstract object Snapshot();
@@ -120,7 +120,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
     /// <summary>Copies, as a database returns them: changing them does not change the copy.</summary>
     public IEnumerable<TEntity> Rows => _state.Rows.Values.Select(Copy).ToList();
 
-    public string KeyText(TEntity entity) => DbRecordKey.Format(_key(entity));
+    public string KeyText(TEntity entity) => EntityKey.Format(_key(entity));
 
     /// <summary>Adds the row. A default key becomes a temporary one, written into <paramref name="entity"/> too.</summary>
     public void Insert(TEntity entity)
@@ -182,7 +182,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
 
     public override void MarkLocal(string keyText)
     {
-        _state.Local.Add(DbRecordKey.Parse<TKey>(keyText));
+        _state.Local.Add(EntityKey.Parse<TKey>(keyText));
         _metaChanged = true;
     }
 
@@ -208,7 +208,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
                 ? new DateTime(ticks, DateTimeKind.Utc)
                 : null,
             meta.Count > 1 ? meta[1] : null);
-        _stored = rows.Keys.Select(k => DbRecordKey.Format(k)).ToHashSet();
+        _stored = rows.Keys.Select(k => EntityKey.Format(k)).ToHashSet();
         _changed.Clear();
         _metaChanged = false;
     }
@@ -218,7 +218,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         var indexChanged = false;
         foreach (var key in _changed)
         {
-            var keyText = DbRecordKey.Format(key);
+            var keyText = EntityKey.Format(key);
             if (_state.Rows.TryGetValue(key, out var row))
             {
                 await storage.WriteAsync(RowKey(prefix, keyText), _mode.Serializer.Serialize(row), ct);
@@ -247,7 +247,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
 
     // ---------- Server ----------
 
-    public override async Task DownloadAsync(IEntityRemote remote, CancellationToken ct)
+    public override async Task DownloadAsync(IEntityTransport remote, CancellationToken ct)
     {
         var (conditions, any) = _scope is null ? ([], false) : Filters.FromPredicate(_scope);
         var scope = Fingerprint(conditions, any);
@@ -259,7 +259,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         _metaChanged = true;
     }
 
-    public override async Task<int?> CountServerChangesAsync(IEntityRemote remote, DateTime since, CancellationToken ct)
+    public override async Task<int?> CountServerChangesAsync(IEntityTransport remote, DateTime since, CancellationToken ct)
     {
         if (SyncMetadata.LastModified(typeof(TEntity)) is null)
             return null;
@@ -271,7 +271,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
     }
 
     /// <summary>Every row of the scope: the first time, for a type without [LastModified] and [SoftDelete], or a new scope.</summary>
-    private async Task DownloadAllAsync(IEntityRemote remote, FilterCondition[] conditions, bool any, string scope, CancellationToken ct)
+    private async Task DownloadAllAsync(IEntityTransport remote, FilterCondition[] conditions, bool any, string scope, CancellationToken ct)
     {
         var rows = Read(_scope is null
             ? await remote.GetAllAsync(Name, ct)
@@ -286,11 +286,11 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         foreach (var key in _state.Rows.Keys)
             _changed.Add(key);
         foreach (var keyText in _stored)
-            _changed.Add(DbRecordKey.Parse<TKey>(keyText));
+            _changed.Add(EntityKey.Parse<TKey>(keyText));
     }
 
     /// <summary>The rows changed on the server since the watermark, and the rows written offline, read again by key.</summary>
-    private async Task DownloadChangesAsync(IEntityRemote remote, DateTime since, CancellationToken ct)
+    private async Task DownloadChangesAsync(IEntityTransport remote, DateTime since, CancellationToken ct)
     {
         var changes = Read(await remote.GetChangesAsync(Name, SyncMetadata.Before(since, _mode.SyncOverlap), ct));
 
@@ -348,7 +348,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
             _setKey(typed, default!);
     }
 
-    public override async Task<RemoteResult> SendAgainAsync(IEntityRemote remote, OfflineConflict conflict, CancellationToken ct)
+    public override async Task<TransportResult> SendAgainAsync(IEntityTransport remote, OfflineConflict conflict, CancellationToken ct)
     {
         var local = _mode.Serializer.Deserialize<TEntity>(conflict.Payload)
             ?? throw new InvalidDataException($"Empty {typeof(TEntity).Name} in the conflict.");
@@ -359,7 +359,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         {
             // Deleted on the server: an update becomes an insert, a delete has nothing left to do.
             if (conflict.Kind == BatchOperationKind.Delete)
-                return RemoteResult.Success();
+                return TransportResult.Success();
             _setKey(local, default!);
             return await remote.InsertAsync(Name, _mode.Serializer.Serialize(local), null, ct);
         }
@@ -404,7 +404,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         _metaChanged = true;
     }
 
-    private List<TEntity> Read(RemoteResult result)
+    private List<TEntity> Read(TransportResult result)
     {
         var data = result.GetDataOrThrow();
         return data is { Length: > 0 } ? [.. _mode.Serializer.Deserialize<TEntity[]>(data) ?? []] : [];
@@ -444,9 +444,9 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         _ => value.ToString() ?? string.Empty,
     };
 
-    private static HashSet<TKey> ReadKeys(byte[]? data) => OfflineCodec.ReadStrings(data).Select(DbRecordKey.Parse<TKey>).ToHashSet();
+    private static HashSet<TKey> ReadKeys(byte[]? data) => OfflineCodec.ReadStrings(data).Select(EntityKey.Parse<TKey>).ToHashSet();
 
-    private static byte[] WriteKeys(IEnumerable<TKey> keys) => OfflineCodec.WriteStrings(keys.Select(k => DbRecordKey.Format(k)));
+    private static byte[] WriteKeys(IEnumerable<TKey> keys) => OfflineCodec.WriteStrings(keys.Select(k => EntityKey.Format(k)));
 
     private string IndexKey(string prefix) => $"{prefix}/{Name}/index";
 

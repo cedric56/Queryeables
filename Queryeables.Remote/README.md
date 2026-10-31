@@ -5,7 +5,7 @@ published on its own: it ships inside the [`Queryeables`](https://github.com/ced
 
 ## Client
 
-`RemoteEntityStore` is an `IEntityStore` that talks to an **`IEntityRemote`**: one method per operation, entities as bytes,
+`RemoteEntityStore` is an `IEntityStore` that talks to an **`IEntityTransport`**: one method per operation, entities as bytes,
 written by an **`IEntitySerializer`**.
 
 ```csharp
@@ -34,7 +34,7 @@ application when the server is lost or back and when the data differs; the user 
 ## Server
 
 `EntityRequestDispatcher` receives the same calls and routes them to the exposed types (`EntityHandler<T>`), each with its
-access policy (`IEntityAccessPolicy`) and DataAnnotations validation. A type with an `IDbTransaction<T>` is saved with its
+access policy (`IEntityAccessPolicy`) and DataAnnotations validation. A type with an `IAggregateRepository<T>` is saved with its
 children. Filters are rebuilt from a whitelist of operators; no SQL and no expression comes from the client.
 
 ```csharp
@@ -43,10 +43,10 @@ q.AddEntityServer(serializer, server => server
     .Expose<Product>(EntityAccessPolicies.ReadOnly));
 ```
 
-`dispatcher.AsRemote(context)` connects both sides in-process: for tests, or an application that hosts its own server.
+`dispatcher.AsTransport(context)` connects both sides in-process: for tests, or an application that hosts its own server.
 
 ## Writing a transport
 
-Implement `IEntityRemote` on the client, and forward each call to `EntityRequestDispatcher` on the server with an
-`EntityRequestContext` (the authenticated user, the notification connection). `RemoteResult` carries the data or the
+Implement `IEntityTransport` on the client, and forward each call to `EntityRequestDispatcher` on the server with an
+`EntityRequestContext` (the authenticated user, the notification connection). `TransportResult` carries the data or the
 error kind. [`Queryeables.Onion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Onion/README.md) is the MagicOnion transport.

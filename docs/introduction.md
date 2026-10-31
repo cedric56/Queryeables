@@ -12,11 +12,11 @@ Hot Chocolate), and not an ORM: it uses one.
 | --- | --- |
 | `IEntityStore` | One unit of work: CRUD, filters, paging, counting, transactions. Implemented on Dommel, EF Core and a remote server |
 | `IEntityStoreFactory` | Creates stores; what the provider registers |
-| `DbResult` | The outcome of a transaction: success, or an error kind (`Validation`, `Conflict`, `NotFound`, `Forbidden`...) |
+| `EntityResult` | The outcome of a transaction: success, or an error kind (`Validation`, `Conflict`, `NotFound`, `Forbidden`...) |
 | `[EntityGraph]` | A parent saved, removed and loaded with its children, in one transaction |
 | `[EntityCache]` | An in-memory copy of a table, kept up to date by change notifications |
-| `IDbMonitor<T>` | The change notifications of a table: from SQLite, SQL Server, or a server's hub |
-| Source generator | Writes the graph services and the registration; reports attribute mistakes at compile time |
+| `IChangeFeed<T>` | The change notifications of a table: from SQLite, SQL Server, or a server's hub |
+| Source generator | Writes the graph repositories and the registration; reports attribute mistakes at compile time |
 
 Switching from local to remote changes the provider, not the code that uses the data:
 

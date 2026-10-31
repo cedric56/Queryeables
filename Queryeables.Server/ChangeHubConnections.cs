@@ -9,16 +9,16 @@ namespace Queryeables.Server;
 /// Broadcasts the changes of one entity type to MagicOnion clients (see <see cref="ChangeBroadcaster{TObject}"/>).
 /// Register it as a singleton.
 /// </summary>
-public sealed class RecordHubRepository<TObject>(
-    IDbMonitor<TObject> monitor,
-    DbMonitorRegistry? registry = null,
-    ILogger<RecordHubRepository<TObject>>? logger = null)
+public sealed class ChangeHubConnections<TObject>(
+    IChangeFeed<TObject> monitor,
+    ChangeFeedRegistry? registry = null,
+    ILogger<ChangeHubConnections<TObject>>? logger = null)
     : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
 {
     // Shared broadcast group, captured on the first subscription.
-    private volatile IGroup<IRecordHubReceiver<TObject>>? _group;
+    private volatile IGroup<IChangeHubReceiver<TObject>>? _group;
 
-    public void RegisterGroup(IGroup<IRecordHubReceiver<TObject>> group, Guid contextId)
+    public void RegisterGroup(IGroup<IChangeHubReceiver<TObject>> group, Guid contextId)
     {
         _group ??= group;
         if (AddSubscriber(contextId.ToString()))
@@ -32,9 +32,9 @@ public sealed class RecordHubRepository<TObject>(
     }
 
     /// <summary>Broadcasts a change reported by a client.</summary>
-    public void Raise(DbRecord<TObject> record) => Relay(record);
+    public void Raise(EntityChange<TObject> record) => Relay(record);
 
-    protected override Task SendAsync(DbRecord<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+    protected override Task SendAsync(EntityChange<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {
         // Ids that are not MagicOnion connections (SignalR session...) are ignored.
         var excluded = excludedConnections
@@ -43,7 +43,7 @@ public sealed class RecordHubRepository<TObject>(
             .ToList();
 
         logger?.LogDebug("Broadcasting {Record}", record);
-        _group?.Except(excluded).OnChanged(RecordMessage.From(record));
+        _group?.Except(excluded).OnChanged(ChangeMessage.From(record));
         return Task.CompletedTask;
     }
 

@@ -14,7 +14,7 @@
 
   <!--
     Remote access, independent of any transport: the client store (RemoteEntityStore), the server handlers, the filter
-    translation and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityRemote on the client,
+    translation and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityTransport on the client,
     calls EntityRequestDispatcher on the server, and provides an IEntitySerializer. No package references.
   -->
 

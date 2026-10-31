@@ -35,7 +35,7 @@ var persons = provider.GetRequiredService<IEntityCache<Person, long>>();
 await persons.LoadAsync();
 
 // The generated service saves a person with its contacts, in one transaction.
-var service = provider.GetRequiredService<IPersonService>();
+var service = provider.GetRequiredService<IPersonRepository>();
 var bob = new Person { Name = "Bob" };
 Check(await service.SaveAsync(bob));
 
@@ -61,11 +61,11 @@ Console.WriteLine($"Cache after removal: {string.Join(", ", persons.Entities)}")
 var dispatcher = provider.GetRequiredService<EntityRequestDispatcher>();
 var clientServices = new ServiceCollection();
 clientServices.UseQueryeables(q => q
-    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsRemote(), serializer))
+    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
     .AddGeneratedEntities());
 await using var client = clientServices.BuildServiceProvider();
 
-var remoteService = client.GetRequiredService<IPersonService>();
+var remoteService = client.GetRequiredService<IPersonRepository>();
 var carl = new Person { Name = "Carl", Contacts = [new Contact { Kind = "neighbour", PersonId = bob.Id }] };
 Check(await remoteService.SaveAsync(carl));
 await WaitForAsync(() => persons.Entities.Count == 2);       // the server's cache saw it
@@ -75,7 +75,7 @@ var remoteCarl = new Person { Id = carl.Id, Name = carl.Name };
 await remoteService.LoadContactsAsync(remoteCarl);
 Console.WriteLine($"Remote load: {remoteCarl} -> {string.Join(", ", (remoteCarl.Contacts ?? []).Select(c => c.Kind))}");
 
-static void Check(DbResult result)
+static void Check(EntityResult result)
 {
     if (!result.Successful)
         throw new InvalidOperationException($"{result.ErrorCode}: {result.Exception}");

@@ -17,7 +17,7 @@ public interface IEntityStoreFactory
 
     /// <summary>
     /// True when the stores talk to a remote server. The server then saves an entity with its children
-    /// (<see cref="EntityGraphService{TParent, TKey}"/> sends the parent only, children included).
+    /// (<see cref="GraphRepository{TParent, TKey}"/> sends the parent only, children included).
     /// </summary>
     bool IsRemote => false;
 }

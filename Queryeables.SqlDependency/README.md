@@ -10,14 +10,14 @@ dotnet add package Queryeables.SqlDependency
 ## Use
 
 ```csharp
-var monitor = provider.GetRequiredService<IDbMonitor<Person>>();
+var monitor = provider.GetRequiredService<IChangeFeed<Person>>();
 monitor.AddTableDependency<Person, long>(connectionString, p => p.Id, out var stop,
     onError: ex => logger.LogError(ex, "Person change"));
 ...
 stop();
 ```
 
-Every insert, update and delete of the table is published on the monitor with the entity key, so the caches update the
+Every insert, update and delete of the table is published on the change feed with the entity key, so the caches update the
 changed row only. The database needs Service Broker enabled (`ALTER DATABASE ... SET ENABLE_BROKER`) and the user the
 rights SqlTableDependency requires.
 

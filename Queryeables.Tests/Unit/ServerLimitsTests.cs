@@ -22,7 +22,7 @@ public class ServerLimitsTests
     /// <summary>A client signed in as a user of <paramref name="sponsor"/>; the server keeps each user to its sponsor's rows.</summary>
     private IEntityStore Client(int sponsor, int maxReadSize = EntityHandler.DefaultMaxReadSize)
     {
-        var rows = EntityRowFilter.For<TestClient, long>(c => c.Id, user =>
+        var rows = RowLevelSecurity.For<TestClient, long>(c => c.Id, user =>
         {
             var mine = int.Parse(user?.FindFirst("sponsor")?.Value ?? "0", System.Globalization.CultureInfo.InvariantCulture);
             return c => c.SponsorId == mine;
@@ -30,7 +30,7 @@ public class ServerLimitsTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(Server(), EntityAccessPolicies.Authenticated, rows: rows, maxReadSize: maxReadSize));
         var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sponsor", sponsor.ToString(System.Globalization.CultureInfo.InvariantCulture))], "test"));
-        var remote = new EntityRequestDispatcher(registry, _serializer, Server()).AsRemote(new EntityRequestContext(user));
+        var remote = new EntityRequestDispatcher(registry, _serializer, Server()).AsTransport(new EntityRequestContext(user));
         return new RemoteEntityStore(remote, _serializer);
     }
 
@@ -38,7 +38,7 @@ public class ServerLimitsTests
     {
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(Server(), EntityAccessPolicies.AllowAll, maxReadSize: maxReadSize));
-        return new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Server()).AsRemote(), _serializer);
+        return new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Server()).AsTransport(), _serializer);
     }
 
     [Fact]

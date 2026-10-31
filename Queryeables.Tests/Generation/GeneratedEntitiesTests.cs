@@ -27,7 +27,7 @@ public sealed class GeneratedEntitiesTests
             await store.InsertAsync(new GProduct { Name = "Tea" });
         await provider.GetRequiredService<IEntityCache<GProduct, long>>().LoadAsync();
 
-        var orders = provider.GetRequiredService<IGOrderService>();
+        var orders = provider.GetRequiredService<IGOrderRepository>();
         var order = new GOrder { Lines = [new GOrderLine { ProductId = 1, Quantity = 2 }] };
         Assert.True((await orders.SaveAsync(order)).Successful);
 
@@ -44,7 +44,7 @@ public sealed class GeneratedEntitiesTests
     public async Task A_nullable_lookup_key_and_a_named_foreign_key_work()
     {
         await using var provider = Services();
-        var persons = provider.GetRequiredService<IGPersonService>();
+        var persons = provider.GetRequiredService<IGPersonRepository>();
         var bob = new GPerson { Name = "Bob" };
         Assert.True((await persons.SaveAsync(bob)).Successful);
         await provider.GetRequiredService<IEntityCache<GPerson, long>>().LoadAsync();
@@ -65,7 +65,7 @@ public sealed class GeneratedEntitiesTests
     public void The_service_is_also_the_transaction_of_the_type()
     {
         using var provider = Services();
-        Assert.Same(provider.GetRequiredService<IGPersonService>(), provider.GetRequiredService<IDbTransaction<GPerson>>());
+        Assert.Same(provider.GetRequiredService<IGPersonRepository>(), provider.GetRequiredService<IAggregateRepository<GPerson>>());
     }
 
     [Fact]
@@ -74,10 +74,10 @@ public sealed class GeneratedEntitiesTests
         await using var provider = Services(remote: true);
         var order = new GOrder { Lines = [new GOrderLine { ProductId = 1 }] };
 
-        Assert.True((await provider.GetRequiredService<IGOrderService>().SaveAsync(order)).Successful);
+        Assert.True((await provider.GetRequiredService<IGOrderRepository>().SaveAsync(order)).Successful);
 
         Assert.Single(_database.All<GOrder>());
-        Assert.Empty(_database.All<GOrderLine>());     // the parent only: the server's graph service saves the lines
+        Assert.Empty(_database.All<GOrderLine>());     // the parent only: the server's graph repository saves the lines
     }
 
     [Fact]

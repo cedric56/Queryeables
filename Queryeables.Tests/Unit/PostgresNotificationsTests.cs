@@ -30,7 +30,7 @@ public class PostgresNotificationsTests
         var notifications = new PostgresNotifications().Watch<PgItem>(i => i.Id).Watch<TestClient>(c => c.Id);
 
         Assert.Equal(new[] { "PgItem", "Clients" }, notifications.Tables.Select(t => t.Name));
-        Assert.Equal(new DbMonitor<PgItem>().Table, notifications.Tables[0].Name);
+        Assert.Equal(new ChangeFeed<PgItem>().Table, notifications.Tables[0].Name);
 
         var script = notifications.TriggerScript();
         Assert.Contains("CREATE OR REPLACE FUNCTION queryeables_notify()", script);
@@ -42,10 +42,10 @@ public class PostgresNotificationsTests
     public async Task A_resync_makes_a_cache_synchronize()
     {
         var rows = new List<TestClient> { new() { Id = 1, Name = "Ana" } };
-        var registry = new DbMonitorRegistry();
-        var monitor = new DbMonitor<TestClient>();
+        var registry = new ChangeFeedRegistry();
+        var monitor = new ChangeFeed<TestClient>();
         registry.Add(monitor);
-        using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id, monitor, DbRecordKey.Parse<long>);
+        using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id, monitor, EntityKey.Parse<long>);
         await cache.LoadAsync();
 
         rows.Add(new TestClient { Id = 2, Name = "Bob" });      // missed while disconnected
