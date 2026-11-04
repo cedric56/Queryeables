@@ -1,6 +1,14 @@
 using Queryeables.Abstraction;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Queryeables.Remote;
+
+/// <summary>
+/// Validates the server certificate; return true to accept it.
+/// </summary>
+public delegate bool CertificateValidator(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors);
+
 
 /// <summary>
 /// What a transport implements on the client to reach the server: one method per operation, entities as bytes

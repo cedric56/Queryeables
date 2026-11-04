@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Samples/">
+    <Project Path="Samples/Queryeables.Sample/Queryeables.Sample.csproj" />
+  </Folder>
   <Project Path="Queryeables.Abstraction/Queryeables.Abstraction.csproj" />
   <Project Path="Queryeables.AotSmoke/Queryeables.AotSmoke.csproj" />
   <Project Path="Queryeables.Benchmarks/Queryeables.Benchmarks.csproj" />
@@ -16,7 +19,4 @@
   <Project Path="Queryeables.SqlDependency/Queryeables.SqlDependency.csproj" />
   <Project Path="Queryeables.Sqlite/Queryeables.Sqlite.csproj" />
   <Project Path="Queryeables.Tests/Queryeables.Tests.csproj" />
-  <Folder Name="/Samples/">
-    <Project Path="Samples/Queryeables.Sample/Queryeables.Sample.csproj" />
-  </Folder>
 </Solution>

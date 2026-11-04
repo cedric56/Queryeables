@@ -4,15 +4,12 @@ using MagicOnion;
 using MagicOnion.Client;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
+using Queryeables.Remote;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Queryeables.Onion.Client;
 
-/// <summary>
-/// Validates the server certificate; return true to accept it.
-/// </summary>
-public delegate bool CertificateValidator(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors);
 
 /// <summary>
 /// MagicOnion client helpers: gRPC channel creation (WebSocket bridge, usable in the browser) and subscription of a
@@ -35,36 +32,69 @@ public static class MagicOnionClientExtensions
     /// Creates a gRPC channel to <paramref name="url"/>. By default, the channel goes through the gRPC WebSocket bridge
     /// (works everywhere, browser included) and the server certificate is validated as usual.
     /// </summary>
-    /// <param name="handler">Custom HTTP handler; replaces the WebSocket bridge.</param>
     /// <param name="validateCertificate">
     /// Custom certificate validation, for example to accept a known self-signed certificate by its hash.
     /// Ignored in the browser, where the browser validates the certificate.
     /// </param>
-    public static GrpcChannel CreateChannel(string url, HttpMessageHandler? handler = null,
+    public static GrpcChannel CreateChannel(
+        string url,
+        HttpMessageHandler? handler = null,
         CertificateValidator? validateCertificate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
         if (handler is null)
         {
-            var bridge = new GrpcWebSocketBridgeHandler();
-            if (validateCertificate is not null && !OperatingSystem.IsBrowser()
-                && bridge.InnerHandler is HttpClientHandler http)
+            if (OperatingSystem.IsBrowser())
             {
-                http.ServerCertificateCustomValidationCallback = (_, certificate, chain, errors)
-                    => validateCertificate(certificate, chain, errors);
+                handler = new GrpcWebSocketBridgeHandler();
             }
-            handler = bridge;
+            else
+            {
+                handler = new SocketsHttpHandler();
+                if (OperatingSystem.IsAndroid())
+                {
+                    ((SocketsHttpHandler)handler).SslOptions = new SslClientAuthenticationOptions
+                    {
+                        RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
+                                (validateCertificate is null || OperatingSystem.IsBrowser()) || validateCertificate(
+                                    certificate switch
+                                    {
+                                        null => null,
+                                        X509Certificate2 cert2 => cert2,
+                                        _ => X509CertificateLoader.LoadCertificate(
+                                            certificate.GetRawCertData())
+                                    },
+                                    chain,
+                                    errors)
+                    };
+                }
+            }
         }
 
-        return GrpcChannel.ForAddress(url, new GrpcChannelOptions { HttpHandler = handler });
-    }
+        if (validateCertificate is not null)
+        {
+#if !BROWSER
+            if (handler is HttpClientHandler http)
+            {
+                http.ServerCertificateCustomValidationCallback =
+                    (_, certificate, chain, errors) =>
+                        validateCertificate(certificate, chain, errors);
+            }
+#endif
+        }
 
+        return GrpcChannel.ForAddress(
+            url,
+            new GrpcChannelOptions
+            {
+                HttpHandler = handler
+            });
+    }
     /// <summary>Creates a MagicOnion service client, for example <see cref="IMagicOnionLayer"/>, on a new channel.</summary>
-    public static TService Create<TService>(this IServiceProvider provider, string url,
-        HttpMessageHandler? handler = null, CertificateValidator? validateCertificate = null)
+    public static TService Create<TService>(this IServiceProvider provider, string url, CertificateValidator? validateCertificate = null)
         where TService : IService<TService>
-        => MagicOnionClient.Create<TService>(CreateChannel(url, handler, validateCertificate));
+        => MagicOnionClient.Create<TService>(CreateChannel(url, validateCertificate: validateCertificate));
 
     /// <summary>
     /// Subscribes <paramref name="monitor"/> to the MagicOnion change hub of <typeparamref name="TObject"/>:
@@ -85,7 +115,6 @@ public static class MagicOnionClientExtensions
         this IChangeFeed<TObject> monitor,
         string url,
         IChangeSession session,
-        HttpMessageHandler? handler = null,
         ILogger? logger = null,
         ChangeFeedRegistry? registry = null,
         CertificateValidator? validateCertificate = null)
@@ -98,7 +127,7 @@ public static class MagicOnionClientExtensions
         if (session.TryGetSession(typeof(TObject), out var existing))
             return existing.unsubscribe;
 
-        var channel = CreateChannel(url, handler, validateCertificate);
+        var channel = CreateChannel(url,validateCertificate: validateCertificate);
         IChangeHub<TObject>? hub = null;
         var receiver = new ChangeHubReceiver<TObject>(monitor, session,
             send: record =>
