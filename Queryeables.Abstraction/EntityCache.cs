@@ -37,7 +37,7 @@ namespace Queryeables.Abstraction;
 /// Incremental synchronization: idea taken from the Datasync Community Toolkit; coalescing of invalidations:
 /// idea taken from ActualLab.Fusion. See CREDITS.md.
 /// </remarks>
-public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IDisposable
+public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IUserScopedData, IDisposable
     where TEntity : class
     where TKey : notnull
 {
@@ -53,6 +53,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private readonly object _writeLock = new();
     private volatile ConcurrentDictionary<TKey, TEntity> _byKey = new();
     private volatile bool _disposed;
+
+    // Loaded at least once since the last ClearUserDataAsync: a change of user loads it again.
+    private bool _loaded;
 
     // Timestamp of the most recent row received: starting point of the next synchronization (guarded by _writeLock).
     private DateTime? _syncedUpTo;
@@ -132,6 +135,29 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         RaiseEntitiesChanged();
     }
 
+    /// <summary>Empties the cache: the rows of the previous user are gone. See <see cref="UserScopedData.ChangeUserAsync"/>.</summary>
+    public async Task ClearUserDataAsync(CancellationToken ct = default)
+    {
+        await _refreshLock.WaitAsync(ct);
+        try
+        {
+            lock (_writeLock)
+            {
+                _byKey = new ConcurrentDictionary<TKey, TEntity>();
+                _syncedUpTo = null;
+            }
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+
+        RaiseEntitiesChanged();
+    }
+
+    /// <summary>Loads the cache again when it was loaded before the change of user.</summary>
+    public Task ReloadUserDataAsync(CancellationToken ct = default) => _loaded ? LoadAsync(ct) : Task.CompletedTask;
+
     /// <summary>
     /// Updates the cache with what changed since the last synchronization (type with [LastModified]),
     /// or reloads it entirely otherwise. Call it after a reconnection.
@@ -179,6 +205,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
     private async Task LoadCoreAsync(CancellationToken ct)
     {
+        using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "load");
         IReadOnlyList<TEntity> entities;
         await using (var store = _storeFactory())
             entities = await store.GetAllAsync<TEntity>(ct);
@@ -197,11 +224,13 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         {
             _byKey = byKey;
             _syncedUpTo = _incremental ? latest ?? DateTime.MinValue : null;
+            _loaded = true;
         }
     }
 
     private async Task RefreshCoreAsync(CancellationToken ct)
     {
+        using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "sync");
         DateTime? since;
         lock (_writeLock)
             since = _syncedUpTo;
@@ -252,7 +281,12 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private async Task ApplyAsync(EntityChange<TEntity> record)
     {
         if (record.ChangeType == ChangeType.None)
+        {
+            // The source changed (offline copy, server, another user): reload, since rows may have vanished.
+            if (string.IsNullOrEmpty(record.EntityKey))
+                await LoadAsync();
             return;
+        }
 
         // No key, or a key of another kind (a SQLite rowid for a Guid key...): synchronize instead.
         if (_parseKey is null || !TryParseKey(record.EntityKey, out var key))
@@ -266,6 +300,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             return;
 
         await _refreshLock.WaitAsync();
+        using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "row");
         try
         {
             // Removed before reading: a change arriving during the read will trigger another read.

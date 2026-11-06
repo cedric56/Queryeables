@@ -47,6 +47,7 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         _database.Log.Add($"UPDATE {typeof(T).Name} {IdProperty<T>().GetValue(entity)}");
         if (index < 0)
             return Task.FromResult(false);
+        CheckVersion((T)rows[index], entity, increment: true);
         rows[index] = Copy(entity);
         return Task.FromResult(true);
     }
@@ -58,8 +59,20 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         _database.Log.Add($"DELETE {typeof(T).Name} {IdProperty<T>().GetValue(entity)}");
         if (index < 0)
             return Task.FromResult(false);
+        CheckVersion((T)rows[index], entity, increment: false);
         rows.RemoveAt(index);
         return Task.FromResult(true);
+    }
+
+    /// <summary>[ConcurrencyCheck], as the Dommel store does it: a stale version is a conflict; an update increments it.</summary>
+    private static void CheckVersion<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T stored, T entity, bool increment) where T : class
+    {
+        if (ConcurrencyToken.Find(typeof(T)) is not { } version)
+            return;
+        if (ConcurrencyToken.Get(stored, version) != ConcurrencyToken.Get(entity, version))
+            throw ConcurrencyToken.ConflictFor(typeof(T));
+        if (increment)
+            ConcurrencyToken.Set(entity, version, ConcurrencyToken.Get(entity, version) + 1);
     }
 
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)

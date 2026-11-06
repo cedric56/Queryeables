@@ -49,6 +49,13 @@ The server adds the filter to every read (all rows, filters, pages, changes) and
 The filter is built for each call from the authenticated user; an anonymous call gets `null`, and `_ => false` refuses it.
 The children of a graph follow their parent: expose a child type with its own filter when clients reach it directly.
 
+## A change of user on a client
+
+Row filters protect the server; the client must also forget what it kept. Caches and the offline copy hold the rows of
+the signed-in user: after a sign-out or a sign-in, call `services.ChangeUserAsync()` (see
+[offline mode](offline-mode.md#a-change-of-user)). It empties every cache and the offline copy before loading anything
+for the new user, and refuses while offline writes of the previous user wait to be sent.
+
 ## Size of reads
 
 A page is cut to `maxPageSize` (1000). A read that is not paged (every row, a filter, the changes since a date) fails with

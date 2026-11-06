@@ -79,12 +79,13 @@ public sealed class QueryeablesBuilder
                 sp.GetRequiredService<IEntitySerializer>(),
                 sp.GetService<ChangeFeedRegistry>(),
                 sp));
+            Services.AddSingleton<IUserScopedData>(sp => sp.GetRequiredService<OfflineMode>());
         }
         return this;
     }
 
     /// <summary>
-    /// Registers the change change feed of <typeparamref name="TEntity"/> (<see cref="IChangeFeed{TEntity}"/>), added to
+    /// Registers the change feed of <typeparamref name="TEntity"/> (<see cref="IChangeFeed{TEntity}"/>), added to
     /// <see cref="ChangeFeedRegistry"/> so that the changes of the database reach it.
     /// </summary>
     /// <param name="table">Name of the table; by default the name of the type.</param>
@@ -115,6 +116,8 @@ public sealed class QueryeablesBuilder
     {
         ArgumentNullException.ThrowIfNull(key);
         AddChangeFeed<TEntity>();
+        // Forgotten when the user changes (IServiceProvider.ChangeUserAsync).
+        Services.AddSingleton<IUserScopedData>(sp => sp.GetRequiredService<IEntityCache<TEntity, TKey>>() as IUserScopedData ?? NoUserData.Instance);
         Services.TryAddSingleton<IEntityCache<TEntity, TKey>>(sp => new EntityCache<TEntity, TKey>(
             sp.GetRequiredService<IEntityStoreFactory>(),
             key,
@@ -164,5 +167,12 @@ public sealed class QueryeablesBuilder
                 : provider;
             return offline ? new OfflineStoreFactory(factory, sp.GetRequiredService<OfflineMode>()) : factory;
         }));
+    }
+
+    private sealed class NoUserData : IUserScopedData
+    {
+        public static readonly NoUserData Instance = new();
+
+        public Task ClearUserDataAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 }

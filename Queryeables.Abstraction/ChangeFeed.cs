@@ -4,7 +4,7 @@ using System.Reflection;
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// Change change feed without an entity type: this is what the notification source sees
+/// Change feed without an entity type: this is what the notification source sees
 /// (SQLite update hook, trigger...), through <see cref="ChangeFeedRegistry"/>.
 /// </summary>
 public interface IChangeFeed
@@ -20,6 +20,15 @@ public interface IChangeFeed
     /// record with an empty key means exactly that; <see cref="EntityCache{TEntity, TKey}"/> then calls its synchronization.
     /// </summary>
     void PublishResync()
+    {
+    }
+
+    /// <summary>
+    /// Reports that the source of the data itself changed (the offline copy instead of the server, another user): what
+    /// subscribers hold may not exist there at all, so they reload everything rather than catch up. A record with an empty
+    /// key and <see cref="ChangeType.None"/> means exactly that.
+    /// </summary>
+    void PublishReload()
     {
     }
 }
@@ -58,6 +67,8 @@ public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : c
     }
 
     public void PublishResync() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.Update, []));
+
+    public void PublishReload() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.None, []));
 
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
     {

@@ -27,8 +27,10 @@ var stores = RemoteEntityStore.Factory(remote, serializer, session);   // IsRemo
 
 `OfflineMode` keeps a local copy of chosen types and a queue of the writes made without the server, and tells the
 application when the server is lost or back and when the data differs; the user chooses when to switch.
-`OfflineStoreFactory` gives remote stores online and stores on the copy offline. Storage: `BrowserOfflineStorage`
-(WebAssembly), `FileOfflineStorage`, `MemoryOfflineStorage`, or your own `IOfflineStorage`. Register it with
+`OfflineStoreFactory` gives remote stores online and stores on the copy offline. Storage: `IndexedDbOfflineStorage`
+(`Queryeables.Browser`), `SqliteOfflineStorage` (`Queryeables.Sqlite`), `FileOfflineStorage`, `BrowserOfflineStorage`
+(localStorage), `MemoryOfflineStorage`, or your own `IOfflineStorage`. `services.ChangeUserAsync()` forgets the copy and
+the caches when the user changes. Register it with
 `q.WithOfflineMode(...)`: see the [offline mode guide](https://github.com/cedric56/Queryeables/blob/master/docs/guides/offline-mode.md).
 
 ## Server

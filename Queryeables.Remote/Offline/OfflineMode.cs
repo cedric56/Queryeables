@@ -21,7 +21,7 @@ namespace Queryeables.Remote.Offline;
 /// Nothing switches by itself. Works in WebAssembly: no thread, no blocking wait, storage in the browser
 /// (<see cref="BrowserOfflineStorage"/>).
 /// </summary>
-public sealed class OfflineMode : IAsyncDisposable
+public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 {
     private readonly IEntityTransport _remote;
     private readonly IOfflineStorage _storage;
@@ -191,7 +191,7 @@ public sealed class OfflineMode : IAsyncDisposable
         }
 
         StartProbing();
-        _registry?.PublishResync();      // the caches now read the local copy
+        _registry?.PublishReload();      // the caches now read the local copy: everything again
         Raise(OfflineEvent.ModeChanged);
         return EntityResult.Success();
     }
@@ -204,6 +204,7 @@ public sealed class OfflineMode : IAsyncDisposable
     {
         await EnsureInitializedAsync(ct);
         SyncReport report;
+        using var activity = QueryeablesDiagnostics.ActivitySource.StartActivity("queryeables.offline.sync");
         await _gate.WaitAsync(ct);
         try
         {
@@ -233,6 +234,7 @@ public sealed class OfflineMode : IAsyncDisposable
                 if (result.Successful)
                 {
                     sent++;
+                    RemoteDiagnostics.OfflineSent.Add(1, new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type));
                 }
                 else
                 {
@@ -241,6 +243,9 @@ public sealed class OfflineMode : IAsyncDisposable
                     _conflicts.Add(conflict);
                     _conflictsChanged = true;
                     refused.Add(conflict);
+                    RemoteDiagnostics.OfflineConflicts.Add(1,
+                        new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type),
+                        new KeyValuePair<string, object?>(QueryeablesDiagnostics.OutcomeTag, QueryeablesDiagnostics.Outcome(result.ErrorCode)));
                 }
             }
 
@@ -249,13 +254,15 @@ public sealed class OfflineMode : IAsyncDisposable
             _serverChanges = downloaded.Successful ? 0 : _serverChanges;
             await PersistAsync(ct);
             report = new SyncReport(true, sent, refused, downloaded.Successful ? null : downloaded.Exception);
+            activity?.SetTag("queryeables.sent", sent);
+            activity?.SetTag("queryeables.conflicts", refused.Count);
         }
         finally
         {
             _gate.Release();
         }
 
-        _registry?.PublishResync();      // the caches now read the server
+        _registry?.PublishReload();      // the caches now read the server: temporary rows of the copy must go
         Raise(OfflineEvent.ModeChanged);
         Raise(OfflineEvent.Synchronized);
         return report;
@@ -322,6 +329,58 @@ public sealed class OfflineMode : IAsyncDisposable
         }
 
         Raise(OfflineEvent.Synchronized);
+    }
+
+    /// <summary>
+    /// Drops the offline writes not sent yet and the conflicts, and forgets the local copy (it holds those writes): the stores
+    /// talk to the server again, and the next <see cref="GoOfflineAsync"/> takes a new copy. Cannot be undone.
+    /// </summary>
+    public async Task DiscardPendingChangesAsync(CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await ForgetAsync(ct);
+    }
+
+    /// <summary>True while offline writes wait to be sent: a change of user is refused until they are synchronized or discarded.</summary>
+    bool IUserScopedData.HasUnsavedChanges => _outbox.Count > 0;
+
+    /// <summary>
+    /// Forgets the local copy, the conflicts and the mode of the previous user (see <see cref="UserScopedData.ChangeUserAsync"/>).
+    /// Refused while offline writes wait: synchronize them, or <see cref="DiscardPendingChangesAsync"/>.
+    /// </summary>
+    public async Task ClearUserDataAsync(CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        if (_outbox.Count > 0)
+            throw new InvalidOperationException(
+                "Offline writes are waiting: synchronize them (GoOnlineAsync) or discard them (DiscardPendingChangesAsync) before changing user.");
+        await ForgetAsync(ct);
+    }
+
+    private async Task ForgetAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            foreach (var type in _types.Values)
+            {
+                type.Clear();
+                MarkDirty(type);
+            }
+            _outbox.Restore([]);
+            _conflicts.Clear();
+            _conflictsChanged = true;
+            _state = _state with { Mode = ConnectionMode.Online, SnapshotTakenAt = null };
+            _serverChanges = null;
+            await PersistAsync(ct);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        _registry?.PublishReload();      // the caches read the server again
+        Raise(OfflineEvent.ModeChanged);
     }
 
     /// <summary>The entity of a conflict, as it was written offline: to show it to the user.</summary>
@@ -646,7 +705,7 @@ public sealed class OfflineMode : IAsyncDisposable
             {
                 mode._gate.Release();
             }
-            mode._registry?.PublishResync();
+            mode._registry?.PublishReload();
             return EntityResult.Success();
         }
 

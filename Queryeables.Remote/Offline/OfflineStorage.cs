@@ -77,14 +77,22 @@ public sealed class FileOfflineStorage : IOfflineStorage
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>A file name from the key: letters and digits kept, anything else encoded.</summary>
-    private string PathOf(string key)
+    /// <summary>
+    /// A file name from the key, the same on every file system: lowercase letters, digits and <c>-</c> kept, anything else
+    /// encoded, capitals included (Windows and macOS would not tell <c>Ana</c> from <c>ana</c>), and dots too (Windows drops
+    /// a trailing one). A name too long for a file system becomes a hash of the key.
+    /// </summary>
+    internal static string FileNameOf(string key)
     {
         var name = new System.Text.StringBuilder(key.Length);
         foreach (var c in key)
-            name.Append(char.IsAsciiLetterOrDigit(c) || c is '-' or '.' ? c : $"_{(int)c:x4}");
-        return Path.Combine(_folder, name.ToString());
+            name.Append(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-' ? c : $"_{(int)c:x4}");
+        return name.Length <= 200
+            ? name.ToString()
+            : "h_" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
     }
+
+    private string PathOf(string key) => Path.Combine(_folder, FileNameOf(key));
 }
 
 /// <summary>

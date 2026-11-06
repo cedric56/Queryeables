@@ -10,6 +10,8 @@
   href: change-notifications.md
 - name: Offline mode
   href: offline-mode.md
+- name: Traces and metrics
+  href: observability.md
 - name: Security
   href: security.md
 - name: Native AOT and trimming

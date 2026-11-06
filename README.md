@@ -6,7 +6,7 @@
   <a href="https://github.com/cedric56/Queryeables/actions/workflows/ci.yml"><img src="https://github.com/cedric56/Queryeables/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-0284C7" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
-  <img src="https://img.shields.io/badge/AOT-compatible-2E7D32" alt="AOT compatible">
+  <img src="https://img.shields.io/badge/AOT%20analyzers-clean-2E7D32" alt="AOT analyzers clean">
   <a href="https://cedric56.github.io/Queryeables/"><img src="https://img.shields.io/badge/docs-site-0EA5E9" alt="Documentation"></a>
 </p>
 
@@ -92,17 +92,22 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .Dommel, .EntityFramew
   the attributes is a compile error (QRY001 to QRY009).
 - **Caches that follow the database**, `[EntityCache]`: row by row, bursts coalesced, incremental resynchronization after
   a reconnection.
-- **Transactions that report their outcome**: a `EntityResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
+- **Transactions that report their outcome**: an `EntityResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
   `Forbidden`...) instead of an exception.
 - **Remote access without coupling**: the remote core speaks to an `IEntityTransport`, and MagicOnion is one transport among
   others. No SQL from the client, a whitelist of filter operators, an access policy per type.
-- **Offline mode**, `WithOfflineMode`: a remote client keeps working on a local copy (in the browser with WebAssembly),
-  is told when the server is back and when the data differs, and the user chooses when to synchronize.
-  See [offline mode](docs/guides/offline-mode.md).
+- **Offline mode**, `WithOfflineMode`: a remote client keeps working on a local copy (IndexedDB in the browser, SQLite
+  on desktop and mobile), is told when the server is back and when the data differs, and the user chooses when to
+  synchronize. See [offline mode](docs/guides/offline-mode.md) and the [two-client demo](Samples/Queryeables.OfflineDemo/Program.cs).
+- **Per-user data**: row-level security on the server, and `ChangeUserAsync()` on the client, which forgets the caches
+  and the offline copy of the previous user before anything is loaded for the next.
 - **Change notifications** from SQLite or SQL Server, relayed to clients over MagicOnion or SignalR, without echoing a
   client's own changes.
 - **Sync conventions**: `[LastModified]`, `[SoftDelete]`, optimistic concurrency with `[ConcurrencyCheck]`.
-- **Native AOT and trimming analyzers** on every library; the generator replaces reflection-based registration.
+- **Traces and metrics** through `ActivitySource` and `Meter` (`Queryeables`): remote calls, server requests, caches,
+  changes, offline synchronizations. See [observability](docs/guides/observability.md).
+- **Trimming and AOT analyzers** clean on every library; the generator replaces reflection-based registration. Full
+  Native AOT works for a client over MagicOnion, not over Dommel or EF Core: see [Native AOT](#native-aot).
 
 ## Local or remote, the same code
 
@@ -182,13 +187,14 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | --- | --- |
 | [`Queryeables`](Queryeables.Core/README.md) | [Contracts](Queryeables.Abstraction/README.md), [remote core](Queryeables.Remote/README.md), `UseQueryeables`, [source generator](Queryeables.Generated/README.md). No database, no transport |
 | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | Stores on Dommel: generated keys, optimistic concurrency, SQL logging |
-| [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications |
+| [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications; `SqliteOfflineStorage` for the offline copy |
 | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | Dommel on PostgreSQL, with change notifications |
 | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | Stores on EF Core |
 | [`Queryeables.SqlDependency`](Queryeables.SqlDependency/README.md) | SQL Server change notifications |
 | [`Queryeables.Onion`](Queryeables.Onion/README.md) | MagicOnion messages and serializer, shared by client and server |
 | [`Queryeables.Onion.Client`](Queryeables.Onion.Client/README.md) | `UseMagicOnion`, change hub subscription |
 | [`Queryeables.Server`](Queryeables.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
+| [`Queryeables.Browser`](Queryeables.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
 | [`Queryeables.SignalR`](Queryeables.SignalR/README.md), [`.SignalR.Server`](Queryeables.SignalR.Server/README.md) | Change notifications over SignalR |
 
 ## Security
@@ -202,16 +208,24 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 
 ## Native AOT
 
-Every library sets `IsAotCompatible` and builds without trimming or AOT warnings; the EF Core store is marked as
-requiring unreferenced and dynamic code, like EF Core itself. At run time, EF Core and Dapper/Dommel
-generate code (fine with trimming, not with full Native AOT), MagicOnion clients need the MagicOnion source generator, and
-entities sent over MagicOnion need `[MessagePackObject]`.
+Every library sets `IsAotCompatible` and builds without trimming or AOT warnings. That is a guarantee about Queryeables'
+own code, not about every provider at run time:
+
+| Setup | Trimming | Full Native AOT |
+| --- | --- | --- |
+| Remote client, caches, graphs, offline mode | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
+| MagicOnion transport (`UseMagicOnion`) | Yes | With the MagicOnion and MessagePack source generators and `[MessagePackObject]` entities; not run in CI |
+| Dommel / Dapper (`UseSqlite`, `UseNpgsql`, `UseDommel`) | Yes | No: Dapper emits IL at run time |
+| EF Core (`UseEntityFramework`) | Yes | No: marked as requiring dynamic code, like EF Core itself |
+
+See [Native AOT](docs/guides/aot.md).
 
 ## Build and test
 
 ```bash
 dotnet test Queryeables.slnx
 dotnet run --project Samples/Queryeables.Sample
+dotnet run --project Samples/Queryeables.OfflineDemo     # two clients, a network cut, a conflict
 dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 dotnet pack Queryeables.slnx -c Release -o ./artifacts -p:Version=0.1.0
 ```

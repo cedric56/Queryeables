@@ -32,3 +32,14 @@ it, so that it is not notified of its own change.
 SQLite reports the **rowid**. It is the entity key only for an `INTEGER PRIMARY KEY` table: caches with another key type
 resynchronize on each change instead (only the changed rows when the type has `[LastModified]`). Changes made outside the
 application's connections (another process, a SQLite tool) are not seen.
+
+## Offline storage
+
+`SqliteOfflineStorage` keeps the copy and the queue of the [offline mode](https://github.com/cedric56/Queryeables/blob/master/docs/guides/offline-mode.md)
+in a SQLite file, for desktop and MAUI clients:
+
+```csharp
+q.WithOfflineMode(o => o
+    .UseStorage(new SqliteOfflineStorage($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "offline.db")}"))
+    .Entity<Person, long>(p => p.Id));
+```

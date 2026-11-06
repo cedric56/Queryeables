@@ -151,3 +151,29 @@ public class SyncOverlapTests
     public void The_window_never_goes_before_the_first_date()
         => Assert.Equal(DateTime.MinValue, SyncMetadata.Before(DateTime.MinValue.AddSeconds(1), TimeSpan.FromSeconds(5)));
 }
+
+public class CacheReloadTests
+{
+    [Fact]
+    public async Task A_reload_signal_drops_rows_that_a_synchronization_would_keep()
+    {
+        var rows = new List<TestClient>
+        {
+            new() { Id = 1, Name = "Kept", LastModified = DateTime.UtcNow },
+            new() { Id = -1, Name = "Temporary", LastModified = DateTime.UtcNow },
+        };
+        var feed = new ChangeFeed<TestClient>();
+        using var cache = new EntityCache<TestClient, long>(() => new InMemoryEntityStore(rows), c => c.Id, feed, EntityKey.Parse<long>);
+        await cache.LoadAsync();
+
+        rows.RemoveAll(c => c.Id < 0);      // gone from the new source, without a change of its own
+        feed.PublishResync();
+        await Task.Delay(100);
+        Assert.Equal(2, cache.Entities.Count);      // a synchronization only asks for changed rows
+
+        feed.PublishReload();
+        for (var i = 0; i < 100 && cache.Entities.Count != 1; i++)
+            await Task.Delay(10);
+        Assert.Equal(["Kept"], cache.Entities.Select(c => c.Name));
+    }
+}

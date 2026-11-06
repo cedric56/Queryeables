@@ -30,4 +30,16 @@ public static class QueryeablesServiceCollectionExtensions
         builder.Build();
         return services;
     }
+
+    /// <summary>
+    /// Changes the user of a client: forgets what the caches and the offline copy hold for the previous one, then loads
+    /// the caches again for the new one (see <see cref="UserScopedData.ChangeUserAsync"/>). Call it after sign-out or
+    /// sign-in, once the transport sends the new credentials.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Offline writes are waiting: synchronize or discard them first. Nothing was forgotten.</exception>
+    public static Task ChangeUserAsync(this IServiceProvider services, bool reload = true, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return UserScopedData.ChangeUserAsync(services.GetServices<IUserScopedData>(), reload, ct);
+    }
 }

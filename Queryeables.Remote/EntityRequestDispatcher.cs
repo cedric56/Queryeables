@@ -28,31 +28,31 @@ public sealed class EntityRequestDispatcher(
     }
 
     public Task<TransportResult> GetAllAsync(string type, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.GetAllAsync(_serializer, context, ct));
+        => Dispatch(type, "get_all", h => h.GetAllAsync(_serializer, context, ct));
 
     public Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.SelectAsync(_serializer, conditions ?? [], any, context, ct));
+        => Dispatch(type, "select", h => h.SelectAsync(_serializer, conditions ?? [], any, context, ct));
 
     public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, context, ct));
+        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, context, ct));
 
     public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, sort ?? [], context, ct));
+        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, sort ?? [], context, ct));
 
     public Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.GetChangesAsync(_serializer, sinceUtc, context, ct));
+        => Dispatch(type, "get_changes", h => h.GetChangesAsync(_serializer, sinceUtc, context, ct));
 
     public Task<TransportResult> InsertAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.WriteAsync(_serializer, BatchOperationKind.Insert, entity, context, ct));
+        => Dispatch(type, "insert", h => h.WriteAsync(_serializer, BatchOperationKind.Insert, entity, context, ct));
 
     public Task<TransportResult> UpdateAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.WriteAsync(_serializer, BatchOperationKind.Update, entity, context, ct));
+        => Dispatch(type, "update", h => h.WriteAsync(_serializer, BatchOperationKind.Update, entity, context, ct));
 
     public Task<TransportResult> DeleteAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, h => h.WriteAsync(_serializer, BatchOperationKind.Delete, entity, context, ct));
+        => Dispatch(type, "delete", h => h.WriteAsync(_serializer, BatchOperationKind.Delete, entity, context, ct));
 
     /// <summary>
     /// Runs every operation in a single transaction: if one fails (permissions, validation, conflict,
@@ -75,7 +75,7 @@ public sealed class EntityRequestDispatcher(
                 return Task.FromResult(UnknownType(operations[i].Type));
         }
 
-        return TransportResult.RunAsync(async () =>
+        return RemoteDiagnostics.ServerAsync("batch", "batch", () => TransportResult.RunAsync(async () =>
         {
             var results = new byte[operations.Length][];
             await using var store = transactionStoreFactory();
@@ -91,7 +91,7 @@ public sealed class EntityRequestDispatcher(
             // A failed batch is reported with its own error kind (conflict, validation...).
             outcome.ThrowIfFailed();
             return _serializer.Serialize(results);
-        });
+        }));
     }
 
     /// <summary>
@@ -101,9 +101,9 @@ public sealed class EntityRequestDispatcher(
     /// </summary>
     public IEntityTransport AsTransport(EntityRequestContext? context = null) => new InProcessRemote(this, context ?? EntityRequestContext.Anonymous);
 
-    private Task<TransportResult> Dispatch(string type, Func<EntityHandler, Task<TransportResult>> call)
+    private Task<TransportResult> Dispatch(string type, string operation, Func<EntityHandler, Task<TransportResult>> call)
         => !string.IsNullOrWhiteSpace(type) && _registry.TryGet(type, out var handler)
-            ? call(handler)
+            ? RemoteDiagnostics.ServerAsync(operation, type, () => call(handler))
             : Task.FromResult(UnknownType(type));
 
     private static TransportResult UnknownType(string? type)

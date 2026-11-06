@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- [JSImport] generates its marshalling code; no unsafe code is written. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>Queryeables.Browser</PackageId>
+    <Description>Offline storage for Queryeables in Blazor WebAssembly: IndexedDB, without the size limit of localStorage.</Description>
+    <PackageTags>$(PackageTags);blazor;webassembly;indexeddb;offline</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
+  </ItemGroup>
+
+</Project>

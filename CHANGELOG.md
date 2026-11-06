@@ -23,6 +23,16 @@ First public version.
   | `SyncConventionsStore` | `SyncConventionsDecorator` |
 
 ### Added
+- `ChangeUserAsync()` (`IUserScopedData`): caches and the offline copy are forgotten when the user changes, before
+  anything is loaded for the next one; refused while offline writes wait. `OfflineMode.DiscardPendingChangesAsync`.
+- Traces and metrics: `QueryeablesDiagnostics` (`ActivitySource` and `Meter` named `Queryeables`) for remote calls,
+  server requests, caches, published changes and offline synchronizations.
+- Offline storage: `IndexedDbOfflineStorage` (new package `Queryeables.Browser`) and `SqliteOfflineStorage`
+  (`Queryeables.Sqlite`), with contract tests shared by every storage.
+- `Samples/Queryeables.OfflineDemo`: one server, two clients, a network cut, a conflict; run by the CI.
+- `IChangeFeed.PublishReload()`: caches reload everything when the source of their data changes (offline copy or server).
+- Security tests from a hostile client: rows of another user through a graph, by key, with conditions written by hand,
+  and after a change of user.
 - `IEntityStore` on Dommel, EF Core and a remote server, with transactions that return a `EntityResult`.
 - Providers: SQLite (with change notifications), PostgreSQL, any Dommel database, EF Core, MagicOnion client.
 - `[EntityGraph]`: parents saved, removed and loaded with their children; `[EntityCache]`: caches that follow the database.
@@ -60,6 +70,10 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- After going online again, a cache could keep rows created offline under their temporary key: switching modes now
+  reloads the caches instead of synchronizing them.
+- `FileOfflineStorage` could mix up keys that differ only by case on Windows and macOS (`Ana` and `ana`), and drop a
+  trailing dot on Windows; long keys now get a hashed file name.
 - EF Core store: `EfEntityStore`, `EfConnectionExtensions` and `UseEntityFramework` carry `RequiresUnreferencedCode` and
   `RequiresDynamicCode`, like EF Core itself: the build has no trimming warnings, and a trimmed or Native AOT application
   is warned where it uses them.

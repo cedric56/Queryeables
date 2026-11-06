@@ -33,6 +33,10 @@ public sealed class ChangeFeedRegistry
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId = null)
     {
         connectionId ??= ChangeContext.ConnectionId;
+        if (QueryeablesDiagnostics.ChangesPublished.Enabled)
+            QueryeablesDiagnostics.ChangesPublished.Add(1,
+                new KeyValuePair<string, object?>(QueryeablesDiagnostics.TableTag, table),
+                new KeyValuePair<string, object?>(QueryeablesDiagnostics.ChangeTag, type.ToString()));
         foreach (var monitor in _monitors.Keys)
             monitor.Publish(type, table, entityKey, connectionId);
     }
@@ -42,6 +46,13 @@ public sealed class ChangeFeedRegistry
     {
         foreach (var monitor in _monitors.Keys)
             monitor.PublishResync();
+    }
+
+    /// <summary>Tells every change feed that the source of the data changed (see <see cref="IChangeFeed.PublishReload"/>).</summary>
+    public void PublishReload()
+    {
+        foreach (var monitor in _monitors.Keys)
+            monitor.PublishReload();
     }
 
     /// <summary>Overload for a numeric key, for example the SQLite rowid.</summary>

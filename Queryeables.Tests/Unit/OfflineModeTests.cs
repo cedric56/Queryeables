@@ -537,7 +537,7 @@ public class OfflineModeTests
         await mode.GoOnlineAsync();
 
         Assert.Equal(
-            ["Update:", "Insert:-1", "Update:-1", "Delete:-1", "Update:"],      // resync, three writes, resync
+            ["None:", "Insert:-1", "Update:-1", "Delete:-1", "None:"],          // reload, three writes, reload
             received.Select(r => $"{r.ChangeType}:{r.EntityKey}"));
     }
 
@@ -655,5 +655,30 @@ public class OfflineModeTests
         public void Add(Type type, object service) => _services[type] = service;
 
         public object? GetService(Type serviceType) => _services.GetValueOrDefault(serviceType);
+    }
+}
+
+public class OfflineFileNameTests
+{
+    [Fact]
+    public void Keys_that_differ_by_case_get_different_file_names()
+        => Assert.NotEqual(FileOfflineStorage.FileNameOf("app/Person/row/Ana"), FileOfflineStorage.FileNameOf("app/Person/row/ana"));
+
+    [Fact]
+    public void A_file_name_has_no_dot_and_no_separator()
+    {
+        var name = FileOfflineStorage.FileNameOf("app/../Person/row/a.b.");
+
+        Assert.False(name.Contains('.') || name.Contains('/') || name.Contains('\\'));
+    }
+
+    [Fact]
+    public void A_long_key_becomes_a_short_stable_name()
+    {
+        var key = "app/Person/row/" + new string('x', 500);
+
+        Assert.True(FileOfflineStorage.FileNameOf(key).Length < 80);
+        Assert.Equal(FileOfflineStorage.FileNameOf(key), FileOfflineStorage.FileNameOf(key));
+        Assert.NotEqual(FileOfflineStorage.FileNameOf(key), FileOfflineStorage.FileNameOf(key + "y"));
     }
 }

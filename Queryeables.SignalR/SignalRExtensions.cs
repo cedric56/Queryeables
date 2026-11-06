@@ -57,7 +57,7 @@ public static class SignalRExtensions
                         SslOptions =
                         {
                             RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
-                                   validateCertificate is null ||validateCertificate(
+                                   validateCertificate is null || validateCertificate(
                                         certificate switch
                                         {
                                             null => null,

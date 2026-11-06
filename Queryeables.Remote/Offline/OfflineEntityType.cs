@@ -54,6 +54,9 @@ internal abstract class OfflineEntityType
     /// <summary>The formatted key of <paramref name="entity"/> (see <see cref="EntityKey"/>).</summary>
     public abstract string KeyTextOf(object entity);
 
+    /// <summary>Forgets every row and the download state: the next copy is taken in full.</summary>
+    public abstract void Clear();
+
     public abstract object Snapshot();
 
     public abstract void Restore(object snapshot);
@@ -372,6 +375,16 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         return conflict.Kind == BatchOperationKind.Delete
             ? await remote.DeleteAsync(Name, bytes, null, ct)
             : await remote.UpdateAsync(Name, bytes, null, ct);
+    }
+
+    public override void Clear()
+    {
+        foreach (var key in _state.Rows.Keys)
+            _changed.Add(key);
+        foreach (var keyText in _stored)
+            _changed.Add(EntityKey.Parse<TKey>(keyText));
+        _state = new State([], [], [], null, null);
+        _metaChanged = true;
     }
 
     // ---------- Transactions ----------

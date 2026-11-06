@@ -115,15 +115,37 @@ foreach (var conflict in offline.Conflicts)
 
 ## Storage
 
-| Storage | Where | For |
-| --- | --- | --- |
-| `BrowserOfflineStorage` | `localStorage` | Blazor WebAssembly |
-| `FileOfflineStorage(folder)` | One file per key, written then renamed | Desktop, MAUI |
-| `MemoryOfflineStorage` | Memory, lost on close | Tests; the default |
-| Your own `IOfflineStorage` | IndexedDB, SQLite... | Three methods: read, write, delete bytes |
+| Storage | Package | Where | For |
+| --- | --- | --- | --- |
+| `IndexedDbOfflineStorage` | `Queryeables.Browser` | IndexedDB, hundreds of MB | Blazor WebAssembly |
+| `SqliteOfflineStorage(connectionString)` | `Queryeables.Sqlite` | One table in a SQLite file, WAL | Desktop, MAUI |
+| `FileOfflineStorage(folder)` | `Queryeables` | One file per key, written then renamed | Desktop, when SQLite is not wanted |
+| `BrowserOfflineStorage` | `Queryeables` | `localStorage`, about 5 MB per site | Small copies in the browser |
+| `MemoryOfflineStorage` | `Queryeables` | Memory, lost on close | Tests; the default |
+| Your own `IOfflineStorage` | | | Three methods: read, write, delete bytes |
 
-The copy is written with the application's `IEntitySerializer`. `localStorage` holds about 5 MB per site: for larger
-copies, implement `IOfflineStorage` over IndexedDB.
+The copy is written with the application's `IEntitySerializer`. Every storage passes the same contract tests
+(`OfflineStorageContractTests`), the browser ones excepted: they need a browser.
+
+## A change of user
+
+The copy, the queue and the caches belong to the signed-in user. When another user signs in on the same device, call
+`ChangeUserAsync` once the transport sends the new credentials:
+
+```csharp
+await services.ChangeUserAsync();      // IServiceProvider: every cache and the offline mode
+```
+
+Everything is forgotten before anything is loaded again, so a failed reload leaves empty data, never the previous
+user's. While offline writes wait, the change is refused (`InvalidOperationException`) and nothing is forgotten: send
+them (`GoOnlineAsync`) or drop them (`DiscardPendingChangesAsync`) first, so that they are never sent under the next
+user's name.
+
+## The whole scenario
+
+[`Samples/Queryeables.OfflineDemo`](../../Samples/Queryeables.OfflineDemo/Program.cs) runs it with one server and two
+clients in one process, SQLite on both sides: a change that reaches the other client, a network cut, writes on both
+sides, the return of the server with what differs, a version conflict, and its resolution. The CI runs it.
 
 ## Limitations
 

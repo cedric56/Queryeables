@@ -44,13 +44,13 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
     // ---------- Read ----------
 
     public async Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default) where TEntity : class
-        => DeserializeMany<TEntity>(await CallAsync(_remote.GetAllAsync(Name<TEntity>(), ct)));
+        => DeserializeMany<TEntity>(await CallAsync("get_all", Name<TEntity>(), () => _remote.GetAllAsync(Name<TEntity>(), ct)));
 
     public async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         var (conditions, any) = Filters.FromPredicate(predicate);
-        return DeserializeMany<TEntity>(await CallAsync(_remote.SelectAsync(Name<TEntity>(), conditions, any, ct)));
+        return DeserializeMany<TEntity>(await CallAsync("select", Name<TEntity>(), () => _remote.SelectAsync(Name<TEntity>(), conditions, any, ct)));
     }
 
     public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -64,7 +64,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         Paging.Validate(pageNumber, pageSize);
         var (conditions, any) = Filters.FromPredicate(predicate);
         return DeserializeMany<TEntity>(
-            await CallAsync(_remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, ct)));
+            await CallAsync("select_paged", Name<TEntity>(), () => _remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, ct)));
     }
 
     /// <summary>Sorted and paged by the server.</summary>
@@ -75,15 +75,14 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         Paging.Validate(pageNumber, pageSize);
         ArgumentNullException.ThrowIfNull(sort);
         var (conditions, any) = Filters.FromPredicate(predicate);
-        return DeserializeMany<TEntity>(await CallAsync(
-            _remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, [.. sort.Keys], ct)));
+        return DeserializeMany<TEntity>(await CallAsync("select_paged", Name<TEntity>(), () => _remote.SelectPagedAsync(Name<TEntity>(), conditions, any, pageNumber, pageSize, [.. sort.Keys], ct)));
     }
 
     /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included.</summary>
     public async Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc, CancellationToken ct = default)
         where TEntity : class
         => DeserializeMany<TEntity>(
-            await CallAsync(_remote.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc), ct)));
+            await CallAsync("get_changes", Name<TEntity>(), () => _remote.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc), ct)));
 
     // ---------- Write ----------
 
@@ -94,7 +93,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
             return;
 
         var sent = _serializer.Serialize(entity);
-        var data = await CallAsync(_remote.InsertAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
+        var data = await CallAsync("insert", Name<TEntity>(), () => _remote.InsertAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
         ApplyResult(data, sent, entity); // generated key and version
     }
 
@@ -105,7 +104,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
             return true;
 
         var sent = _serializer.Serialize(entity);
-        var data = await CallAsync(_remote.UpdateAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
+        var data = await CallAsync("update", Name<TEntity>(), () => _remote.UpdateAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
         return ApplyResult(data, sent, entity); // empty data: row not found
     }
 
@@ -115,7 +114,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         if (Enqueue(BatchOperationKind.Delete, entity))
             return true;
 
-        var data = await CallAsync(_remote.DeleteAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
+        var data = await CallAsync("delete", Name<TEntity>(), () => _remote.DeleteAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
         return data is { Length: > 0 } && _serializer.Deserialize<bool>(data);
     }
 
@@ -166,7 +165,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         TransportResult response;
         try
         {
-            response = await _remote.ExecuteBatchAsync(operations, ct);
+            response = await RemoteDiagnostics.ClientAsync("batch", "batch", () => _remote.ExecuteBatchAsync(operations, ct));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -225,7 +224,8 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
 
     // ---------- Internals ----------
 
-    private static async Task<byte[]?> CallAsync(Task<TransportResult> call) => (await call).GetDataOrThrow();
+    private static async Task<byte[]?> CallAsync(string operation, string type, Func<Task<TransportResult>> call)
+        => (await RemoteDiagnostics.ClientAsync(operation, type, call)).GetDataOrThrow();
 
     /// <summary>Name under which the server registers the type (see <see cref="EntityName"/>).</summary>
     private static string Name<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>() => EntityName.Of<TEntity>();

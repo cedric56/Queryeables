@@ -53,6 +53,9 @@ jobs:
       - name: Run the sample (SQLite, Dommel, generator, cache, in-process remote client)
         run: dotnet run --project Samples/Queryeables.Sample -c Release --no-build
 
+      - name: Run the offline demo (two clients, a network cut, concurrent writes, a conflict)
+        run: dotnet run --project Samples/Queryeables.OfflineDemo -c Release --no-build
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v6
