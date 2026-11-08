@@ -196,11 +196,25 @@ public static class EfConnectionExtensions
     }
 
     /// <summary>DbContext whose model only contains the requested type (+ what EF discovers through its navigations).</summary>
+    /// <remarks>
+    /// The attributes of the enclosing class do not reach a nested class: it says itself what EF requires (a context
+    /// built at run time, and the members of the entity type for <see cref="ModelBuilder.Entity(Type)"/>).
+    /// </remarks>
     private sealed class EntityContext : DbContext
     {
+        // What ModelBuilder.Entity(Type) reads from the entity type.
+        private const DynamicallyAccessedMemberTypes ModelMembers =
+            DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors
+            | DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.NonPublicFields
+            | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties
+            | DynamicallyAccessedMemberTypes.Interfaces;
+
+        [DynamicallyAccessedMembers(ModelMembers)]
         public Type EntityType { get; }
 
-        public EntityContext(DbContextOptions options, Type entityType) : base(options)
+        [RequiresUnreferencedCode(EfAot.Trimming)]
+        [RequiresDynamicCode(EfAot.DynamicCode)]
+        public EntityContext(DbContextOptions options, [DynamicallyAccessedMembers(ModelMembers)] Type entityType) : base(options)
             => EntityType = entityType;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
