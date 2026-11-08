@@ -23,6 +23,11 @@ First public version.
   | `SyncConventionsStore` | `SyncConventionsDecorator` |
 
 ### Added
+- Convergence tests under load: several clients writing online and offline, networks cut, answers lost, conflicts
+  decided at random; at the end every client agrees with the server and no write was applied twice. Seeded and
+  replayable; `QUERYEABLES_LOAD_SCALE` for longer runs.
+- `NetworkBenchmarks`: the same calls on the database, in process, and through gRPC to a real server on 127.0.0.1. The CI
+  runs them once, which also checks the whole MagicOnion chain end to end.
 - `EncryptedOfflineStorage`: the offline copy encrypted at rest (AES-256-GCM, names hashed with HMAC-SHA256), around any
   `IOfflineStorage`. Not in Blazor WebAssembly, which has no AES-GCM.
 - `EntityCache.Freshness` (`NotLoaded`, `Current`, `Stale`), `LastRefreshedAt` and `LastError`: how far to trust a cache
@@ -84,6 +89,9 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- "Keep mine" on a conflict could insert a row twice: when the answer of its write was lost and the user kept the
+  offline write again, the row deleted on the server meanwhile was inserted again. The write now carries an operation id
+  of its own, the same for every attempt.
 - The offline synchronization could apply a write twice: when the answer was lost after the server committed it, or when
   the client stopped before recording it, the write was sent again and an insert created a second row. Writes now carry
   the id of their queue entry, the server answers a repeated id with the first result, and each answer is recorded at

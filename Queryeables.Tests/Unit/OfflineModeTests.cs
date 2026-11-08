@@ -668,6 +668,32 @@ public class OfflineModeTests
         Assert.Single(_server.All<TestClient>(), c => c.Name == "Carl");
     }
 
+    [Fact]
+    public async Task Keeping_an_offline_write_twice_after_a_lost_answer_inserts_it_once()
+    {
+        Seed("Ana");
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        _network.Down = true;
+        await using (var store = stores.Create())
+        {
+            var ana = (await store.GetAllAsync<TestClient>()).Single();
+            ana.Name = "Anna";
+            await store.UpdateAsync(ana);
+        }
+        await new MemoryStore(_server).WithSyncConventions().DeleteAsync(_server.All<TestClient>().Single().Copy());   // deleted meanwhile
+
+        _network.Down = false;
+        var conflict = Assert.Single((await mode.GoOnlineAsync()).Conflicts);
+
+        _network.LoseNextAnswer = true;
+        Assert.False((await mode.KeepMineAsync(conflict)).Successful);    // inserted again, the answer lost
+        Assert.True((await mode.KeepMineAsync(conflict)).Successful);     // the user insists
+
+        Assert.Single(_server.All<TestClient>(), c => c.Name == "Anna");
+        Assert.Empty(mode.Conflicts);
+    }
+
     /// <summary>A storage that can be copied, as a disk would be at the moment of a crash.</summary>
     private sealed class CopyableStorage : IOfflineStorage
     {
@@ -802,7 +828,16 @@ public class OfflineModeTests
                     DownAfterWrites = left - 1;
                 }
             }
-            return Call(call);
+            return Call(async () =>
+            {
+                var result = await call();
+                if (LoseNextAnswer)
+                {
+                    LoseNextAnswer = false;
+                    throw new HttpRequestException("The connection was reset.");
+                }
+                return result;
+            });
         }
 
         /// <summary>Full downloads of TestClient: every row, or every row of a scope.</summary>
@@ -846,16 +881,7 @@ public class OfflineModeTests
 
         public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
             CancellationToken ct = default)
-            => Write(async () =>
-            {
-                var result = await server.WriteOnceAsync(operationId, kind, type, entity, connectionId, ct);
-                if (LoseNextAnswer)
-                {
-                    LoseNextAnswer = false;
-                    throw new HttpRequestException("The connection was reset.");
-                }
-                return result;
-            });
+            => Write(() => server.WriteOnceAsync(operationId, kind, type, entity, connectionId, ct));
     }
 
     public sealed class GuidNote

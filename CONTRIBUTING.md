@@ -15,6 +15,9 @@ dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 
 A new `IEntityStore` must pass the contract tests (`Queryeables.Tests/Contract`): add it to `StoreImplementations.cs`.
 
+`ConvergenceTests` run several clients against one server, online and offline, with networks coming and going and
+answers lost; a failure prints its seed. `QUERYEABLES_LOAD_SCALE=10` multiplies the clients and the steps (the CI uses 5).
+
 Some tests need a server. Without its variable they are reported as skipped, not passed (`[ServerFact]` and
 `[RequiresServer]` on the class); the CI sets both:
 

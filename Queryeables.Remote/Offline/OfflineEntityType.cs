@@ -373,7 +373,7 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
             if (conflict.Kind == BatchOperationKind.Delete)
                 return TransportResult.Success();
             _setKey(local, default!);
-            return await remote.InsertAsync(Name, _mode.Serializer.Serialize(local), null, ct);
+            return await remote.WriteOnceAsync(KeepMineId(conflict.Id), BatchOperationKind.Insert, Name, _mode.Serializer.Serialize(local), null, ct);
         }
 
         // Changed on the server: write over it, from its current version.
@@ -381,9 +381,23 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
             ConcurrencyToken.Set(local, version, ConcurrencyToken.Get(server, version));
 
         var bytes = _mode.Serializer.Serialize(local);
-        return conflict.Kind == BatchOperationKind.Delete
-            ? await remote.DeleteAsync(Name, bytes, null, ct)
-            : await remote.UpdateAsync(Name, bytes, null, ct);
+        return await remote.WriteOnceAsync(KeepMineId(conflict.Id), conflict.Kind == BatchOperationKind.Delete ? BatchOperationKind.Delete
+            : BatchOperationKind.Update, Name, bytes, null, ct);
+    }
+
+    /// <summary>
+    /// The operation id of "keep mine" for a conflict: the same for every attempt, so that an attempt whose answer was lost
+    /// is not applied again (a deleted row would be inserted twice); not the id of the refused write, which the server may
+    /// have answered already.
+    /// </summary>
+    internal static Guid KeepMineId(Guid conflict)
+    {
+        Span<byte> input = stackalloc byte[16 + 9];
+        conflict.TryWriteBytes(input);
+        "keep-mine"u8.CopyTo(input[16..]);
+        Span<byte> hash = stackalloc byte[32];
+        System.Security.Cryptography.SHA256.HashData(input, hash);
+        return new Guid(hash[..16]);
     }
 
     public override void Clear()
