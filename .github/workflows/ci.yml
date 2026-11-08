@@ -49,14 +49,19 @@ jobs:
 
       # Transactions and change streams need a replica set: a single node is enough. A service container cannot be started
       # with --replSet, hence the step.
+      # MongoDB 7.0: 8.x refuses to start on Linux 6.19 and newer (SERVER-121912, TCMalloc and rseq), the kernel of the
+      # runners. Queryeables uses nothing 8.x adds; go back to 8.x once the runners or MongoDB allow it.
       - name: Start MongoDB (single-node replica set)
         run: |
-          docker run -d --name mongo -p 27017:27017 mongo:8.0 --replSet rs0 --bind_ip_all
+          docker run -d --name mongo -p 27017:27017 mongo:7.0 --replSet rs0 --bind_ip_all
+          running() { [ "$(docker inspect -f '{{.State.Running}}' mongo)" = "true" ]; }
           for i in $(seq 1 60); do
+            running || { echo "MongoDB stopped"; docker logs mongo; exit 1; }
             docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }" && break
             sleep 2
           done
           for i in $(seq 1 60); do
+            running || { echo "MongoDB stopped"; docker logs mongo; exit 1; }
             [ "$(docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary')" = "true" ] && exit 0
             sleep 1
           done

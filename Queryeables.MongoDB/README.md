@@ -43,6 +43,9 @@ docker exec <container> mongosh --eval "rs.initiate({ _id: 'rs0', members: [{ _i
 # connection string: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
 ```
 
+On Linux 6.19 and newer, MongoDB 8.x refuses to start ("Linux kernel versions 6.19 and newer has a known
+incompatibility", [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)): use `mongo:7.0` there, as the CI does.
+
 ## Change notifications
 
 A change stream reports every insert, update, replace and delete of the watched collections to the change feeds, whoever
