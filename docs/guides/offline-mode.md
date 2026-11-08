@@ -104,6 +104,12 @@ foreach (var conflict in offline.Conflicts)
 }
 ```
 
+Each write is sent with the id of its queue entry. A write whose answer is lost (the connection drops after the server
+committed it), or a client that crashes before recording the answer, sends it again with the same id: the server answers
+with the first result instead of applying it twice, so an insert never creates a second row. The server keeps these
+results in an `IIdempotencyStore` (in memory for a day by default); register a durable one to also cover a restart of the
+server. Each answer is recorded as soon as it arrives.
+
 ## What is downloaded and stored
 
 - **Only what changed.** For a type with `[LastModified]` and `[SoftDelete]`, maintained by the server
@@ -127,6 +133,24 @@ foreach (var conflict in offline.Conflicts)
 The copy is written with the application's `IEntitySerializer`. Every storage passes the same contract tests
 (`OfflineStorageContractTests`), the browser ones excepted: they need a browser.
 
+### Encryption at rest
+
+None of these storages encrypts by itself: a stolen laptop or a shared browser profile gives the copy away. Wrap the
+storage in `EncryptedOfflineStorage` when the data is sensitive:
+
+```csharp
+var key = await KeyOfThisUserAsync();      // 32 bytes from the platform's key store: DPAPI, Keychain, Android Keystore...
+var storage = new EncryptedOfflineStorage(new SqliteOfflineStorage("Data Source=offline.db"), key);
+```
+
+- AES-256-GCM per value; names hashed with HMAC-SHA256, so that type names and row keys do not show either.
+- A value bound to its name: moved elsewhere or altered, it fails to decrypt (`CryptographicException`) instead of being
+  read. A wrong key fails the same way, rather than silently dropping offline writes.
+- The key is the protection: keep it out of the storage and the code, one per user. `EncryptedOfflineStorage.NewKey()`
+  makes one.
+- Not in Blazor WebAssembly, which has no AES-GCM: encrypt with the Web Crypto API in your own `IOfflineStorage`. In the
+  browser, a script injected into the page reads what the page reads, encrypted or not.
+
 ## A change of user
 
 The copy, the queue and the caches belong to the signed-in user. When another user signs in on the same device, call
@@ -139,7 +163,8 @@ await services.ChangeUserAsync();      // IServiceProvider: every cache and the 
 Everything is forgotten before anything is loaded again, so a failed reload leaves empty data, never the previous
 user's. While offline writes wait, the change is refused (`InvalidOperationException`) and nothing is forgotten: send
 them (`GoOnlineAsync`) or drop them (`DiscardPendingChangesAsync`) first, so that they are never sent under the next
-user's name.
+user's name. The offline mode checks again under its lock, where writes are queued, and is asked before the caches: a
+write made during the change refuses it instead of being lost.
 
 ## The whole scenario
 

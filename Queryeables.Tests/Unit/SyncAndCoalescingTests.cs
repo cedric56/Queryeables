@@ -205,3 +205,70 @@ public class SyncAndCoalescingTests
         Assert.Empty(log);
     }
 }
+
+/// <summary>A soft-deleted row is gone for writes too, even without a version to catch a stale write.</summary>
+public class SoftDeletedWriteTests
+{
+    public sealed class Memo
+    {
+        public long Id { get; set; }
+        public string Text { get; set; } = string.Empty;
+        [LastModified] public DateTime LastModified { get; set; }
+        [SoftDelete] public bool Deleted { get; set; }
+    }
+
+    private readonly MemoryDatabase _database = new();
+
+    private IEntityStore Store() => new MemoryStore(_database).WithSyncConventions();
+
+    [Fact]
+    public async Task A_stale_update_does_not_bring_a_soft_deleted_row_back()
+    {
+        var memo = new Memo { Text = "draft" };
+        await Store().InsertAsync(memo);
+        var stale = new Memo { Id = memo.Id, Text = "edited offline" };       // read before the delete
+        Assert.True(await Store().DeleteAsync(memo));
+
+        Assert.False(await Store().UpdateAsync(stale));
+
+        var stored = _database.All<Memo>().Single();
+        Assert.True(stored.Deleted);
+        Assert.Equal("draft", stored.Text);
+        Assert.Empty(await Store().GetAllAsync<Memo>());
+    }
+
+    [Fact]
+    public async Task Deleting_a_soft_deleted_row_again_answers_false()
+    {
+        var memo = new Memo { Text = "draft" };
+        await Store().InsertAsync(memo);
+        var stale = new Memo { Id = memo.Id, Text = "draft" };
+        await Store().DeleteAsync(memo);
+
+        Assert.False(await Store().DeleteAsync(stale));
+    }
+
+    [Fact]
+    public async Task An_update_cannot_flag_a_row_as_deleted()
+    {
+        var memo = new Memo { Text = "draft" };
+        await Store().InsertAsync(memo);
+
+        memo.Deleted = true;
+        Assert.True(await Store().UpdateAsync(memo));
+
+        Assert.False(_database.All<Memo>().Single().Deleted);      // only DeleteAsync deletes
+    }
+
+    [Fact]
+    public void The_key_is_found_like_the_generator_finds_it()
+    {
+        Assert.Equal(nameof(Memo.Id), SyncMetadata.Key(typeof(Memo))?.Name);
+        Assert.Null(SyncMetadata.LiveRowOf(new TestClientWithoutSoftDelete()));
+    }
+
+    public sealed class TestClientWithoutSoftDelete
+    {
+        public long Id { get; set; }
+    }
+}

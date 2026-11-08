@@ -84,6 +84,19 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         => DeserializeMany<TEntity>(
             await CallAsync("get_changes", Name<TEntity>(), () => _remote.GetChangesAsync(Name<TEntity>(), DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc), ct)));
 
+    /// <summary>
+    /// The server's changes (already limited to the rows this user may read), then <paramref name="predicate"/> in memory:
+    /// a predicate does not travel with a change request.
+    /// </summary>
+    public async Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc,
+        Expression<Func<TEntity, bool>> predicate, int maxRows, CancellationToken ct = default)
+        where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        var match = predicate.Compile();
+        return [.. (await SelectChangesAsync<TEntity>(sinceUtc, ct)).Where(match).Take(maxRows)];
+    }
+
     // ---------- Write ----------
 
     public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class

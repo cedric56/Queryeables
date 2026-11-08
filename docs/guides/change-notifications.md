@@ -9,6 +9,7 @@ connections already aware of the change. Caches listen to it; so can your code (
 | --- | --- | --- |
 | SQLite | automatic with `q.UseSqlite(...)` | Changes made through the application's connections; reported once the commit has returned, so that a subscriber reading the row sees its new state |
 | PostgreSQL | `q.UseNpgsql(cs, notifications: n => n.Watch<Person>(p => p.Id))` | Triggers and `LISTEN/NOTIFY`, delivered at commit; also sees changes made by other applications; resynchronizes after a reconnection |
+| MongoDB | `q.UseMongoDB(cs, "app", notifications: n => n.Watch<Person>())` | A change stream (replica set); also sees changes made by other applications; resumes after a reconnection, resynchronizes when it cannot |
 | SQL Server | `monitor.AddTableDependency<T, TKey>(connectionString, e => e.Id, out var stop)` | Service Broker; also sees changes made by other applications |
 | A Queryeables server | `monitor.AddStreamingHub(url, session)` (MagicOnion) or `monitor.AddSignalR(url, session)` | The server's changes, without the client's own |
 | Your own | `registry.Publish(ChangeType.Update, "Person", key)` | `ChangeFeedRegistry` dispatches by table name |

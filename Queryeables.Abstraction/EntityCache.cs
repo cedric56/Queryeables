@@ -60,6 +60,11 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     // Timestamp of the most recent row received: starting point of the next synchronization (guarded by _writeLock).
     private DateTime? _syncedUpTo;
 
+    // Freshness (guarded by _writeLock). _filled: loaded since the last ClearUserDataAsync, unlike _loaded which survives it.
+    private bool _filled;
+    private DateTimeOffset? _lastRefreshedAt;
+    private Exception? _lastError;
+
     /// <summary>
     /// How far back a synchronization asks again before the latest date received (see
     /// <see cref="SyncMetadata.DefaultSyncOverlap"/>): late commits and clocks that differ between servers.
@@ -119,13 +124,47 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// </summary>
     public event EventHandler<Exception>? RefreshFailed;
 
+    /// <summary>
+    /// How much the content can be trusted: <see cref="CacheFreshness.NotLoaded"/> before the first load (and after a change
+    /// of user), <see cref="CacheFreshness.Stale"/> when the last read from the source failed (the content is what it was
+    /// before), <see cref="CacheFreshness.Current"/> otherwise. A screen can show it ("last updated at...").
+    /// </summary>
+    public CacheFreshness Freshness
+    {
+        get
+        {
+            lock (_writeLock)
+                return !_filled ? CacheFreshness.NotLoaded : _lastError is null ? CacheFreshness.Current : CacheFreshness.Stale;
+        }
+    }
+
+    /// <summary>When the cache last read its source successfully (a load, a synchronization or a row); null before.</summary>
+    public DateTimeOffset? LastRefreshedAt
+    {
+        get
+        {
+            lock (_writeLock)
+                return _lastRefreshedAt;
+        }
+    }
+
+    /// <summary>Why the last read from the source failed; null once a read succeeds again.</summary>
+    public Exception? LastError
+    {
+        get
+        {
+            lock (_writeLock)
+                return _lastError;
+        }
+    }
+
     /// <summary>Reloads the whole cache.</summary>
     public async Task LoadAsync(CancellationToken ct = default)
     {
         await _refreshLock.WaitAsync(ct);
         try
         {
-            await LoadCoreAsync(ct);
+            await Tracked(LoadCoreAsync(ct));
         }
         finally
         {
@@ -145,6 +184,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             {
                 _byKey = new ConcurrentDictionary<TKey, TEntity>();
                 _syncedUpTo = null;
+                _filled = false;
+                _lastRefreshedAt = null;
+                _lastError = null;
             }
         }
         finally
@@ -167,7 +209,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         await _refreshLock.WaitAsync(ct);
         try
         {
-            await RefreshCoreAsync(ct);
+            await Tracked(RefreshCoreAsync(ct));
         }
         finally
         {
@@ -225,6 +267,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             _byKey = byKey;
             _syncedUpTo = _incremental ? latest ?? DateTime.MinValue : null;
             _loaded = true;
+            _filled = true;
         }
     }
 
@@ -310,7 +353,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             if (record.ChangeType != ChangeType.Delete)
             {
                 await using var store = _storeFactory();
-                entity = await store.FirstOrDefaultAsync(KeyEquals(key));
+                entity = await Tracked(store.FirstOrDefaultAsync(KeyEquals(key)));
             }
 
             lock (_writeLock)
@@ -343,7 +386,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         try
         {
             Interlocked.Exchange(ref _fullRefreshQueued, 0);
-            await RefreshCoreAsync(CancellationToken.None);
+            await Tracked(RefreshCoreAsync(CancellationToken.None));
         }
         finally
         {
@@ -354,6 +397,32 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     }
 
     // ---------- Internals ----------
+
+    /// <summary>A read from the source: its success or failure is the cache's freshness.</summary>
+    private async Task Tracked(Task read)
+    {
+        try
+        {
+            await read;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            lock (_writeLock)
+                _lastError = ex;
+            throw;
+        }
+        lock (_writeLock)
+        {
+            _lastError = null;
+            _lastRefreshedAt = DateTimeOffset.UtcNow;
+        }
+    }
+
+    private async Task<T> Tracked<T>(Task<T> read)
+    {
+        await Tracked((Task)read);
+        return read.Result;
+    }
 
     private bool TryParseKey(string? text, out TKey key)
     {
@@ -397,4 +466,17 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
                 "parseKey", ex);
         }
     }
+}
+
+/// <summary>How much the content of an <see cref="EntityCache{TEntity, TKey}"/> can be trusted.</summary>
+public enum CacheFreshness
+{
+    /// <summary>Never loaded, or forgotten by a change of user.</summary>
+    NotLoaded,
+
+    /// <summary>The last read from the source succeeded.</summary>
+    Current,
+
+    /// <summary>The last read from the source failed: the content is the one before (see <c>LastError</c>).</summary>
+    Stale,
 }

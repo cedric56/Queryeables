@@ -19,16 +19,26 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
 
     public Task<IReadOnlyList<T>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
-        var match = predicate.Compile();
-        IReadOnlyList<T> rows = _database.Rows<T>().Cast<T>().Select(Copy).Where(match).ToList();
+        IReadOnlyList<T> rows = Matching(predicate).ToList();
+        _database.RowsRead += rows.Count;
         return Task.FromResult(rows);
+    }
+
+    private IEnumerable<T> Matching<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate) where T : class
+    {
+        var match = predicate.Compile();
+        return _database.Rows<T>().Cast<T>().Where(match).Select(Copy);
     }
 
     public async Task<T?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
         => (await SelectAsync(predicate, ct)).FirstOrDefault();
 
-    public async Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
-        => (await SelectAsync(predicate, ct)).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+    public Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
+    {
+        IReadOnlyList<T> page = Matching(predicate).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();     // as a database pages
+        _database.RowsRead += page.Count;
+        return Task.FromResult(page);
+    }
 
     public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
     {
@@ -151,6 +161,9 @@ public sealed class MemoryDatabase
     private Dictionary<Type, List<object>> _tables = [];
 
     public List<string> Log { get; } = [];
+
+    /// <summary>Rows the store's queries matched: what a database would have read and sent.</summary>
+    public int RowsRead { get; set; }
 
     public List<object> Rows<T>()
     {

@@ -24,7 +24,8 @@ Each notification of the change feed (`IChangeFeed<T>`) updates the cache:
 | Another key, no `[LastModified]` | Reloads the table |
 
 A burst of notifications is coalesced: one read per row, or one reload. A failed update raises `RefreshFailed` and keeps
-the previous content. `Track(entity)` puts an entity you just saved into the cache without waiting for the notification.
+the previous content. `Freshness` says how far to trust it: `NotLoaded`, `Current`, or `Stale` when the last read
+failed (`LastError` says why, `LastRefreshedAt` when the last one succeeded), for a screen that shows "last updated at". `Track(entity)` puts an entity you just saved into the cache without waiting for the notification.
 
 Notification sources: SQLite (automatic with `UseSqlite`), SQL Server (`Queryeables.SqlDependency`), or a server's hub
 for remote clients (MagicOnion or SignalR). See [Change notifications](change-notifications.md).

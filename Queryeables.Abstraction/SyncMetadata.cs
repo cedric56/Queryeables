@@ -37,7 +37,7 @@ public static class SyncMetadata
     public static DateTime Before(DateTime since, TimeSpan overlap)
         => since - DateTime.MinValue > overlap ? DateTime.SpecifyKind(since - overlap, DateTimeKind.Utc) : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
 
-    private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete);
+    private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete, PropertyInfo? Key);
 
     private static readonly ConcurrentDictionary<Type, Properties> _cache = new();
 
@@ -72,6 +72,47 @@ public static class SyncMetadata
     {
         if (entity is not null)
             SoftDelete(typeof(T))?.SetValue(entity, deleted);
+    }
+
+    /// <summary>The key of the type: the property marked [Key], otherwise the one named Id; null when there is none.</summary>
+    public static PropertyInfo? Key([DynamicallyAccessedMembers(EntityMembers.Required)] Type type) => For(type).Key;
+
+    /// <summary>
+    /// <c>e => e.Key == entity.Key &amp;&amp; e.Deleted == false</c>: the stored row <paramref name="entity"/> targets, when it
+    /// is not soft-deleted. Null when the type has no soft delete or no key found by convention.
+    /// </summary>
+    public static Expression<Func<T, bool>>? LiveRowOf<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        var properties = For(typeof(T));
+        if (properties.SoftDelete is null || properties.Key is not { } key)
+            return null;
+
+        var parameter = Expression.Parameter(typeof(T), "e");
+        var sameKey = Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(entity), key.PropertyType));
+        return NotDeleted(Expression.Lambda<Func<T, bool>>(sameKey, parameter));
+    }
+
+    /// <summary>
+    /// <c>a &amp;&amp; b</c>, with the parameter of <paramref name="left"/> in both: the form every store translates. A side
+    /// that is the constant <c>true</c> (<c>_ =&gt; true</c>) is left out.
+    /// </summary>
+    public static Expression<Func<T, bool>> And<T>(Expression<Func<T, bool>> left, Expression<Func<T, bool>> right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        if (right.Body is ConstantExpression { Value: true })
+            return left;
+        if (left.Body is ConstantExpression { Value: true })
+            return right;
+        var parameter = left.Parameters[0];
+        var rightBody = new ParameterReplacer(right.Parameters[0], parameter).Visit(right.Body);
+        return Expression.Lambda<Func<T, bool>>(Expression.AndAlso(left.Body, rightBody), parameter);
+    }
+
+    private sealed class ParameterReplacer(ParameterExpression from, ParameterExpression to) : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) => node == from ? to : node;
     }
 
     /// <summary>Adds "not deleted" to the predicate when the type uses soft delete.</summary>
@@ -122,7 +163,11 @@ public static class SyncMetadata
         if (softDelete is not null && softDelete.PropertyType != typeof(bool))
             throw new NotSupportedException($"{type.Name}.{softDelete.Name}: [SoftDelete] expects a bool.");
 
-        var properties = new Properties(lastModified, softDelete);
+        // The key, as the generator and Dommel find it: [Key], otherwise a property named Id.
+        var key = all.FirstOrDefault(p => p.GetCustomAttribute<System.ComponentModel.DataAnnotations.KeyAttribute>() is not null)
+            ?? all.FirstOrDefault(p => string.Equals(p.Name, "Id", StringComparison.OrdinalIgnoreCase));
+
+        var properties = new Properties(lastModified, softDelete, key);
         _cache.TryAdd(type, properties);
         return properties;
     }

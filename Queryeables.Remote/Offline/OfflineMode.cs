@@ -247,6 +247,10 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
                         new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type),
                         new KeyValuePair<string, object?>(QueryeablesDiagnostics.OutcomeTag, QueryeablesDiagnostics.Outcome(result.ErrorCode)));
                 }
+
+                // Acknowledged at once, with its conflict if refused: a crash later in the loop does not send it again (and
+                // if the crash comes before, its id makes the new attempt harmless).
+                await PersistAsync(ct);
             }
 
             var downloaded = await DownloadAllAsync(ct);
@@ -338,7 +342,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task DiscardPendingChangesAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
-        await ForgetAsync(ct);
+        await ForgetAsync(keepPendingWrites: false, ct);
     }
 
     /// <summary>True while offline writes wait to be sent: a change of user is refused until they are synchronized or discarded.</summary>
@@ -351,17 +355,25 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task ClearUserDataAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
-        if (_outbox.Count > 0)
-            throw new InvalidOperationException(
-                "Offline writes are waiting: synchronize them (GoOnlineAsync) or discard them (DiscardPendingChangesAsync) before changing user.");
-        await ForgetAsync(ct);
+        await ForgetAsync(keepPendingWrites: true, ct);
     }
 
-    private async Task ForgetAsync(CancellationToken ct)
+    /// <summary>Can refuse a change of user: <see cref="UserScopedData.ChangeUserAsync"/> asks it first.</summary>
+    bool IUserScopedData.CanHoldUnsavedChanges => true;
+
+    /// <param name="keepPendingWrites">
+    /// Refuse when writes wait. Checked under the gate, where writes are queued: none can slip in between the check and
+    /// the forgetting.
+    /// </param>
+    private async Task ForgetAsync(bool keepPendingWrites, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
         try
         {
+            if (keepPendingWrites && _outbox.Count > 0)
+                throw new InvalidOperationException(
+                    "Offline writes are waiting: synchronize them (GoOnlineAsync) or discard them (DiscardPendingChangesAsync) before changing user.");
+
             foreach (var type in _types.Values)
             {
                 type.Clear();
@@ -521,12 +533,9 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
             ?? throw new InvalidOperationException($"{entry.Type} is not available offline anymore.");
         var payload = type.PrepareForSend(entry.Payload, entry.Kind);
 
-        var result = entry.Kind switch
-        {
-            BatchOperationKind.Insert => await _remote.InsertAsync(entry.Type, payload, null, ct),
-            BatchOperationKind.Update => await _remote.UpdateAsync(entry.Type, payload, null, ct),
-            _ => await _remote.DeleteAsync(entry.Type, payload, null, ct),
-        };
+        // The id of the queued write goes with it: sent again after a lost answer or a restart, the server returns the first
+        // result instead of applying it twice (an insert would otherwise create a second row).
+        var result = await _remote.WriteOnceAsync(entry.Id, entry.Kind, entry.Type, payload, null, ct);
 
         // An update with no row: deleted on the server meanwhile. A delete with no row: already done.
         return entry.Kind == BatchOperationKind.Update && result is { Successful: true, Data: not { Length: > 0 } }

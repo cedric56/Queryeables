@@ -91,6 +91,10 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
     private readonly HashSet<TKey> _changed = [];
     private bool _metaChanged;
 
+    // The index in memory differs from the stored one. A field, not a local: cleared only once the index is written, so
+    // that a save that failed half way writes it on the next attempt.
+    private bool _indexChanged;
+
     /// <param name="Rows">The copy.</param>
     /// <param name="Temporary">Keys given offline, replaced by the server's.</param>
     /// <param name="Local">Rows written offline: read again by key at the next download.</param>
@@ -214,29 +218,34 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         _stored = rows.Keys.Select(k => EntityKey.Format(k)).ToHashSet();
         _changed.Clear();
         _metaChanged = false;
+        _indexChanged = false;
     }
 
     public override async Task SaveAsync(IOfflineStorage storage, string prefix, CancellationToken ct)
     {
-        var indexChanged = false;
-        foreach (var key in _changed)
+        // Each step is recorded once done: a failure leaves the rest to the next save, and nothing is marked saved early.
+        foreach (var key in _changed.ToList())
         {
             var keyText = EntityKey.Format(key);
             if (_state.Rows.TryGetValue(key, out var row))
             {
                 await storage.WriteAsync(RowKey(prefix, keyText), _mode.Serializer.Serialize(row), ct);
-                indexChanged |= _stored.Add(keyText);
+                _indexChanged |= _stored.Add(keyText);
             }
-            else if (_stored.Remove(keyText))
+            else if (_stored.Contains(keyText))
             {
                 await storage.DeleteAsync(RowKey(prefix, keyText), ct);
-                indexChanged = true;
+                _stored.Remove(keyText);
+                _indexChanged = true;
             }
+            _changed.Remove(key);
         }
-        _changed.Clear();
 
-        if (indexChanged)
+        if (_indexChanged)
+        {
             await storage.WriteAsync(IndexKey(prefix), OfflineCodec.WriteStrings(_stored), ct);
+            _indexChanged = false;
+        }
 
         if (_metaChanged)
         {

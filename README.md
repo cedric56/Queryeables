@@ -74,13 +74,14 @@ setup and the source generator. There is nothing else to add.
 | --- | --- | --- |
 | SQLite | [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | `q.UseSqlite("Data Source=app.db")`, with change notifications |
 | PostgreSQL | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | `q.UseNpgsql(connectionString, notifications: n => n.Watch<Person>(p => p.Id))`, with change notifications |
+| MongoDB | [`Queryeables.MongoDB`](Queryeables.MongoDB/README.md) | `q.UseMongoDB(connectionString, "app", notifications: n => n.Watch<Person>())`, with change streams |
 | SQL Server, MySQL... | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | `q.UseDommel<SqlConnection>(connectionString)` |
 | Any EF Core provider | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | `q.UseEntityFramework(sp => new AppDbContext(options))` |
 | A Queryeables server | [`Queryeables.Onion.Client`](Queryeables.Onion.Client/README.md) | `q.UseMagicOnion("https://server:5001")` |
 | Your own store | [`Queryeables`](Queryeables.Core/README.md) | `q.UseStores(sp => new MyStore(...))` |
 
 ```bash
-dotnet add package Queryeables.Sqlite   # or .PostgreSql, .Dommel, .EntityFramework, .Onion.Client
+dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .EntityFramework, .Onion.Client
 ```
 
 ## What you get
@@ -189,6 +190,7 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | Stores on Dommel: generated keys, optimistic concurrency, SQL logging |
 | [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications; `SqliteOfflineStorage` for the offline copy |
 | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | Dommel on PostgreSQL, with change notifications |
+| [`Queryeables.MongoDB`](Queryeables.MongoDB/README.md) | Stores on MongoDB, with transactions and change streams |
 | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | Stores on EF Core |
 | [`Queryeables.SqlDependency`](Queryeables.SqlDependency/README.md) | SQL Server change notifications |
 | [`Queryeables.Onion`](Queryeables.Onion/README.md) | MagicOnion messages and serializer, shared by client and server |
@@ -217,6 +219,7 @@ own code, not about every provider at run time:
 | MagicOnion transport (`UseMagicOnion`) | Yes | With the MagicOnion and MessagePack source generators and `[MessagePackObject]` entities; not run in CI |
 | Dommel / Dapper (`UseSqlite`, `UseNpgsql`, `UseDommel`) | Yes | No: Dapper emits IL at run time |
 | EF Core (`UseEntityFramework`) | Yes | No: marked as requiring dynamic code, like EF Core itself |
+| MongoDB (`UseMongoDB`) | No | No: the driver maps by reflection; marked like EF Core |
 
 See [Native AOT](docs/guides/aot.md).
 

@@ -7,9 +7,11 @@ namespace Queryeables.Abstraction;
 /// Wraps any <see cref="IEntityStore"/> (Dommel, EF...) to apply, on the types that have them:
 /// <list type="bullet">
 /// <item>[LastModified]: timestamp updated on every insert, update and soft delete;</item>
-/// <item>[SoftDelete]: DeleteAsync flags the row instead of deleting it, and reads exclude it.</item>
+/// <item>[SoftDelete]: DeleteAsync flags the row instead of deleting it, and reads exclude it. A soft-deleted row is gone
+/// for writes too: updating or deleting it answers false (not found), and an update cannot flag or unflag a row; only
+/// DeleteAsync deletes.</item>
 /// </list>
-/// <see cref="SelectChangesAsync{TEntity}"/>, on the contrary, returns every modified row, deleted ones included:
+/// <see cref="SelectChangesAsync{TEntity}(DateTime, CancellationToken)"/>, on the contrary, returns every modified row, deleted ones included:
 /// that is what a client needs to synchronize.
 /// Types without these attributes pass through unchanged.
 /// </summary>
@@ -63,6 +65,12 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
         where TEntity : class
         => _inner.SelectChangesAsync<TEntity>(sinceUtc, ct);
 
+    /// <summary>Rows of <paramref name="predicate"/> modified since <paramref name="sinceUtc"/>, soft-deleted ones included.</summary>
+    public Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(DateTime sinceUtc,
+        Expression<Func<TEntity, bool>> predicate, int maxRows, CancellationToken ct = default)
+        where TEntity : class
+        => _inner.SelectChangesAsync(sinceUtc, predicate, maxRows, ct);
+
     // ---------- Write ----------
 
     public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
@@ -72,11 +80,18 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
         return _inner.InsertAsync(entity, ct);
     }
 
-    public Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
+    public async Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(entity);
+        if (SyncMetadata.SoftDelete(typeof(TEntity)) is not null)
+        {
+            // An update written before the row was deleted (an offline client, a stale form) must not bring it back.
+            if (!await IsLiveAsync(entity, ct))
+                return false;
+            SyncMetadata.SetDeleted(entity, false);
+        }
         SyncMetadata.Touch(entity, UtcNow);
-        return _inner.UpdateAsync(entity, ct);
+        return await _inner.UpdateAsync(entity, ct);
     }
 
     public async Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default) where TEntity : class
@@ -85,7 +100,7 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
         if (SyncMetadata.SoftDelete(typeof(TEntity)) is null)
             return await _inner.DeleteAsync(entity, ct);
 
-        if (SyncMetadata.IsDeleted(entity))
+        if (SyncMetadata.IsDeleted(entity) || !await IsLiveAsync(entity, ct))
             return false; // already deleted, like a second DeleteAsync on a vanished row
 
         // Soft delete: an update, hence with a version check when the entity has one.
@@ -113,6 +128,14 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
                 SyncMetadata.Touch(entity, date);
         }
     }
+
+    /// <summary>
+    /// Whether the stored row is there and not soft-deleted. Without a key found by convention ([Key] or Id), the store
+    /// cannot be asked: the write goes ahead, as before.
+    /// </summary>
+    private async Task<bool> IsLiveAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct)
+        where TEntity : class
+        => SyncMetadata.LiveRowOf(entity) is not { } live || await _inner.CountAsync(live, ct) > 0;
 
     // ---------- Transactions ----------
 

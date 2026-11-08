@@ -559,6 +559,206 @@ public class OfflineModeTests
         Assert.Equal(["Ana", "Late"], (await store.GetAllAsync<TestClient>()).Select(c => c.Name).Order());
     }
 
+    [Fact]
+    public async Task An_offline_write_made_during_a_change_of_user_refuses_the_change_instead_of_being_lost()
+    {
+        Seed("Ana");
+        var storage = new PausingStorage();
+        var (mode, stores, _) = Client(storage: storage);
+        Assert.True((await mode.GoOfflineAsync()).Successful);
+
+        // The gate is held (a new copy being saved), so that both calls below wait for it, the write first.
+        var paused = storage.PauseNextWrite();
+        var refresh = mode.RefreshSnapshotAsync();
+        await paused;
+
+        var store = stores.Create();
+        var write = store.InsertAsync(new TestClient { Name = "Written while switching" });
+        await Task.Delay(100);
+        var change = UserScopedData.ChangeUserAsync([mode], reload: false);    // nothing waits yet: the first check passes
+        await Task.Delay(100);
+        storage.Resume();
+
+        await refresh;
+        await write;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => change);
+        Assert.Equal(1, mode.Status.PendingChanges);
+        await store.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task A_row_saved_while_the_index_failed_is_indexed_by_the_next_save_and_found_after_a_restart()
+    {
+        Seed("Ana");
+        var storage = new FailingStorage();
+        var (mode, stores, _) = Client(storage: storage);
+        await mode.GoOfflineAsync();
+
+        storage.FailNextWriteOf("/index");
+        await using (var store = stores.Create())
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() => store.InsertAsync(new TestClient { Name = "Carl" }));
+
+            // A write that adds no row: the index does not change with it, yet the save writes what the first could not.
+            var ana = (await store.GetAllAsync<TestClient>()).Single(c => c.Name == "Ana");
+            ana.Name = "Anna";
+            await store.UpdateAsync(ana);
+        }
+        await mode.DisposeAsync();
+
+        var (restarted, restartedStores, _) = Client(storage: storage);
+        await restarted.InitializeAsync();
+        Assert.Equal(ConnectionMode.Offline, restarted.Mode);
+        await using var reader = restartedStores.Create();
+        Assert.Equal(["Anna", "Carl"], (await reader.GetAllAsync<TestClient>()).Select(c => c.Name).Order());
+        Assert.Equal(2, restarted.Status.PendingChanges);
+    }
+
+    [Fact]
+    public async Task A_write_whose_answer_was_lost_is_not_applied_twice_when_sent_again()
+    {
+        Seed("Ana");
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        _network.Down = true;
+        await using (var store = stores.Create())
+        {
+            await store.InsertAsync(new TestClient { Name = "Carl" });                 // a temporary key, reset when sent
+            var ana = (await store.GetAllAsync<TestClient>()).Single(c => c.Name == "Ana");
+            ana.Name = "Anna";
+            await store.UpdateAsync(ana);
+        }
+
+        _network.Down = false;
+        _network.LoseNextAnswer = true;
+        var first = await mode.GoOnlineAsync();
+        Assert.False(first.Completed);                                                 // the insert was applied, the client cannot know
+        Assert.Equal(2, mode.Status.PendingChanges);
+
+        var second = await mode.GoOnlineAsync();
+        Assert.True(second.Completed, second.Error);
+        Assert.Empty(second.Conflicts);                                                 // the update over the version the server has
+        Assert.Equal(["Anna", "Carl"], _server.All<TestClient>().Select(c => c.Name).Order());
+    }
+
+    [Fact]
+    public async Task A_queue_restarted_after_a_crash_does_not_apply_its_writes_twice()
+    {
+        Seed("Ana");
+        var storage = new CopyableStorage();
+        var (mode, stores, _) = Client(storage: storage);
+        await mode.GoOfflineAsync();
+        _network.Down = true;
+        await using (var store = stores.Create())
+            await store.InsertAsync(new TestClient { Name = "Carl" });
+        await mode.DisposeAsync();
+
+        // The storage as it was while the write was on its way: the client crashed before recording the answer.
+        var crashed = storage.Copy();
+
+        _network.Down = false;
+        var (online, _, _) = Client(storage: storage);
+        Assert.True((await online.GoOnlineAsync()).Completed);
+        await online.DisposeAsync();
+
+        var (restarted, _, _) = Client(storage: crashed);
+        await restarted.InitializeAsync();
+        Assert.Equal(1, restarted.Status.PendingChanges);
+        Assert.True((await restarted.GoOnlineAsync()).Completed);
+        Assert.Single(_server.All<TestClient>(), c => c.Name == "Carl");
+    }
+
+    /// <summary>A storage that can be copied, as a disk would be at the moment of a crash.</summary>
+    private sealed class CopyableStorage : IOfflineStorage
+    {
+        private readonly Dictionary<string, byte[]> _values = [];
+
+        public CopyableStorage Copy()
+        {
+            var copy = new CopyableStorage();
+            lock (_values)
+            {
+                foreach (var (key, value) in _values)
+                    copy._values[key] = value.ToArray();
+            }
+            return copy;
+        }
+
+        public ValueTask<byte[]?> ReadAsync(string key, CancellationToken ct = default)
+        {
+            lock (_values)
+                return ValueTask.FromResult(_values.TryGetValue(key, out var value) ? value.ToArray() : null);
+        }
+
+        public ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
+        {
+            lock (_values)
+                _values[key] = value.ToArray();
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DeleteAsync(string key, CancellationToken ct = default)
+        {
+            lock (_values)
+                _values.Remove(key);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>Fails the next write of a key ending with a given text, once.</summary>
+    private sealed class FailingStorage : IOfflineStorage
+    {
+        private readonly MemoryOfflineStorage _inner = new();
+        private string? _failing;
+
+        public void FailNextWriteOf(string suffix) => _failing = suffix;
+
+        public ValueTask<byte[]?> ReadAsync(string key, CancellationToken ct = default) => _inner.ReadAsync(key, ct);
+
+        public ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
+        {
+            if (_failing is { } suffix && key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                _failing = null;
+                throw new IOException("Disk full.");
+            }
+            return _inner.WriteAsync(key, value, ct);
+        }
+
+        public ValueTask DeleteAsync(string key, CancellationToken ct = default) => _inner.DeleteAsync(key, ct);
+    }
+
+    /// <summary>Holds the next write until <see cref="Resume"/>.</summary>
+    private sealed class PausingStorage : IOfflineStorage
+    {
+        private readonly MemoryOfflineStorage _inner = new();
+        private TaskCompletionSource? _paused;
+        private TaskCompletionSource? _resume;
+
+        public Task PauseNextWrite()
+        {
+            _paused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _paused.Task;
+        }
+
+        public void Resume() => _resume?.TrySetResult();
+
+        public ValueTask<byte[]?> ReadAsync(string key, CancellationToken ct = default) => _inner.ReadAsync(key, ct);
+
+        public async ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
+        {
+            if (Interlocked.Exchange(ref _paused, null) is { } paused)
+            {
+                paused.TrySetResult();
+                await _resume!.Task;
+            }
+            await _inner.WriteAsync(key, value, ct);
+        }
+
+        public ValueTask DeleteAsync(string key, CancellationToken ct = default) => _inner.DeleteAsync(key, ct);
+    }
+
     /// <summary>Remembers the keys written.</summary>
     private sealed class CountingStorage : IOfflineStorage
     {
@@ -640,6 +840,22 @@ public class OfflineModeTests
 
         public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => Call(() => server.ExecuteBatchAsync(operations, ct));
+
+        /// <summary>The next write reaches the server, but its answer is lost on the way back.</summary>
+        public volatile bool LoseNextAnswer;
+
+        public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
+            CancellationToken ct = default)
+            => Write(async () =>
+            {
+                var result = await server.WriteOnceAsync(operationId, kind, type, entity, connectionId, ct);
+                if (LoseNextAnswer)
+                {
+                    LoseNextAnswer = false;
+                    throw new HttpRequestException("The connection was reset.");
+                }
+                return result;
+            });
     }
 
     public sealed class GuidNote

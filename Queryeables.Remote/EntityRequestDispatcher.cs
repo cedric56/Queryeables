@@ -55,6 +55,33 @@ public sealed class EntityRequestDispatcher(
         => Dispatch(type, "delete", h => h.WriteAsync(_serializer, BatchOperationKind.Delete, entity, context, ct));
 
     /// <summary>
+    /// The results of the writes already applied (<see cref="WriteOnceAsync"/>): in memory by default; a durable store
+    /// also covers a restart of the server.
+    /// </summary>
+    public IIdempotencyStore Idempotency { get; init; } = new MemoryIdempotencyStore();
+
+    /// <summary>
+    /// A write applied once per <paramref name="operationId"/> and user: sent again (its answer was lost), it gets the first
+    /// result back. A refused write is not remembered: sent again, it is checked again.
+    /// </summary>
+    public Task<TransportResult> WriteOnceAsync(Guid operationId, string type, BatchOperationKind kind, byte[] entity,
+        EntityRequestContext context, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (operationId == Guid.Empty)
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, "An operation id is required."));
+        if (!Enum.IsDefined(kind))
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, $"Unknown write: {kind}."));
+
+        return Idempotency.RunOnceAsync(IdempotencyKey.Of(operationId, context.User), () => kind switch
+        {
+            BatchOperationKind.Insert => InsertAsync(type, entity, context, ct),
+            BatchOperationKind.Update => UpdateAsync(type, entity, context, ct),
+            _ => DeleteAsync(type, entity, context, ct),
+        }, ct);
+    }
+
+    /// <summary>
     /// Runs every operation in a single transaction: if one fails (permissions, validation, conflict,
     /// vanished row), none is applied. Returns one serialized result per operation.
     /// </summary>
@@ -139,5 +166,9 @@ public sealed class EntityRequestDispatcher(
 
         public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => dispatcher.ExecuteBatchAsync(operations, caller, ct);
+
+        public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
+            CancellationToken ct = default)
+            => dispatcher.WriteOnceAsync(operationId, type, kind, entity, caller.WithConnection(connectionId), ct);
     }
 }

@@ -55,6 +55,40 @@ public class ServerLimitsTests
     }
 
     [Fact]
+    public async Task Changes_are_filtered_by_the_database_not_after_reading_every_user_s_rows()
+    {
+        var server = Server().Create();
+        for (var i = 0; i < 50; i++)
+            await server.InsertAsync(new TestClient { Name = $"Other {i}", SponsorId = 2 });
+        await using var store = Client(sponsor: 1);
+
+        _database.RowsRead = 0;
+        var changes = await store.SelectChangesAsync<TestClient>(DateTime.UtcNow.AddHours(-1));
+
+        Assert.Equal(["Ana", "Carl"], changes.Select(c => c.Name).Order());
+        Assert.Equal(2, _database.RowsRead);         // not the 55 rows of the table
+    }
+
+    [Fact]
+    public async Task Changes_read_one_row_beyond_the_limit_at_most_soft_deleted_rows_included()
+    {
+        var server = Server().Create();
+        for (var i = 0; i < 20; i++)
+        {
+            var row = new TestClient { Name = $"Gone {i}", SponsorId = 1 };
+            await server.InsertAsync(row);
+            await server.DeleteAsync(row);      // soft-deleted: still a change
+        }
+        await using var store = Client(sponsor: 1, maxReadSize: 5);
+
+        _database.RowsRead = 0;
+        var refused = await Assert.ThrowsAsync<EntityStoreException>(() => store.SelectChangesAsync<TestClient>(DateTime.UtcNow.AddHours(-1)));
+
+        Assert.Equal(EntityErrorCode.InvalidRequest, refused.ErrorCode);
+        Assert.True(_database.RowsRead <= 6, $"{_database.RowsRead} rows read for a limit of 5");
+    }
+
+    [Fact]
     public async Task The_row_of_another_user_cannot_be_changed_nor_deleted()
     {
         var bob = _database.All<TestClient>().Single(c => c.Name == "Bob").Copy();

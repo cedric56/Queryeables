@@ -47,4 +47,10 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
     /// Returns one result per operation (the entity for an insert or an update, true for a delete).
     /// </summary>
     UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations);
+
+    /// <summary>
+    /// A write applied once per <paramref name="operationId"/>: sent again after a lost answer, it returns the first result
+    /// (offline synchronization).
+    /// </summary>
+    UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId);
 }

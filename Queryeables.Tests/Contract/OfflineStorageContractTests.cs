@@ -86,3 +86,8 @@ public sealed class SqliteOfflineStorageContractTests : OfflineStorageContractTe
         }
     }
 }
+
+public sealed class EncryptedOfflineStorageContractTests : OfflineStorageContractTests
+{
+    protected override IOfflineStorage CreateStorage() => new EncryptedOfflineStorage(new MemoryOfflineStorage(), EncryptedOfflineStorage.NewKey());
+}

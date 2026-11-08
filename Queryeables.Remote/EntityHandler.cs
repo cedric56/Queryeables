@@ -149,17 +149,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
 
-            // Counted first, so that a date far in the past does not read the whole table. The count leaves out the
-            // soft-deleted rows, which the changes include: the result is checked again once read.
-            if (await store.CountAsync(Restrict(SyncMetadata.ModifiedSince<T>(sinceUtc), context), ct) > _maxReadSize)
-                throw TooMany();
-
-            var changes = await store.SelectChangesAsync<T>(sinceUtc, ct);
-            if (rows is not null)
-            {
-                var visible = rows.Rows(context.User).Compile();
-                changes = changes.Where(visible).ToList();
-            }
+            // The user's rows only, and one more than allowed at most, both in the query: a date far in the past or a large
+            // table costs this user's rows, never the whole table filtered afterwards.
+            var changes = await store.SelectChangesAsync(sinceUtc, Restrict(All, context), _maxReadSize + 1, ct);
             return changes.Count > _maxReadSize ? throw TooMany() : SerializeMany(serializer, changes);
         });
 

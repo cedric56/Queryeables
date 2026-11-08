@@ -34,10 +34,10 @@ jobs:
           --health-retries 10
     env:
       QUERYEABLES_POSTGRES: Host=localhost;Port=5432;Database=queryeables;Username=postgres;Password=queryeables
+      QUERYEABLES_MONGODB: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
 
@@ -46,6 +46,21 @@ jobs:
 
       - name: Build
         run: dotnet build Queryeables.slnx -c Release --no-restore
+
+      # Transactions and change streams need a replica set: a single node is enough. A service container cannot be started
+      # with --replSet, hence the step.
+      - name: Start MongoDB (single-node replica set)
+        run: |
+          docker run -d --name mongo -p 27017:27017 mongo:8.0 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 60); do
+            docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }" && break
+            sleep 2
+          done
+          for i in $(seq 1 60); do
+            [ "$(docker exec mongo mongosh --quiet --eval 'db.hello().isWritablePrimary')" = "true" ] && exit 0
+            sleep 1
+          done
+          echo "MongoDB did not become primary" && docker logs mongo && exit 1
 
       - name: Test
         run: dotnet test Queryeables.slnx -c Release --no-build --logger trx --results-directory TestResults
@@ -58,7 +73,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: test-results
           path: TestResults
@@ -77,10 +92,29 @@ jobs:
         run: dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
 
       - name: Upload packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: packages
           path: artifacts/*.nupkg
+
+  # File names, paths and line endings differ on Windows and macOS (FileOfflineStorage, SQLite): the tests run there too,
+  # without the servers (their tests are reported as skipped).
+  other-systems:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test Queryeables.Tests/Queryeables.Tests.csproj -c Release
 
   # The AOT / trimming guarantee, proven rather than declared: a console app using Queryeables the way an application does
   # is published with Native AOT (any trim or AOT warning fails the publish) and the native binary is run.
@@ -89,9 +123,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
 
@@ -109,24 +142,24 @@ jobs:
     # policy for this repository and this workflow file (ci.yml); NuGet/login exchanges the GitHub OIDC token for a
     # short-lived key.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, aot]
+    needs: [build, other-systems, aot]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages
           path: artifacts
 
       - name: Log in to nuget.org
         id: login
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           user: cedricb          # the nuget.org profile name that owns the policy, not an email
 

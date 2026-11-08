@@ -4,7 +4,7 @@ namespace Queryeables.Tests.Contract;
 
 /// <summary>
 /// Contract shared by every <see cref="IEntityStore"/> implementation.
-/// For a new implementation: derive from this class and provide <see cref="CreateStoreAsync"/>.
+/// For a new implementation: derive from this class and provide <see cref="CreateStore"/>.
 /// Each test starts from an empty database containing the Clients table.
 /// </summary>
 public abstract class EntityStoreContractTests : IAsyncLifetime
@@ -31,7 +31,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         return client;
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Insert_assigns_the_generated_key()
     {
         var first = await InsertAsync("Ana");
@@ -41,7 +41,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.True(second.Id > first.Id);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task GetAll_returns_every_row()
     {
         await InsertAsync("Ana");
@@ -53,7 +53,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(new[] { "Ana", "Bob" }, all.Select(c => c.Name).OrderBy(n => n));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_filters_with_equalities()
     {
         await InsertAsync("Ana", active: true, sponsorId: 1);
@@ -66,7 +66,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Ana", Assert.Single(result).Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_handles_null_values()
     {
         await InsertAsync("Ana", sponsorId: null);
@@ -78,7 +78,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Ana", Assert.Single(result).Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task FirstOrDefault_returns_null_when_nothing_matches()
     {
         await InsertAsync("Ana");
@@ -89,7 +89,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Ana", (await store.FirstOrDefaultAsync<TestClient>(c => c.Name == "Ana"))?.Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task SelectPaged_returns_stable_pages_starting_at_one()
     {
         foreach (var name in new[] { "A", "B", "C", "D", "E" })
@@ -106,7 +106,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Single(page3);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task SelectPaged_sorts_by_the_given_keys()
     {
         await InsertAsync("B", sponsorId: 2);
@@ -127,7 +127,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(new[] { "D" }, secondPage.Select(c => c.Name));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Query_composes_where_order_skip_take_and_select()
     {
         foreach (var name in new[] { "E", "B", "D", "A", "C" })
@@ -150,7 +150,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("A", (await active.OrderBy(c => c.Name).FirstAsync()).Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_projects_with_a_selector()
     {
         await InsertAsync("A", sponsorId: 1);
@@ -164,7 +164,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(("A", (int?)1), Assert.Single(pairs));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task SelectPaged_rejects_page_zero()
     {
         await using var store = CreateStore();
@@ -172,7 +172,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
             () => store.SelectPagedAsync<TestClient>(c => c.Active == true, 0, 10));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Update_returns_true_and_persists()
     {
         var client = await InsertAsync("Ana");
@@ -185,14 +185,14 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Ana updated", (await check.FirstOrDefaultAsync<TestClient>(c => c.Id == client.Id))?.Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Update_returns_false_for_a_missing_row()
     {
         await using var store = CreateStore();
         Assert.False(await store.UpdateAsync(new TestClient { Id = 999, Name = "Ghost" }));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Delete_returns_true_then_false()
     {
         var client = await InsertAsync("Ana");
@@ -203,7 +203,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Empty(await store.GetAllAsync<TestClient>());
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Count_counts_matching_rows()
     {
         await InsertAsync("Ana", active: true);
@@ -214,7 +214,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(2, await store.CountAsync<TestClient>(c => c.Active == true));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_with_comparisons_and_ranges()
     {
         var a = await InsertAsync("A");
@@ -231,7 +231,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(new[] { a.Id, c.Id }, notB.Select(x => x.Id).OrderBy(id => id));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_with_a_list_of_values()
     {
         var a = await InsertAsync("A");
@@ -245,7 +245,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(new[] { "A", "C" }, result.Select(x => x.Name).OrderBy(n => n));
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Select_with_text_searches()
     {
         await InsertAsync("Anna");
@@ -259,7 +259,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Bob", Assert.Single(await store.SelectAsync<TestClient>(x => x.Name.Contains("o"))).Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Update_increments_the_version()
     {
         var client = await InsertAsync("Ana");
@@ -272,7 +272,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(client.Version, (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Version);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Stale_update_is_a_conflict()
     {
         var client = await InsertAsync("Ana");
@@ -288,7 +288,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Changed by someone else", (await store.FirstOrDefaultAsync<TestClient>(x => x.Id == client.Id))?.Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Stale_delete_is_a_conflict()
     {
         var client = await InsertAsync("Ana");
@@ -304,7 +304,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
 
     // ---------- Incremental synchronization (stores with SyncConventionsDecorator) ----------
 
-    [Fact]
+    [ServerFact]
     public async Task Writes_set_LastModified()
     {
         if (!UsesSyncConventions)
@@ -322,7 +322,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.True(client.LastModified > inserted);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Soft_deleted_rows_are_hidden_but_reported_as_changes()
     {
         if (!UsesSyncConventions)
@@ -342,7 +342,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.True(Assert.Single(changes, c => c.Id == a.Id).Deleted);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Changes_since_returns_only_recent_rows()
     {
         if (!UsesSyncConventions)
@@ -358,7 +358,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal("Recent", Assert.Single(changes).Name);
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Transaction_without_commit_is_rolled_back()
     {
         if (!SupportsTransactions)
@@ -375,7 +375,7 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Empty(await check.GetAllAsync<TestClient>());
     }
 
-    [Fact]
+    [ServerFact]
     public async Task Committed_transaction_is_kept()
     {
         if (!SupportsTransactions)

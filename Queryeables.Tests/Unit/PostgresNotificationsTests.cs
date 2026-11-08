@@ -58,15 +58,13 @@ public class PostgresNotificationsTests
     }
 
     /// <summary>
-    /// Against a real PostgreSQL server, when QUERYEABLES_POSTGRES holds its connection string (the CI starts one); passes
-    /// without doing anything otherwise.
+    /// Against a real PostgreSQL server, when QUERYEABLES_POSTGRES holds its connection string (the CI starts one); skipped
+    /// otherwise.
     /// </summary>
-    [Fact]
+    [Contract.ServerFact(Server = "QUERYEABLES_POSTGRES")]
     public async Task A_cache_follows_a_PostgreSQL_table()
     {
-        var connectionString = Environment.GetEnvironmentVariable("QUERYEABLES_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString))
-            return;
+        var connectionString = Environment.GetEnvironmentVariable("QUERYEABLES_POSTGRES")!;
 
         await using (var setup = new Npgsql.NpgsqlConnection(connectionString))
         {

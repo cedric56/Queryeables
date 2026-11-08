@@ -57,4 +57,18 @@ public interface IEntityTransport
     /// Returns one result per operation (the entity for an insert or an update, true for a delete).
     /// </summary>
     Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default);
+
+    /// <summary>
+    /// A write that the server applies once, however many times it is sent with the same <paramref name="operationId"/>:
+    /// a retry after a lost answer gets the first result back (see <see cref="IIdempotencyStore"/>). Used by the offline
+    /// synchronization. A transport that cannot carry the id falls back to a plain write, without that guarantee.
+    /// </summary>
+    Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
+        CancellationToken ct = default)
+        => kind switch
+        {
+            BatchOperationKind.Insert => InsertAsync(type, entity, connectionId, ct),
+            BatchOperationKind.Update => UpdateAsync(type, entity, connectionId, ct),
+            _ => DeleteAsync(type, entity, connectionId, ct),
+        };
 }

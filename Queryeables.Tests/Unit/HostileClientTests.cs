@@ -259,5 +259,9 @@ public class HostileClientTests
 
         public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => Current.ExecuteBatchAsync(operations, ct);
+
+        public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
+            CancellationToken ct = default)
+            => Current.WriteOnceAsync(operationId, kind, type, entity, connectionId, ct);
     }
 }

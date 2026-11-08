@@ -11,6 +11,7 @@
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />
   <Project Path="Queryeables.Generated/Queryeables.Generated.csproj" Id="bdf35e5b-372f-44e0-8db7-9ef1071ec43c" />
+  <Project Path="Queryeables.MongoDB/Queryeables.MongoDB.csproj" />
   <Project Path="Queryeables.Onion.Client/Queryeables.Onion.Client.csproj" />
   <Project Path="Queryeables.Onion/Queryeables.Onion.csproj" Id="b02edfb3-6a85-4718-890e-8ca3bcd9459d" />
   <Project Path="Queryeables.PostgreSql/Queryeables.PostgreSql.csproj" />

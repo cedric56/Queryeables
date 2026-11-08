@@ -88,10 +88,14 @@ public static class EntityServerExtensions
 
         builder.Services.TryAddSingleton(serializer);
         builder.Services.TryAddSingleton<IEntityHandlerRegistry>(server.Build);
+        builder.Services.TryAddSingleton<IIdempotencyStore>(_ => new MemoryIdempotencyStore());
         builder.Services.TryAddSingleton(sp => new EntityRequestDispatcher(
             sp.GetRequiredService<IEntityHandlerRegistry>(),
             sp.GetRequiredService<IEntitySerializer>(),
-            sp.GetRequiredService<IEntityStoreFactory>()));
+            sp.GetRequiredService<IEntityStoreFactory>())
+        {
+            Idempotency = sp.GetRequiredService<IIdempotencyStore>(),
+        });
         return builder;
     }
 }

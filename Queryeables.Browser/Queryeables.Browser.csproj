@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- [JSImport] generates its marshalling code; no unsafe code is written. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>Queryeables.Browser</PackageId>

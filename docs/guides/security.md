@@ -61,10 +61,16 @@ for the new user, and refuses while offline writes of the previous user wait to 
 A page is cut to `maxPageSize` (1000). A read that is not paged (every row, a filter, the changes since a date) fails with
 `InvalidRequest` beyond `maxReadSize` (10,000 by default) instead of sending the table: the client pages, or narrows its
 filter. Both are set per type: `Expose<T>(policy, maxPageSize: 200, maxReadSize: 2000)`. With a row filter, only the
-user's rows count.
+user's rows count, and only they are read: the filter and the limit are part of the query (one row beyond the limit at
+most), the changes since a date included, so that a user cannot make the server read the whole table.
 
 The user is the one ASP.NET Core authenticated for the call: configure authentication on the server
 (`AddAuthentication`, `UseAuthentication`), and send credentials from the client.
+
+## Data kept on the device
+
+The offline copy is not encrypted by default. For sensitive data, wrap its storage in `EncryptedOfflineStorage` with a
+key per user from the platform's key store (see [offline mode](offline-mode.md#encryption-at-rest)).
 
 ## Graphs
 

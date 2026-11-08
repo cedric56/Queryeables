@@ -13,6 +13,12 @@ public interface IUserScopedData
     /// </summary>
     bool HasUnsavedChanges => false;
 
+    /// <summary>
+    /// True when <see cref="ClearUserDataAsync"/> may refuse because of unsaved work (the offline mode):
+    /// <see cref="UserScopedData.ChangeUserAsync"/> clears these first, so that a refusal leaves everything else as it was.
+    /// </summary>
+    bool CanHoldUnsavedChanges => false;
+
     /// <summary>Forgets everything kept for the current user. Never reaches the server: it works without network.</summary>
     Task ClearUserDataAsync(CancellationToken ct = default);
 
@@ -26,6 +32,10 @@ public static class UserScopedData
     /// Changes the user: checks that nothing unsaved would be lost, forgets the data of every <paramref name="data"/>, then,
     /// when <paramref name="reload"/> is true, loads again what was loaded, now for the new user. Everything is forgotten
     /// before anything is loaded: a failed reload leaves empty data, never the previous user's.
+    /// <para>
+    /// The check is made again by each item as it forgets, under its own lock (<see cref="IUserScopedData.CanHoldUnsavedChanges"/>,
+    /// cleared first): an offline write made during the change is never lost; the change is refused instead.
+    /// </para>
     /// </summary>
     /// <exception cref="InvalidOperationException">Offline writes are waiting: synchronize or discard them first. Nothing was forgotten.</exception>
     /// <exception cref="AggregateException">Some reloads failed (no network...); everything was forgotten anyway.</exception>
@@ -38,7 +48,7 @@ public static class UserScopedData
                 "Writes of the current user are waiting to be sent: synchronize them (OfflineMode.GoOnlineAsync) or discard them " +
                 "(OfflineMode.DiscardPendingChangesAsync) before changing user.");
 
-        foreach (var item in all)
+        foreach (var item in all.OrderBy(d => d.CanHoldUnsavedChanges ? 0 : 1))
             await item.ClearUserDataAsync(ct);
         if (!reload)
             return;

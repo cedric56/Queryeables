@@ -59,6 +59,10 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
         DateTime sinceUtc, CancellationToken ct = default) where TEntity : class
         => Watch(inner.SelectChangesAsync<TEntity>(sinceUtc, ct), ct);
 
+    public Task<IReadOnlyList<TEntity>> SelectChangesAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        DateTime sinceUtc, Expression<Func<TEntity, bool>> predicate, int maxRows, CancellationToken ct = default) where TEntity : class
+        => Watch(inner.SelectChangesAsync(sinceUtc, predicate, maxRows, ct), ct);
+
     public async Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity entity, CancellationToken ct = default)
         where TEntity : class
         => await Watch(Done(inner.InsertAsync(entity, ct)), ct);

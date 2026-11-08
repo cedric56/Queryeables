@@ -252,6 +252,10 @@ internal sealed class Network(IEntityTransport server, string client) : IEntityT
 
     public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
         => Call(() => server.ExecuteBatchAsync(operations, ct));
+
+    public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
+        CancellationToken ct = default)
+        => Call(() => server.WriteOnceAsync(operationId, kind, type, entity, connectionId, ct));
 }
 
 internal static class StoreExtensions

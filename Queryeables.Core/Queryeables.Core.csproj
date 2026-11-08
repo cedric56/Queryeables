@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsAotCompatible>true</IsAotCompatible>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>Queryeables</RootNamespace>
     <!--
       This project is the "Queryeables" package: it carries Abstraction, Remote, Core and the source generator

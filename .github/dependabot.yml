@@ -1,0 +1,7 @@
+# The actions are pinned by commit (a tag can be moved); Dependabot proposes the new commits, with their version.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

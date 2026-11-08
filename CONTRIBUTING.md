@@ -15,6 +15,14 @@ dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 
 A new `IEntityStore` must pass the contract tests (`Queryeables.Tests/Contract`): add it to `StoreImplementations.cs`.
 
+Some tests need a server. Without its variable they are reported as skipped, not passed (`[ServerFact]` and
+`[RequiresServer]` on the class); the CI sets both:
+
+| Variable | Server | Example |
+| --- | --- | --- |
+| `QUERYEABLES_POSTGRES` | PostgreSQL | `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=<password> postgres:17`, then `Host=localhost;Username=postgres;Password=<password>` |
+| `QUERYEABLES_MONGODB` | MongoDB, as a replica set (transactions, change streams) | see [Queryeables.MongoDB](Queryeables.MongoDB/README.md#transactions), then `mongodb://localhost:27017/?replicaSet=rs0&directConnection=true` |
+
 ## Rules of the code
 
 - `Queryeables.Abstraction` has no package reference.
