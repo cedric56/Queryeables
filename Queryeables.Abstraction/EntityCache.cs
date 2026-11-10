@@ -60,6 +60,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     // Timestamp of the most recent row received: starting point of the next synchronization (guarded by _writeLock).
     private DateTime? _syncedUpTo;
 
+    // Entities tracked while a load reads the table (guarded by _writeLock): applied over what it read.
+    private List<TEntity>? _trackedDuringLoad;
+
     // Freshness (guarded by _writeLock). _filled: loaded since the last ClearUserDataAsync, unlike _loaded which survives it.
     private bool _filled;
     private DateTimeOffset? _lastRefreshedAt;
@@ -226,13 +229,19 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         ArgumentNullException.ThrowIfNull(entity);
         lock (_writeLock)
         {
-            if (SyncMetadata.IsDeleted(entity))
-                _byKey.TryRemove(_key(entity), out _);
-            else
-                _byKey[_key(entity)] = entity;
+            Apply(_byKey, entity);
+            _trackedDuringLoad?.Add(entity);       // a load in progress may have read the table before this write
         }
 
         RaiseEntitiesChanged();
+    }
+
+    private void Apply(ConcurrentDictionary<TKey, TEntity> byKey, TEntity entity)
+    {
+        if (SyncMetadata.IsDeleted(entity))
+            byKey.TryRemove(_key(entity), out _);
+        else
+            byKey[_key(entity)] = entity;
     }
 
     public void Dispose()
@@ -248,9 +257,20 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private async Task LoadCoreAsync(CancellationToken ct)
     {
         using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "load");
+        lock (_writeLock)
+            _trackedDuringLoad = [];
         IReadOnlyList<TEntity> entities;
-        await using (var store = _storeFactory())
-            entities = await store.GetAllAsync<TEntity>(ct);
+        try
+        {
+            await using (var store = _storeFactory())
+                entities = await store.GetAllAsync<TEntity>(ct);
+        }
+        catch
+        {
+            lock (_writeLock)
+                _trackedDuringLoad = null;
+            throw;
+        }
 
         var byKey = new ConcurrentDictionary<TKey, TEntity>();
         DateTime? latest = null;
@@ -264,6 +284,10 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         lock (_writeLock)
         {
+            // What was tracked while the table was read is newer than what was read: it stays.
+            foreach (var tracked in _trackedDuringLoad ?? [])
+                Apply(byKey, tracked);
+            _trackedDuringLoad = null;
             _byKey = byKey;
             _syncedUpTo = _incremental ? latest ?? DateTime.MinValue : null;
             _loaded = true;

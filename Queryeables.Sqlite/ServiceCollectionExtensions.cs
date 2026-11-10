@@ -17,8 +17,9 @@ public static class ServiceCollectionExtensions
         string connectionString,
         bool isTransaction = true,
         bool logCommands = false,
-        LogLevel commandLogLevel = LogLevel.Information,
-        Action<SqliteDbFactory>? createDb = null)
+        LogLevel commandLogLevel = LogLevel.Debug,
+        Action<SqliteDbFactory>? createDb = null,
+        bool logParameterValues = false)
         => services.UseFactory<SqliteConnection>(connectionString, logCommands,
             (sp, options, logger) =>
             {
@@ -26,5 +27,5 @@ public static class ServiceCollectionExtensions
                 createDb?.Invoke(factory);
                 return factory;
             },
-            commandLogLevel);
+            commandLogLevel, logParameterValues: logParameterValues);
 }

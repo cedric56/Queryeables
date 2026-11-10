@@ -49,20 +49,24 @@ public sealed class DbLogConnection : DbConnection
     }
     private readonly ILogger _logger;
     private readonly LogLevel _level;
+    private readonly bool _logValues;
     private bool _disposed;
 
+    /// <param name="logValues">Writes the parameter values into the logged SQL (see <see cref="DbFactoryOptions.LogParameterValues"/>).</param>
     public DbLogConnection(
         DbConnection inner,
         ILogger logger,
-        LogLevel level = LogLevel.Information)
+        LogLevel level = LogLevel.Debug,
+        bool logValues = false)
     {
         Inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _level = level;
+        _logValues = logValues;
     }
 
     protected override DbCommand CreateDbCommand()
-        => new DbLogCommand(Inner.CreateCommand(), _logger, _level);
+        => new DbLogCommand(Inner.CreateCommand(), _logger, _level, _logValues);
 
     [AllowNull]
     public override string ConnectionString

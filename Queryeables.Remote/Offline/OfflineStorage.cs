@@ -66,9 +66,29 @@ public sealed class FileOfflineStorage : IOfflineStorage
     public async ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
     {
         var path = PathOf(key);
-        var temporary = path + ".tmp";
-        await File.WriteAllBytesAsync(temporary, value, ct);
-        File.Move(temporary, path, overwrite: true); // never a half-written file
+        // A temporary name of its own (two writers of one key never share it), written through to the disk before it
+        // replaces the file: never a half-written file, even after a power cut.
+        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            {
+                await file.WriteAsync(value, ct);
+                file.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, path, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (IOException)
+            {
+            }
+            throw;
+        }
     }
 
     public ValueTask DeleteAsync(string key, CancellationToken ct = default)

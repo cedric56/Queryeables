@@ -216,8 +216,20 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 
             var sent = 0;
             var refused = new List<OfflineConflict>();
-            foreach (var entry in _outbox.Snapshot())
+            foreach (var id in _outbox.Snapshot().Select(e => e.Id))
             {
+                // The entry as it is now: an earlier insert may have given it the server's key.
+                if (_outbox.Find(id) is not { } entry)
+                    continue;
+
+                // Recorded as sent before it leaves: from then on, a later write on the row is queued after it instead of
+                // changing it, even after a crash (the server may have applied it under its id).
+                if (_outbox.MarkSent(entry.Id))
+                {
+                    await PersistAsync(ct);
+                    entry = _outbox.Find(id)!;
+                }
+
                 TransportResult result;
                 try
                 {
@@ -234,6 +246,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
                 if (result.Successful)
                 {
                     sent++;
+                    RekeyAfterInsert(entry, result);
                     RemoteDiagnostics.OfflineSent.Add(1, new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type));
                 }
                 else
@@ -525,6 +538,19 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     {
         if (!_initialized)
             await InitializeAsync(ct);
+    }
+
+    /// <summary>
+    /// An insert under a temporary key got the server's: the writes queued after it on that row (made while its answer was
+    /// unknown) take the server's key and version.
+    /// </summary>
+    private void RekeyAfterInsert(OutboxEntry entry, TransportResult result)
+    {
+        if (entry.Kind != BatchOperationKind.Insert || result.Data is not { Length: > 0 } inserted
+            || _types.Values.FirstOrDefault(t => t.Name == entry.Type) is not { } type
+            || type.KeyTextOfData(inserted) is not { } serverKey || serverKey == entry.Key)
+            return;
+        _outbox.Rekey(entry.Type, entry.Key, serverKey, payload => type.Rebase(payload, inserted));
     }
 
     private async Task<TransportResult> SendAsync(OutboxEntry entry, CancellationToken ct)

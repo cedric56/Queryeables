@@ -3,7 +3,12 @@ using Queryeables.Abstraction;
 namespace Queryeables.Remote.Offline;
 
 /// <summary>A write made offline, waiting for the server.</summary>
-internal sealed record OutboxEntry(Guid Id, string Type, BatchOperationKind Kind, string Key, byte[] Payload, DateTime At);
+/// <param name="Sent">
+/// Sent at least once, without knowing whether the server applied it (answer lost, crash): it must reach the server as it
+/// was first sent, under its id, so that the server recognizes it. Later writes on the row are queued after it, never
+/// merged into it.
+/// </param>
+internal sealed record OutboxEntry(Guid Id, string Type, BatchOperationKind Kind, string Key, byte[] Payload, DateTime At, bool Sent = false);
 
 /// <summary>
 /// The queue of writes made offline, in order. Several writes on the same row are merged, so that the server receives the
@@ -23,7 +28,7 @@ internal sealed class Outbox
 
     public void Add(BatchOperationKind kind, string type, string key, byte[] payload)
     {
-        var index = _entries.FindIndex(e => e.Type == type && e.Key == key);
+        var index = _entries.FindLastIndex(e => e.Type == type && e.Key == key);
         if (index < 0)
         {
             Append(kind, type, key, payload);
@@ -31,6 +36,14 @@ internal sealed class Outbox
         }
 
         var pending = _entries[index];
+        if (pending.Sent)
+        {
+            // Maybe applied already: merging would change a write the server may have recorded under this id, and the
+            // change would be lost (the server answers a known id with its first result).
+            Append(kind, type, key, payload);
+            return;
+        }
+
         switch (pending.Kind, kind)
         {
             case (BatchOperationKind.Insert, BatchOperationKind.Update):
@@ -49,6 +62,33 @@ internal sealed class Outbox
             default:
                 Append(kind, type, key, payload);
                 break;
+        }
+    }
+
+    /// <summary>About to be sent: from now on, it is never merged with a later write (see <see cref="OutboxEntry.Sent"/>).</summary>
+    /// <returns>true if it was not marked yet (and must be saved before sending).</returns>
+    public bool MarkSent(Guid id)
+    {
+        var index = _entries.FindIndex(e => e.Id == id);
+        if (index < 0 || _entries[index].Sent)
+            return false;
+        Replace(index, _entries[index] with { Sent = true });
+        return true;
+    }
+
+    public OutboxEntry? Find(Guid id) => _entries.Find(e => e.Id == id);
+
+    /// <summary>
+    /// The row inserted under the temporary <paramref name="temporaryKey"/> got <paramref name="serverKey"/>: the writes
+    /// queued after it on that row now name the server's row (<paramref name="rebase"/> rewrites their content).
+    /// </summary>
+    public void Rekey(string type, string temporaryKey, string serverKey, Func<byte[], byte[]> rebase)
+    {
+        for (var i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            if (entry.Type == type && entry.Key == temporaryKey)
+                Replace(i, entry with { Key = serverKey, Payload = rebase(entry.Payload) });
         }
     }
 
@@ -136,25 +176,32 @@ internal static class OfflineCodec
 {
     private const byte Version = 1;
 
+    // The queue's own format: 2 adds OutboxEntry.Sent. A queue written by version 1 is still read (nothing was sent).
+    private const byte OutboxVersion = 2;
+
     public static byte[] Write(IReadOnlyList<OutboxEntry> entries)
         => Write(writer =>
         {
             writer.Write(entries.Count);
             foreach (var entry in entries)
+            {
                 WriteEntry(writer, entry.Id, entry.Type, entry.Kind, entry.Key, entry.Payload, entry.At);
-        });
+                writer.Write(entry.Sent);
+            }
+        }, OutboxVersion);
 
     public static List<OutboxEntry> ReadEntries(byte[]? data)
-        => Read(data, reader =>
+        => Read(data, (reader, version) =>
         {
             var list = new List<OutboxEntry>();
             for (var count = reader.ReadInt32(); count > 0; count--)
             {
                 var (id, type, kind, key, payload, at) = ReadEntry(reader);
-                list.Add(new OutboxEntry(id, type, kind, key, payload, at));
+                var sent = version >= 2 && reader.ReadBoolean();
+                list.Add(new OutboxEntry(id, type, kind, key, payload, at, sent));
             }
             return list;
-        }) ?? [];
+        }, Version, OutboxVersion) ?? [];
 
     public static byte[] Write(IReadOnlyList<OfflineConflict> conflicts)
         => Write(writer =>
@@ -236,25 +283,30 @@ internal static class OfflineCodec
         return (id, type, kind, key, payload, at);
     }
 
-    private static byte[] Write(Action<BinaryWriter> write)
+    private static byte[] Write(Action<BinaryWriter> write, byte version = Version)
     {
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream))
         {
-            writer.Write(Version);
+            writer.Write(version);
             write(writer);
         }
         return stream.ToArray();
     }
 
     private static T? Read<T>(byte[]? data, Func<BinaryReader, T> read) where T : class
+        => Read(data, (reader, _) => read(reader), Version, Version);
+
+    /// <param name="read">Reads the content, knowing the version it was written with (between the two bounds).</param>
+    private static T? Read<T>(byte[]? data, Func<BinaryReader, byte, T> read, byte oldest, byte newest) where T : class
     {
         if (data is not { Length: > 0 })
             return null;
 
         using var reader = new BinaryReader(new MemoryStream(data));
-        return reader.ReadByte() == Version
-            ? read(reader)
+        var version = reader.ReadByte();
+        return version >= oldest && version <= newest
+            ? read(reader, version)
             : throw new InvalidDataException("The offline data was written by another version of Queryeables.");
     }
 }

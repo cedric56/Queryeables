@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using System.Security.Claims;
 using Queryeables.Abstraction;
 
 namespace Queryeables.SignalR.Server;
@@ -12,12 +13,14 @@ public sealed class ConnectionTracker<TObject>(
     IHubContext<SignalRHub<TObject>> hubContext,
     IChangeFeed<TObject> monitor,
     ChangeFeedRegistry? registry = null,
-    ILogger<ConnectionTracker<TObject>>? logger = null)
-    : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
+    ILogger<ConnectionTracker<TObject>>? logger = null,
+    ChangeHubOptions? options = null,
+    ConnectionOwners? owners = null)
+    : ChangeBroadcaster<TObject>(monitor, registry, options, owners) where TObject : class
 {
-    public void Add(string connectionId)
+    public void Add(string connectionId, ClaimsPrincipal? user = null)
     {
-        if (AddSubscriber(connectionId))
+        if (AddSubscriber(connectionId, user))
             logger?.LogInformation("Client connected: {ConnectionId}", connectionId);
     }
 

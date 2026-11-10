@@ -39,6 +39,12 @@ internal abstract class OfflineEntityType
     /// <summary>Sets the key of <paramref name="entity"/> back to its default value when it is a temporary one.</summary>
     public abstract void ResetIfTemporary(object entity);
 
+    /// <summary>The formatted key of a serialized row; null when it cannot be read.</summary>
+    public abstract string? KeyTextOfData(byte[] data);
+
+    /// <summary><paramref name="payload"/> with the key and the version of <paramref name="inserted"/> (the row the server inserted).</summary>
+    public abstract byte[] Rebase(byte[] payload, byte[] inserted);
+
     /// <summary>Sends a refused write again, adapted to the server's current row (its version, or an insert when it is gone).</summary>
     public abstract Task<TransportResult> SendAgainAsync(IEntityTransport remote, OfflineConflict conflict, CancellationToken ct);
 
@@ -351,6 +357,21 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
         if (kind == BatchOperationKind.Insert)
             ResetIfTemporary(entity);
         ResetChildren(entity);
+        return _mode.Serializer.Serialize(entity);
+    }
+
+    public override string? KeyTextOfData(byte[] data)
+        => _mode.Serializer.Deserialize<TEntity>(data) is { } entity ? EntityKey.Format(_key(entity)) : null;
+
+    public override byte[] Rebase(byte[] payload, byte[] inserted)
+    {
+        var entity = _mode.Serializer.Deserialize<TEntity>(payload)
+            ?? throw new InvalidDataException($"Empty {typeof(TEntity).Name} in the offline queue.");
+        var server = _mode.Serializer.Deserialize<TEntity>(inserted)
+            ?? throw new InvalidDataException($"Empty {typeof(TEntity).Name} from the server.");
+        _setKey(entity, _key(server));
+        if (ConcurrencyToken.Find(typeof(TEntity)) is { } version)
+            ConcurrencyToken.Set(entity, version, ConcurrencyToken.Get(server, version));
         return _mode.Serializer.Serialize(entity);
     }
 

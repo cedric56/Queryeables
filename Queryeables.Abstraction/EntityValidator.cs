@@ -24,6 +24,53 @@ public static class EntityValidator
         return results;
     }
 
+    /// <summary>
+    /// The entity and the children of its [EntityGraph] collections, at every level: a valid parent does not carry invalid
+    /// children into the database. A child's messages start with its place, such as <c>Contacts[2]: The Name field is required.</c>
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = Justification)]
+    [UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "The children of an [EntityGraph] collection are entity types themselves, annotated where they are registered.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "The children of an [EntityGraph] collection are entity types themselves, annotated where they are registered.")]
+    public static IReadOnlyList<ValidationResult> ValidateGraph<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T instance)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        var results = new List<ValidationResult>(Validate(instance));
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance) { instance };
+        Children(instance, typeof(T), string.Empty, depth: 1);
+        return results;
+
+        void Children(object parent, Type type, string path, int depth)
+        {
+            foreach (var property in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                if (!property.IsDefined(typeof(EntityGraphAttribute), inherit: true)
+                    || property.GetValue(parent) is not System.Collections.IEnumerable children || children is string)
+                    continue;
+                if (depth > MaxGraphDepth)
+                    throw new ArgumentException($"A graph is limited to {MaxGraphDepth} levels.");
+
+                var index = 0;
+                foreach (var child in children)
+                {
+                    var place = $"{path}{property.Name}[{index++}]";
+                    if (child is null || !seen.Add(child))
+                        continue;   // a child reached twice (a cycle) is validated once
+                    var context = new ValidationContext(child, child.GetType().Name, serviceProvider: null, items: null);
+                    var own = new List<ValidationResult>();
+                    Validator.TryValidateObject(child, context, own, validateAllProperties: true);
+                    results.AddRange(own.Select(r => new ValidationResult($"{place}: {r.ErrorMessage}",
+                        r.MemberNames.Select(m => $"{place}.{m}"))));
+                    Children(child, child.GetType(), place + ".", depth + 1);
+                }
+            }
+        }
+    }
+
+    /// <summary>Most levels of children <see cref="ValidateGraph{T}"/> follows.</summary>
+    public const int MaxGraphDepth = 8;
+
     public static string? Error<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T instance)
     {
         var errors = Validate(instance);

@@ -33,6 +33,9 @@ app.MapHub<SignalRHub<Person>>("/hubs/person");
 When a client writes, its notification session travels with the request, so the change reaches every client except its
 author. Broadcasts go through a queue: order is kept and the database never waits for the network.
 
+Changes reported by clients are not relayed by default: the server's database is the source. See
+[security](security.md#notification-hubs) for `ChangeHubOptions`, and put `[Authorize]` on the hubs.
+
 ## Reconnection
 
 The SignalR client reconnects by itself; the MagicOnion hub does not (call `AddStreamingHub` again). In both cases,

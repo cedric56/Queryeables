@@ -1,3 +1,4 @@
+using Queryeables.Abstraction;
 using System.Collections.Concurrent;
 using System.Security.Claims;
 
@@ -30,6 +31,8 @@ public sealed class MemoryIdempotencyStore : IIdempotencyStore
 {
     private readonly ConcurrentDictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly TimeProvider _time;
+    private readonly object _trimLock = new();
+    private long _sinceTrim;
 
     public MemoryIdempotencyStore(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
@@ -72,18 +75,24 @@ public sealed class MemoryIdempotencyStore : IIdempotencyStore
 
     private void Trim(DateTimeOffset now)
     {
-        if (_entries.Count <= Capacity && _entries.Count % 1024 != 0)
+        // Cleaned in batches, down to 90% of the capacity, and every 1024 results otherwise: never a full scan per write.
+        if (_entries.Count <= Capacity && Interlocked.Increment(ref _sinceTrim) % 1024 != 0)
             return;
-        foreach (var (key, entry) in _entries)
+        lock (_trimLock)
         {
-            if (now - entry.At > Retention)
-                _entries.TryRemove(new KeyValuePair<string, Entry>(key, entry));
-        }
-        var excess = _entries.Count - Capacity;
-        if (excess > 0)
-        {
-            foreach (var (key, entry) in _entries.OrderBy(e => e.Value.At).Take(excess).ToList())
-                _entries.TryRemove(new KeyValuePair<string, Entry>(key, entry));
+            if (_entries.Count <= Capacity && Volatile.Read(ref _sinceTrim) % 1024 != 0)
+                return;
+            foreach (var (key, entry) in _entries)
+            {
+                if (now - entry.At > Retention)
+                    _entries.TryRemove(new KeyValuePair<string, Entry>(key, entry));
+            }
+            var excess = _entries.Count - (int)(Capacity * 0.9);
+            if (excess > 0 && _entries.Count > Capacity)
+            {
+                foreach (var (key, entry) in _entries.OrderBy(e => e.Value.At).Take(excess).ToList())
+                    _entries.TryRemove(new KeyValuePair<string, Entry>(key, entry));
+            }
         }
     }
 
@@ -92,10 +101,12 @@ public sealed class MemoryIdempotencyStore : IIdempotencyStore
 
 internal static class IdempotencyKey
 {
-    /// <summary>The operation, for this user only: an id seen under another user is another operation.</summary>
-    public static string Of(Guid operationId, ClaimsPrincipal? user)
-    {
-        var who = user?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user?.Identity?.Name ?? string.Empty;
-        return $"{who.Length}:{who}:{operationId:N}";
-    }
+    /// <summary>
+    /// The operation, for this user, this type and this kind of write: an id seen under another user is another operation,
+    /// and an id sent again for another type or kind is not answered with the first result. The content is not part of
+    /// it: a write decided again ("keep mine") is sent with the server's current version, and must still be recognized.
+    /// Null when the user cannot be told apart from another (see <see cref="UserKey"/>).
+    /// </summary>
+    public static string? Of(Guid operationId, ClaimsPrincipal? user, string type, BatchOperationKind kind)
+        => UserKey.Of(user) is { } who ? $"{who.Length}:{who}:{type.Length}:{type}:{(int)kind}:{operationId:N}" : null;
 }

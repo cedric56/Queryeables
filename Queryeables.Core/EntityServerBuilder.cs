@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Diagnostics.CodeAnalysis;
@@ -18,6 +19,15 @@ public sealed class EntityServerBuilder
     internal EntityServerBuilder()
     {
     }
+
+    /// <summary>
+    /// Send the message of unexpected errors (database errors...) to the clients. Off by default: they get a reference,
+    /// and the error is logged under it. Development only: database messages name tables, constraints and values.
+    /// </summary>
+    public bool DetailedErrors { get; set; }
+
+    /// <summary>Most operations a client may send in one batch (one transaction).</summary>
+    public int MaxBatchSize { get; set; } = 100;
 
     /// <summary>
     /// Exposes <typeparamref name="TEntity"/>. When an <see cref="IAggregateRepository{TEntity}"/> is registered for it (an entity
@@ -89,12 +99,19 @@ public static class EntityServerExtensions
         builder.Services.TryAddSingleton(serializer);
         builder.Services.TryAddSingleton<IEntityHandlerRegistry>(server.Build);
         builder.Services.TryAddSingleton<IIdempotencyStore>(_ => new MemoryIdempotencyStore());
+        builder.Services.TryAddSingleton<ConnectionOwners>();
         builder.Services.TryAddSingleton(sp => new EntityRequestDispatcher(
             sp.GetRequiredService<IEntityHandlerRegistry>(),
             sp.GetRequiredService<IEntitySerializer>(),
             sp.GetRequiredService<IEntityStoreFactory>())
         {
             Idempotency = sp.GetRequiredService<IIdempotencyStore>(),
+            Connections = sp.GetRequiredService<ConnectionOwners>(),
+            DetailedErrors = server.DetailedErrors,
+            MaxBatchSize = server.MaxBatchSize,
+            UnexpectedError = sp.GetService<ILoggerFactory>()?.CreateLogger<EntityRequestDispatcher>() is { } logger
+                ? (exception, reference) => logger.LogError(exception, "Unexpected error, reference {Reference}.", reference)
+                : null,
         });
         return builder;
     }

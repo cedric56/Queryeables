@@ -13,7 +13,8 @@ public static class ServiceCollectionExtensions
     /// Registers the connection factory (<see cref="DbProviderFactory"/>), as well as
     /// <see cref="ChangeFeedRegistry"/> and <see cref="IChangeSession"/> when they are not registered yet.
     /// </summary>
-    /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL").</param>
+    /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL"), at <paramref name="commandLogLevel"/>.</param>
+    /// <param name="logParameterValues">Writes the parameter values into the logged SQL: for debugging, never in production.</param>
     /// <param name="factory">Custom factory, for example a <c>SqliteDbFactory</c>. Default: <see cref="DbFactory{TDbConnection}"/>.</param>
     /// <param name="ignoreNotMapped">
     /// Makes Dommel ignore [NotMapped] properties. This Dommel setting is global: pass false if you
@@ -23,8 +24,9 @@ public static class ServiceCollectionExtensions
         string connectionString,
         bool logCommands = false,
         Func<IServiceProvider, DbFactoryOptions, ILogger?, DbProviderFactory>? factory = null,
-        LogLevel commandLogLevel = LogLevel.Information,
-        bool ignoreNotMapped = true)
+        LogLevel commandLogLevel = LogLevel.Debug,
+        bool ignoreNotMapped = true,
+        bool logParameterValues = false)
         where TDbConnection : DbConnection, new()
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -36,7 +38,8 @@ public static class ServiceCollectionExtensions
         var options = new DbFactoryOptions
         {
             LogCommands = logCommands,
-            CommandLogLevel = commandLogLevel
+            CommandLogLevel = commandLogLevel,
+            LogParameterValues = logParameterValues,
         };
 
         services.TryAddSingleton<ChangeFeedRegistry>();

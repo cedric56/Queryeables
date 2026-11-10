@@ -301,33 +301,51 @@ internal static class Filters
     /// </summary>
     public const int MaxValues = 1000;
 
+    /// <summary>
+    /// Most values in a whole filter, every condition and every value of an In counted: each one is a SQL parameter.
+    /// 1000 conditions of 1000 values each would otherwise build a million.
+    /// </summary>
+    public const int MaxTotalValues = 2000;
+
     /// <summary>Builds the predicate, rejecting any condition outside the whitelist.</summary>
+    /// <param name="properties">
+    /// The properties a client may filter on (see <see cref="RemoteMembers{T}.Queryable"/>); any other answers "unknown
+    /// property". Every public property when null.
+    /// </param>
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
-        IReadOnlyList<FilterCondition> conditions, bool any)
+        IReadOnlyList<FilterCondition> conditions, bool any, IReadOnlySet<string>? properties = null)
     {
         if (conditions.Count > MaxValues)
             throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
+        var total = conditions.Sum(c => c?.Value is IList list and not byte[] ? Math.Max(1, list.Count) : 1);
+        if (total > MaxTotalValues)
+            throw new ArgumentException($"A filter is limited to {MaxTotalValues} values in all, not {total}.");
 
         var parameter = Expression.Parameter(typeof(T), "e");
         if (conditions.Any(c => c is { Operator: FilterOperator.And or FilterOperator.Or }))
-            return Expression.Lambda<Func<T, bool>>(FromPostfix<T>(conditions, parameter), parameter);
+            return Expression.Lambda<Func<T, bool>>(FromPostfix<T>(conditions, parameter, properties), parameter);
 
-        Expression? body = null;
-
+        var terms = new List<Expression>(conditions.Count);
         foreach (var condition in conditions)
         {
             ArgumentNullException.ThrowIfNull(condition);
-            var property = typeof(T).GetProperty(condition.Property, BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new ArgumentException($"Unknown property '{condition.Property}' on {typeof(T).Name}.");
-
-            var term = Build(Expression.Property(parameter, property), condition);
-            body = body is null ? term
-                : any ? Expression.OrElse(body, term)
-                : Expression.AndAlso(body, term);
+            terms.Add(Term<T>(condition, parameter, properties));
         }
 
-        body ??= Expression.Constant(true);
+        var body = terms.Count == 0 ? Expression.Constant(true) : Balanced(terms, any ? Expression.OrElse : Expression.AndAlso);
         return Expression.Lambda<Func<T, bool>>(body, parameter);
+    }
+
+    /// <summary>
+    /// <c>a ∘ b ∘ c ∘ d</c> as <c>(a ∘ b) ∘ (c ∘ d)</c>: the same condition, but a tree log2(n) deep instead of n, so that
+    /// the visitors of the stores (recursive) never run deep.
+    /// </summary>
+    private static Expression Balanced(IReadOnlyList<Expression> terms, Func<Expression, Expression, BinaryExpression> combine)
+    {
+        if (terms.Count == 1)
+            return terms[0];
+        var middle = terms.Count / 2;
+        return combine(Balanced(terms.Take(middle).ToList(), combine), Balanced(terms.Skip(middle).ToList(), combine));
     }
 
     /// <summary>Most nested levels of AND and OR: the expression tree and the SQL stay small.</summary>
@@ -335,7 +353,7 @@ internal static class Filters
 
     /// <summary>Rebuilds a predicate written in postfix order (see <see cref="FromPredicate{T}"/>).</summary>
     private static Expression FromPostfix<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
-        IReadOnlyList<FilterCondition> conditions, ParameterExpression parameter)
+        IReadOnlyList<FilterCondition> conditions, ParameterExpression parameter, IReadOnlySet<string>? properties)
     {
         var stack = new Stack<(Expression Expression, int Depth)>();
         foreach (var condition in conditions)
@@ -343,7 +361,7 @@ internal static class Filters
             ArgumentNullException.ThrowIfNull(condition);
             if (condition.Operator is not (FilterOperator.And or FilterOperator.Or))
             {
-                stack.Push((Term<T>(condition, parameter), 0));
+                stack.Push((Term<T>(condition, parameter, properties), 0));
                 continue;
             }
 
@@ -367,13 +385,8 @@ internal static class Filters
             if (depth > MaxDepth)
                 throw new ArgumentException($"A filter is limited to {MaxDepth} nested levels.");
 
-            var combined = operands[0].Expression;
-            for (var i = 1; i < count; i++)
-            {
-                combined = condition.Operator == FilterOperator.Or
-                    ? Expression.OrElse(combined, operands[i].Expression)
-                    : Expression.AndAlso(combined, operands[i].Expression);
-            }
+            var combined = Balanced(operands.Select(o => o.Expression).ToList(),
+                condition.Operator == FilterOperator.Or ? Expression.OrElse : Expression.AndAlso);
             stack.Push((combined, depth));
         }
 
@@ -383,9 +396,12 @@ internal static class Filters
     }
 
     private static Expression Term<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
-        FilterCondition condition, ParameterExpression parameter)
+        FilterCondition condition, ParameterExpression parameter, IReadOnlySet<string>? properties)
     {
-        var property = typeof(T).GetProperty(condition.Property, BindingFlags.Public | BindingFlags.Instance)
+        // A property the client may not filter on answers as one that does not exist: nothing tells it apart.
+        var property = (properties is null || (condition.Property is { } name && properties.Contains(name))
+                ? typeof(T).GetProperty(condition.Property!, BindingFlags.Public | BindingFlags.Instance)
+                : null)
             ?? throw new ArgumentException($"Unknown property '{condition.Property}' on {typeof(T).Name}.");
         return Build(Expression.Property(parameter, property), condition);
     }
@@ -411,13 +427,10 @@ internal static class Filters
                     return Expression.Constant(false); // no value: no row
                 if (values.Count > MaxValues)
                     throw new ArgumentException($"'{name}': the In operator is limited to {MaxValues} values.");
-                Expression? anyOf = null;
+                var equals = new List<Expression>(values.Count);
                 foreach (var value in values)
-                {
-                    var equal = Compare(member, Constant(value, type, name), FilterOperator.Equal, name);
-                    anyOf = anyOf is null ? equal : Expression.OrElse(anyOf, equal);
-                }
-                return anyOf!;
+                    equals.Add(Compare(member, Constant(value, type, name), FilterOperator.Equal, name));
+                return Balanced(equals, Expression.OrElse);
 
             case FilterOperator.StartsWith or FilterOperator.EndsWith or FilterOperator.Contains:
                 if (type != typeof(string))

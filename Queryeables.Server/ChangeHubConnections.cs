@@ -1,5 +1,6 @@
 ﻿using MagicOnion.Server.Hubs;
 using Microsoft.Extensions.Logging;
+using System.Security.Claims;
 using Queryeables.Abstraction;
 using Queryeables.Onion;
 
@@ -12,16 +13,18 @@ namespace Queryeables.Server;
 public sealed class ChangeHubConnections<TObject>(
     IChangeFeed<TObject> monitor,
     ChangeFeedRegistry? registry = null,
-    ILogger<ChangeHubConnections<TObject>>? logger = null)
-    : ChangeBroadcaster<TObject>(monitor, registry) where TObject : class
+    ILogger<ChangeHubConnections<TObject>>? logger = null,
+    ChangeHubOptions? options = null,
+    ConnectionOwners? owners = null)
+    : ChangeBroadcaster<TObject>(monitor, registry, options, owners) where TObject : class
 {
     // Shared broadcast group, captured on the first subscription.
     private volatile IGroup<IChangeHubReceiver<TObject>>? _group;
 
-    public void RegisterGroup(IGroup<IChangeHubReceiver<TObject>> group, Guid contextId)
+    public void RegisterGroup(IGroup<IChangeHubReceiver<TObject>> group, Guid contextId, ClaimsPrincipal? user = null)
     {
         _group ??= group;
-        if (AddSubscriber(contextId.ToString()))
+        if (AddSubscriber(contextId.ToString(), user))
             logger?.LogInformation("{ContextId} subscribed", contextId);
     }
 
@@ -31,8 +34,14 @@ public sealed class ChangeHubConnections<TObject>(
             logger?.LogInformation("{ContextId} unsubscribed", contextId);
     }
 
-    /// <summary>Broadcasts a change reported by a client.</summary>
-    public void Raise(EntityChange<TObject> record) => Relay(record);
+    /// <summary>A change reported by the client of <paramref name="contextId"/>: see <see cref="ChangeBroadcaster{TObject}.RelayFromClient"/>.</summary>
+    public bool Raise(EntityChange<TObject> record, Guid contextId)
+    {
+        var relayed = RelayFromClient(record, contextId.ToString());
+        if (!relayed)
+            logger?.LogDebug("Change from {ContextId} not relayed: {Record}", contextId, record);
+        return relayed;
+    }
 
     protected override Task SendAsync(EntityChange<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
     {

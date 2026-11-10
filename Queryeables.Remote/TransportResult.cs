@@ -20,6 +20,9 @@ public sealed class TransportResult
     /// <summary>Validation messages, one per broken rule.</summary>
     public IReadOnlyList<string> Errors { get; init; } = [];
 
+    /// <summary>Server side only, never sent: the exception behind an <see cref="EntityErrorCode.Unknown"/> error.</summary>
+    internal Exception? Cause { get; init; }
+
     public static TransportResult Success(byte[]? data = null) => new() { Successful = true, Data = data };
 
     public static TransportResult Failure(EntityErrorCode errorCode, string message, IReadOnlyList<string>? errors = null)
@@ -35,7 +38,17 @@ public sealed class TransportResult
     }
 
     /// <summary>Converts a server-side exception into a response, with the right error kind.</summary>
-    public static TransportResult FromException(Exception exception) => From(EntityResult.FromException(exception));
+    public static TransportResult FromException(Exception exception)
+    {
+        var result = From(EntityResult.FromException(exception));
+        return result.ErrorCode == EntityErrorCode.Unknown ? new TransportResult
+        {
+            ErrorCode = result.ErrorCode,
+            Exception = result.Exception,
+            Errors = result.Errors,
+            Cause = exception,
+        } : result;
+    }
 
     /// <summary>Runs a server operation and puts its result or its error into a response.</summary>
     public static async Task<TransportResult> RunAsync(Func<Task<byte[]?>> action)

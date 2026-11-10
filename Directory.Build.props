@@ -11,6 +11,11 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>data-access;dommel;efcore;magiconion;signalr;sqlite;cache;sync</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Packages that can be traced to their sources: the commit and the repository are recorded (SourceLink, built into
+         the SDK), and a CI build gives the same paths whatever the machine. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

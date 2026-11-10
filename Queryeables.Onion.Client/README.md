@@ -19,9 +19,11 @@ services.UseQueryeables(q => q
 `IEntityStoreFactory` then creates `RemoteEntityStore` instances (`IsRemote` is true): the generated services send a parent
 with its children in one call, and the server saves the children with its own graph repository.
 
-The channel goes through the gRPC WebSocket bridge by default, which works everywhere, the browser included; the server must
-enable the bridge. Pass `handler` to use your own `HttpMessageHandler`, and `validateCertificate` to accept a known
-self-signed certificate (ignored in the browser). An `https://` URL needs a server listening in HTTPS on that port.
+The channel goes over HTTP/2 (`SocketsHttpHandler`), and through the gRPC WebSocket bridge in the browser (the server
+must enable the bridge). The server certificate is validated by the system on every platform, Android included. Pass
+`handler` to use your own `HttpMessageHandler`, and `validateCertificate` to accept a known self-signed certificate: it
+replaces the system's decision, on every platform (ignored in the browser), and a handler that cannot use it is an error
+rather than a silent skip. An `https://` URL needs a server listening in HTTPS on that port.
 
 ## Change notifications
 

@@ -21,8 +21,19 @@ First public version.
   | `IEntityRemote`, `MagicOnionRemote`, `AsRemote()` | `IEntityTransport`, `MagicOnionTransport`, `AsTransport()` |
   | `EntityRowFilter` | `RowLevelSecurity` |
   | `SyncConventionsStore` | `SyncConventionsDecorator` |
+- Changes reported by clients to a hub are no longer relayed by default (`ChangeHubOptions.RelayClientChanges`).
+- The SQL log (`logCommands`) is written at `Debug` instead of `Information`, without the parameter values unless
+  `logParameterValues: true`.
+- The MagicOnion server reads entities as untrusted MessagePack data (`MessagePackEntitySerializer.Server`).
+- The idempotency key of a write includes its type and kind; a user with no stable identity (authenticated, but neither
+  a name identifier nor a name) cannot send idempotent writes.
 
 ### Added
+- `[NotQueryable]` and `[ServerOwned]`; columns left out by the serializer can no longer be filtered or sorted on.
+- `EntityServerBuilder.DetailedErrors` and `MaxBatchSize`; `ChangeHubOptions` (client changes, rate, queue, key length);
+  `CertificateValidation` for the transports; `DbFactoryOptions.LogParameterValues`.
+- `SECURITY.md`, CodeQL analysis, Dependabot for NuGet, SourceLink and deterministic CI builds, a `nuget.config` that maps
+  every package to nuget.org.
 - Convergence tests under load: several clients writing online and offline, networks cut, answers lost, conflicts
   decided at random; at the end every client agrees with the server and no write was applied twice. Seeded and
   replayable; `QUERYEABLES_LOAD_SCALE` for longer runs.
@@ -89,6 +100,34 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Security, from the November audit:
+  - On Android, the MagicOnion and SignalR clients accepted any server certificate when no validator was given
+    (interception). The system now validates it on every platform.
+  - Elsewhere, `validateCertificate` was silently ignored (MagicOnion: never attached to the `SocketsHttpHandler`;
+    SignalR: Android only). It is now applied on every platform, to the HTTP requests and the WebSocket, and a handler
+    that cannot use it is an error.
+  - A client could make up changes on a hub: a "delete" that removed a row from the other caches, or a "reload
+    everything" sent in a loop to every client (each reloading its table from the server). Client changes are off by
+    default, and checked and rate-limited when on.
+  - A client could name another user's connection on a write, and keep the change from that user; the connections to
+    leave out were sent to every client. The name is now believed only for the caller's own connection, and never sent.
+  - The hubs' queue had no bound. It now holds 10,000 changes, beyond which the clients synchronize instead.
+  - A property the client cannot read could be guessed through filters and sorts (`StartsWith "a"`, `"ab"`...).
+  - A client could set any column on a write; `[ServerOwned]` keeps what the server decides.
+  - Unexpected errors sent the database's message to the client (tables, constraints, values). The client now gets a
+    reference, and the message is logged on the server.
+  - A filter could hold a million values (1000 conditions of 1000), and 1000 conditions built a tree 1000 levels deep for
+    the stores' recursive visitors. A filter now holds 2000 values in all, and its tree is balanced.
+  - A batch had no size limit (one huge transaction); a page number near `int.MaxValue` overflowed the offset.
+  - The children of a graph were not validated (`[Required]`, `[StringLength]`...): only the parent was.
+  - A hub's `RemoveAsync` left the connection in its MagicOnion group.
+- Reliability:
+  - An offline write whose answer was lost could have a later change on the same row merged into it: the server then
+    answered the retry with the first result, and the later change was lost. A write sent once is no longer merged; a
+    later insert's temporary key is replaced by the server's in the writes queued after it.
+  - `MemoryIdempotencyStore` sorted all its entries on every write once full; it now trims in batches.
+  - A row tracked by `EntityCache.Track` during a reload could vanish from the cache.
+  - `FileOfflineStorage` shared one temporary file between writers of a key and did not flush it before renaming it.
 - "Keep mine" on a conflict could insert a row twice: when the answer of its write was lost and the user kept the
   offline write again, the row deleted on the server meanwhile was inserted again. The write now carries an operation id
   of its own, the same for every attempt.

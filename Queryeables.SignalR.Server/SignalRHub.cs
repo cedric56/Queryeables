@@ -3,6 +3,10 @@ using Queryeables.Abstraction;
 
 namespace Queryeables.SignalR.Server;
 
+/// <summary>
+/// SignalR hub that broadcasts the changes of one entity type. Map it with <c>.RequireAuthorization()</c> when the data is
+/// not public: the hub otherwise accepts any connection.
+/// </summary>
 /// <example>
 /// <code>
 /// builder.Services.AddSignalR().AddMessagePackProtocol();
@@ -14,7 +18,7 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
 {
     public override Task OnConnectedAsync()
     {
-        tracker.Add(Context.ConnectionId);
+        tracker.Add(Context.ConnectionId, Context.User);
         return base.OnConnectedAsync();
     }
 
@@ -24,16 +28,14 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
         return base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>A client reports a change: it is relayed to the other clients.</summary>
+    /// <summary>
+    /// A client reports a change: relayed to the other clients only when the server allows it
+    /// (<see cref="ChangeHubOptions.RelayClientChanges"/>), checked and limited; otherwise ignored.
+    /// </summary>
     [HubMethodName(SignalRContract.OnChangeReceived)]
     public void OnChangeReceived(SignalRChange message)
     {
-        var record = message.ToChange<TObject>();
-
-        // The sender is always excluded, even if it did not add itself.
-        if (!record.Contains(Context.ConnectionId))
-            record.Add(Context.ConnectionId);
-
-        tracker.Relay(record);
+        ArgumentNullException.ThrowIfNull(message);
+        tracker.RelayFromClient(message.ToChange<TObject>(), Context.ConnectionId);
     }
 }

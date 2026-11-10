@@ -46,19 +46,47 @@ public sealed class EntityRequestDispatcher(
         => Dispatch(type, "get_changes", h => h.GetChangesAsync(_serializer, sinceUtc, context, ct));
 
     public Task<TransportResult> InsertAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "insert", h => h.WriteAsync(_serializer, BatchOperationKind.Insert, entity, context, ct));
+        => Dispatch(type, "insert", h => h.WriteAsync(_serializer, BatchOperationKind.Insert, entity, Verified(context), ct));
 
     public Task<TransportResult> UpdateAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "update", h => h.WriteAsync(_serializer, BatchOperationKind.Update, entity, context, ct));
+        => Dispatch(type, "update", h => h.WriteAsync(_serializer, BatchOperationKind.Update, entity, Verified(context), ct));
 
     public Task<TransportResult> DeleteAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "delete", h => h.WriteAsync(_serializer, BatchOperationKind.Delete, entity, context, ct));
+        => Dispatch(type, "delete", h => h.WriteAsync(_serializer, BatchOperationKind.Delete, entity, Verified(context), ct));
 
     /// <summary>
     /// The results of the writes already applied (<see cref="WriteOnceAsync"/>): in memory by default; a durable store
     /// also covers a restart of the server.
     /// </summary>
     public IIdempotencyStore Idempotency { get; init; } = new MemoryIdempotencyStore();
+
+    /// <summary>
+    /// The hub connections and their users: a write names its author's connection (so that the author does not receive its
+    /// own change), and that name is kept only when the connection belongs to the caller. Null: names are not checked
+    /// (a server in process, without hubs).
+    /// </summary>
+    public ConnectionOwners? Connections { get; init; }
+
+    /// <summary>
+    /// Send the message of an unexpected error (a database error...) to the client. Off by default: the client gets a
+    /// generic message with a reference, and <see cref="UnexpectedError"/> receives the exception under that reference;
+    /// database messages name tables, constraints and values. Turn it on in development only.
+    /// </summary>
+    public bool DetailedErrors { get; init; }
+
+    /// <summary>Receives each unexpected error with the reference given to the client (to log it).</summary>
+    public Action<Exception, string>? UnexpectedError { get; init; }
+
+    /// <summary>Most operations in one batch (one transaction): a client cannot hold the database with a huge one.</summary>
+    public int MaxBatchSize { get; init; } = 100;
+
+    private EntityRequestContext Verified(EntityRequestContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return Connections is null || context.ConnectionId is null
+            ? context
+            : context.WithConnection(Connections.Verify(context.ConnectionId, context.User));
+    }
 
     /// <summary>
     /// A write applied once per <paramref name="operationId"/> and user: sent again (its answer was lost), it gets the first
@@ -73,7 +101,13 @@ public sealed class EntityRequestDispatcher(
         if (!Enum.IsDefined(kind))
             return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, $"Unknown write: {kind}."));
 
-        return Idempotency.RunOnceAsync(IdempotencyKey.Of(operationId, context.User), () => kind switch
+        if (string.IsNullOrWhiteSpace(type))
+            return Task.FromResult(UnknownType(type));
+        if (IdempotencyKey.Of(operationId, context.User, type, kind) is not { } key)
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest,
+                "The user has no stable identity (neither a name identifier nor a name): its writes cannot be told from another's."));
+
+        return Idempotency.RunOnceAsync(key, () => kind switch
         {
             BatchOperationKind.Insert => InsertAsync(type, entity, context, ct),
             BatchOperationKind.Update => UpdateAsync(type, entity, context, ct),
@@ -93,6 +127,9 @@ public sealed class EntityRequestDispatcher(
 
         if (operations is null || operations.Length == 0)
             return Task.FromResult(TransportResult.Success(_serializer.Serialize(Array.Empty<byte[]>())));
+        if (operations.Length > MaxBatchSize)
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest,
+                $"Too many operations in one batch: {operations.Length}, at most {MaxBatchSize}."));
 
         // Every type is checked before opening the transaction.
         var handlers = new EntityHandler[operations.Length];
@@ -102,7 +139,7 @@ public sealed class EntityRequestDispatcher(
                 return Task.FromResult(UnknownType(operations[i].Type));
         }
 
-        return RemoteDiagnostics.ServerAsync("batch", "batch", () => TransportResult.RunAsync(async () =>
+        return RemoteDiagnostics.ServerAsync("batch", "batch", async () => Hide(await TransportResult.RunAsync(async () =>
         {
             var results = new byte[operations.Length][];
             await using var store = transactionStoreFactory();
@@ -112,13 +149,13 @@ public sealed class EntityRequestDispatcher(
                 {
                     var operation = operations[i];
                     results[i] = await handlers[i].WriteAsync(_serializer, s, operation.Kind, operation.Entity,
-                        context.WithConnection(operation.ConnectionId), requireEffect: true, ct);
+                        Verified(context.WithConnection(operation.ConnectionId)), requireEffect: true, ct);
                 }
             }, ct);
             // A failed batch is reported with its own error kind (conflict, validation...).
             outcome.ThrowIfFailed();
             return _serializer.Serialize(results);
-        }));
+        })));
     }
 
     /// <summary>
@@ -130,8 +167,21 @@ public sealed class EntityRequestDispatcher(
 
     private Task<TransportResult> Dispatch(string type, string operation, Func<EntityHandler, Task<TransportResult>> call)
         => !string.IsNullOrWhiteSpace(type) && _registry.TryGet(type, out var handler)
-            ? RemoteDiagnostics.ServerAsync(operation, type, () => call(handler))
+            ? RemoteDiagnostics.ServerAsync(operation, type, async () => Hide(await call(handler)))
             : Task.FromResult(UnknownType(type));
+
+    /// <summary>An unexpected error leaves the server as a reference; the exception goes to <see cref="UnexpectedError"/>.</summary>
+    private TransportResult Hide(TransportResult result)
+    {
+        if (result.ErrorCode != EntityErrorCode.Unknown || result.Successful || DetailedErrors)
+            return result;
+
+        var reference = Guid.NewGuid().ToString("N")[..12];
+        System.Diagnostics.Activity.Current?.SetTag("queryeables.error.reference", reference);
+        if (result.Cause is { } cause)
+            UnexpectedError?.Invoke(cause, reference);
+        return TransportResult.Failure(EntityErrorCode.Unknown, $"An unexpected error occurred on the server (reference {reference}).");
+    }
 
     private static TransportResult UnknownType(string? type)
         => TransportResult.Failure(EntityErrorCode.UnknownType, $"Type not exposed by the server: {type}.");

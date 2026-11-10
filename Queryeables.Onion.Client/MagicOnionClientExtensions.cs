@@ -5,8 +5,6 @@ using MagicOnion.Client;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
 
 namespace Queryeables.Onion.Client;
 
@@ -29,13 +27,17 @@ namespace Queryeables.Onion.Client;
 public static class MagicOnionClientExtensions
 {
     /// <summary>
-    /// Creates a gRPC channel to <paramref name="url"/>. By default, the channel goes through the gRPC WebSocket bridge
-    /// (works everywhere, browser included) and the server certificate is validated as usual.
+    /// Creates a gRPC channel to <paramref name="url"/>: through the gRPC WebSocket bridge in the browser, over HTTP/2
+    /// (<see cref="SocketsHttpHandler"/>) elsewhere. The server certificate is validated by the system, on every platform,
+    /// Android included, unless <paramref name="validateCertificate"/> is given.
     /// </summary>
+    /// <param name="handler">The handler to use instead: a <see cref="SocketsHttpHandler"/> or an <see cref="HttpClientHandler"/>
+    /// when <paramref name="validateCertificate"/> is given.</param>
     /// <param name="validateCertificate">
-    /// Custom certificate validation, for example to accept a known self-signed certificate by its hash.
-    /// Ignored in the browser, where the browser validates the certificate.
+    /// Custom certificate validation, for example to accept a known self-signed certificate by its hash: it replaces the
+    /// system's decision. Ignored in the browser, where the browser validates the certificate.
     /// </param>
+    /// <exception cref="NotSupportedException">A validator with a handler that cannot use it.</exception>
     public static GrpcChannel CreateChannel(
         string url,
         HttpMessageHandler? handler = null,
@@ -43,45 +45,15 @@ public static class MagicOnionClientExtensions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
 
-        if (handler is null)
+        if (OperatingSystem.IsBrowser())
         {
-            if (OperatingSystem.IsBrowser())
-            {
-                handler = new GrpcWebSocketBridgeHandler();
-            }
-            else
-            {
-                handler = new SocketsHttpHandler();
-                if (OperatingSystem.IsAndroid())
-                {
-                    ((SocketsHttpHandler)handler).SslOptions = new SslClientAuthenticationOptions
-                    {
-                        RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
-                                (validateCertificate is null || OperatingSystem.IsBrowser()) || validateCertificate(
-                                    certificate switch
-                                    {
-                                        null => null,
-                                        X509Certificate2 cert2 => cert2,
-                                        _ => X509CertificateLoader.LoadCertificate(
-                                            certificate.GetRawCertData())
-                                    },
-                                    chain,
-                                    errors)
-                    };
-                }
-            }
+            handler ??= new GrpcWebSocketBridgeHandler();
         }
-
-        if (validateCertificate is not null)
+        else
         {
-#if !BROWSER
-            if (handler is HttpClientHandler http)
-            {
-                http.ServerCertificateCustomValidationCallback =
-                    (_, certificate, chain, errors) =>
-                        validateCertificate(certificate, chain, errors);
-            }
-#endif
+            handler ??= new SocketsHttpHandler();
+            if (validateCertificate is not null)
+                CertificateValidation.Attach(handler, validateCertificate);
         }
 
         return GrpcChannel.ForAddress(
@@ -91,6 +63,7 @@ public static class MagicOnionClientExtensions
                 HttpHandler = handler
             });
     }
+
     /// <summary>Creates a MagicOnion service client, for example <see cref="IMagicOnionLayer"/>, on a new channel.</summary>
     public static TService Create<TService>(this IServiceProvider provider, string url, CertificateValidator? validateCertificate = null)
         where TService : IService<TService>

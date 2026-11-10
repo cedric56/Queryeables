@@ -36,7 +36,8 @@ public sealed class Sort<[DynamicallyAccessedMembers(EntityMembers.Required)] TE
 
     /// <summary>A sort received by name (from a remote client): every property must be a readable property of the entity.</summary>
     /// <exception cref="ArgumentException">Unknown property, duplicate, or more than <see cref="MaxKeys"/> keys.</exception>
-    public static Sort<TEntity> FromKeys(IEnumerable<SortKey> keys)
+    /// <param name="properties">The properties a client may sort on (<see cref="RemoteMembers{T}.Queryable"/>); any public property when null.</param>
+    public static Sort<TEntity> FromKeys(IEnumerable<SortKey> keys, IReadOnlySet<string>? properties = null)
     {
         ArgumentNullException.ThrowIfNull(keys);
         var list = keys.ToList();
@@ -46,7 +47,7 @@ public sealed class Sort<[DynamicallyAccessedMembers(EntityMembers.Required)] TE
         foreach (var key in list)
         {
             ArgumentNullException.ThrowIfNull(key);
-            if (Property(key.Property) is null)
+            if (Property(key.Property) is null || (properties is not null && !properties.Contains(key.Property)))
                 throw new ArgumentException($"Unknown property '{key.Property}' on {typeof(TEntity).Name}.", nameof(keys));
         }
         if (list.Select(k => k.Property).Distinct(StringComparer.Ordinal).Count() != list.Count)

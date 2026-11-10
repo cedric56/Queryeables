@@ -1,7 +1,17 @@
-# The actions are pinned by commit (a tag can be moved); Dependabot proposes the new commits, with their version.
+# The actions are pinned by commit (a tag can be moved), and the NuGet packages by version (Directory.Packages.props):
+# Dependabot proposes the updates, security fixes first.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One pull request for the many Microsoft.* packages that move together.
+      microsoft:
+        patterns: ["Microsoft.*", "System.*"]

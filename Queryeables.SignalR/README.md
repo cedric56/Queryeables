@@ -20,6 +20,7 @@ await unsubscribe();
 The server's changes are published on the change feed, hence the caches; this client's own changes are not echoed back.
 Unlike the MagicOnion hub, the connection retries and reconnects by itself (`FiveSecondsReconnectPolicy` by default, or
 your own `IRetryPolicy`). After a reconnection, call `cache.SyncAsync()` to catch up with the changes missed meanwhile.
-`factory` customizes the HTTP handler (certificate validation on Android...).
+The server certificate is validated by the system on every platform. `validateCertificate` replaces that decision (a
+known self-signed certificate, by its hash) for the HTTP requests and the WebSocket alike; it is ignored in the browser.
 
 The server side is [`Queryeables.SignalR.Server`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.SignalR.Server/README.md).

@@ -21,11 +21,11 @@ public static class QueryeablesBuilderExtensions
     /// </code>
     /// </example>
     public static QueryeablesBuilder UseNpgsql(this QueryeablesBuilder builder, string connectionString,
-        bool logCommands = false, LogLevel commandLogLevel = LogLevel.Information,
-        Action<PostgresNotifications>? notifications = null)
+        bool logCommands = false, LogLevel commandLogLevel = LogLevel.Debug,
+        Action<PostgresNotifications>? notifications = null, bool logParameterValues = false)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Services.UseNpgsqlFactory(connectionString, logCommands, commandLogLevel);
+        builder.Services.UseNpgsqlFactory(connectionString, logCommands, commandLogLevel, logParameterValues);
 
         if (notifications is not null)
         {

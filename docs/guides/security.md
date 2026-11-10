@@ -4,7 +4,36 @@
 
 No SQL, no expression tree, no type name chosen by the client. A remote filter is a list of "property, operator, value"
 conditions: the server checks the property on the exposed type, the operator against a whitelist, converts the value to
-the property type, and builds the query itself. At most 1000 conditions and 1000 `Contains` values per request.
+the property type, and builds the query itself. At most 1000 conditions, 1000 values in one `In`, 2000 values in the
+whole filter, and 32 levels of AND/OR; a page starts at most 1,000,000 rows in; a batch holds at most 100 operations
+(`server.MaxBatchSize`).
+
+## Columns a client cannot use
+
+What a client cannot read, it cannot search or sort on either: otherwise it would guess a hidden value one comparison at
+a time ("the secret starts with a", "with ab"...). A property left out by the serializer (`[JsonIgnore]`,
+`[IgnoreMember]`, `[IgnoreDataMember]`) or marked `[NotQueryable]` answers "unknown property" in a filter or a sort.
+
+A `[ServerOwned]` property never takes its value from a client: on an insert it is reset to its default, on an update
+the stored value is kept, whatever was sent. For a creator, an approval flag, a role, a balance: set them in the
+server's own code or in the database.
+
+```csharp
+public class Account
+{
+    public long Id { get; set; }
+    [JsonIgnore] public string PasswordHash { get; set; } = "";
+    [NotQueryable] public string InternalNote { get; set; } = "";
+    [ServerOwned] public string? Role { get; set; }
+}
+```
+
+## Errors
+
+An unexpected error (a database error, a bug) reaches the client as "an unexpected error occurred on the server
+(reference 3f2a...)": database messages name tables, constraints and values. The exception is logged on the server under
+that reference (category `Queryeables.Remote.EntityRequestDispatcher`). `server.DetailedErrors = true` sends the message
+itself: development only. Validation errors, conflicts and refusals keep their own message.
 
 ## Access policies
 
@@ -49,6 +78,10 @@ The server adds the filter to every read (all rows, filters, pages, changes) and
 The filter is built for each call from the authenticated user; an anonymous call gets `null`, and `_ => false` refuses it.
 The children of a graph follow their parent: expose a child type with its own filter when clients reach it directly.
 
+The stored row is checked, then written: give such types a `[ConcurrencyCheck]` version. A row changed between the check
+and the write (moved to another tenant by someone else, say) then fails the write with `Conflict` instead of being
+written over.
+
 ## A change of user on a client
 
 Row filters protect the server; the client must also forget what it kept. Caches and the offline copy hold the rows of
@@ -74,13 +107,43 @@ key per user from the platform's key store (see [offline mode](offline-mode.md#e
 
 ## Graphs
 
-A graph saved remotely is checked as its parent: the policy and the validation apply to the parent. A child sent with a key
-that belongs to another parent is rejected, so a client cannot take over rows through a graph.
+A graph saved remotely is checked as its parent: the policy and the row filter apply to the parent, the validation to the
+parent and to every child (`Contacts[2]: The Name field is required.`). A child sent with a key that belongs to another
+parent is rejected, so a client cannot take over rows through a graph. The policy of the child type does not apply to
+the children of a graph: when it is stricter than the parent's (a person and their medical records), do not put the
+children in the graph; expose them on their own.
 
 ## Notification hubs
 
 Hubs broadcast keys of changed rows. Protect them like the data: `[Authorize]` on the MagicOnion hub class,
 `.RequireAuthorization()` on the SignalR `MapHub`.
+
+What a client sends a hub is not trusted:
+
+- The changes a client reports are not relayed: only the server's database is a source. A client with a database of its
+  own, shared with others, needs `services.AddSingleton(new ChangeHubOptions { RelayClientChanges = true })`; its changes
+  are then checked (a row, never "reload everything"; a key of at most 256 characters) and limited (20 per second per
+  connection).
+- A write names its author's connection, so that the author does not get its own change back: the name is believed only
+  when that connection belongs to the caller. The connections left out are never sent to the clients.
+- The queue of changes is bounded (10,000). When clients cannot keep up, it is emptied and one "synchronize" is sent:
+  each cache catches up from the database, and memory stays bounded.
+
+**Limit:** every subscriber of a type receives the keys of all its changed rows, whatever its row filter: no content, but
+a tenant can see that rows of another changed, and when. Where that matters, give each tenant its own server (or its own
+hub type), until notifications are filtered per tenant.
+
+## TLS
+
+Clients validate the server certificate as the system does, on every platform: chain, expiry, host name.
+`validateCertificate` replaces that decision (to accept a known self-signed certificate by its hash, say) and is applied
+on every platform; a handler that cannot use it is refused rather than silently ignored. To pin a certificate and still
+refuse an invalid one, check `errors == SslPolicyErrors.None` in it too.
+
+## Logs
+
+`logCommands: true` logs each SQL command at `Debug`, with `@Name` in place of the values. `logParameterValues: true` writes
+the values: names, e-mails and passwords would reach the log, so keep it for debugging.
 
 ## Secrets
 

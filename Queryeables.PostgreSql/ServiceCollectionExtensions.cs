@@ -22,9 +22,11 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection UseNpgsqlFactory(this IServiceCollection services,
         string connectionString,
         bool logCommands = false,
-        LogLevel commandLogLevel = LogLevel.Information)
+        LogLevel commandLogLevel = LogLevel.Debug,
+        bool logParameterValues = false)
     {
-        services.UseFactory<NpgsqlConnection>(connectionString, logCommands, commandLogLevel: commandLogLevel);
+        services.UseFactory<NpgsqlConnection>(connectionString, logCommands, commandLogLevel: commandLogLevel,
+            logParameterValues: logParameterValues);
         services.AddTransient<IDbConnection>(sp => sp.GetRequiredService<DbProviderFactory>().CreateConnection()
             ?? throw new InvalidOperationException("The factory could not create a connection."));
         return services;

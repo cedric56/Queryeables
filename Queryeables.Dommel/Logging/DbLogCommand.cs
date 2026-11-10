@@ -19,16 +19,19 @@ internal sealed class DbLogCommand : DbCommand
     private readonly DbCommand _inner;
     private readonly ILogger _logger;
     private readonly LogLevel _level;
+    private readonly bool _logValues;
     private bool _disposed;
 
     public DbLogCommand(
         DbCommand inner,
         ILogger logger,
-        LogLevel level = LogLevel.Information)
+        LogLevel level = LogLevel.Debug,
+        bool logValues = false)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _level = level;
+        _logValues = logValues;
     }
 
     [AllowNull]
@@ -126,6 +129,13 @@ internal sealed class DbLogCommand : DbCommand
             return;
 
         var sql = _inner.CommandText ?? string.Empty;
+        if (!_logValues)
+        {
+            // The parameters stay as @Name: the values (personal data, secrets) do not reach the log.
+            _logger.Log(_level, "SQL: {Sql}", sql);
+            return;
+        }
+
         foreach (IDataParameter parameter in _inner.Parameters)
         {
             if (parameter.Direction is ParameterDirection.Output or ParameterDirection.ReturnValue)

@@ -112,7 +112,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             ? GetAllAsync(serializer, context, ct)
             : TransportResult.RunAsync(async () =>
             {
-                var predicate = Filters.ToPredicate<T>(conditions!, any);
+                var predicate = Filters.ToPredicate<T>(conditions!, any, RemoteMembers<T>.Queryable);
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
                 await using var store = _storeFactory();
                 return SerializeMany(serializer, await ReadBoundedAsync(store, Restrict(predicate, context), ct));
@@ -122,7 +122,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         EntityRequestContext context, CancellationToken ct = default)
         => TransportResult.RunAsync(async () =>
         {
-            var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
+            var predicate = Filters.ToPredicate<T>(conditions ?? [], any, RemoteMembers<T>.Queryable);
+            CheckPage(pageNumber, Math.Min(pageSize, _maxPageSize));
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
             return SerializeMany(serializer,
@@ -135,8 +136,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
             : TransportResult.RunAsync(async () =>
             {
-                var predicate = Filters.ToPredicate<T>(conditions ?? [], any);
-                var order = Sort<T>.FromKeys(sort);       // only properties of T, at most Sort<T>.MaxKeys
+                var predicate = Filters.ToPredicate<T>(conditions ?? [], any, RemoteMembers<T>.Queryable);
+                var order = Sort<T>.FromKeys(sort, RemoteMembers<T>.Queryable);       // only queryable properties of T, at most Sort<T>.MaxKeys
+                CheckPage(pageNumber, Math.Min(pageSize, _maxPageSize));
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
                 await using var store = _storeFactory();
                 return SerializeMany(serializer,
@@ -177,6 +179,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
         await CheckRowsAsync(store, kind, value, context, ct);
+        await KeepServerOwnedAsync(store, kind, value, ct);
 
         // A graph: the parent and its children, in the batch's transaction.
         if (aggregate is IGraphRepository<T> { Graph: var graph })
@@ -221,10 +224,11 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         EntityRequestContext context, CancellationToken ct)
     {
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
-        if (rows is not null)
+        if (rows is not null || RemoteMembers<T>.ServerOwned.Count > 0)
         {
             await using var store = _storeFactory();
             await CheckRowsAsync(store, kind, value, context, ct);
+            await KeepServerOwnedAsync(store, kind, value, ct);
         }
 
         using (ChangeContext.Begin(context.ConnectionId))
@@ -245,6 +249,10 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     {
         var value = serializer.Deserialize<T>(entity) ?? throw new ArgumentException($"Empty {typeof(T).Name} entity.");
 
+        // What the server owns never comes from the client: discarded on insert, taken from the stored row on update.
+        if (kind == BatchOperationKind.Insert)
+            RemoteMembers<T>.DiscardClientValues(value);
+
         var operation = kind switch
         {
             BatchOperationKind.Insert => EntityOperation.Insert,
@@ -256,7 +264,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
         if (validate && kind is BatchOperationKind.Insert or BatchOperationKind.Update)
         {
-            var errors = EntityValidator.Validate(value).Select(e => e.ErrorMessage ?? "Invalid value.").ToList();
+            // The children of a graph too: a valid parent must not carry invalid children into the database.
+            var errors = EntityValidator.ValidateGraph(value).Select(e => e.ErrorMessage ?? "Invalid value.").ToList();
             if (errors.Count > 0)
                 throw new EntityStoreException(EntityErrorCode.Validation,
                     $"Invalid {typeof(T).Name}: {string.Join(" ", errors)}", errors);
@@ -266,6 +275,33 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     }
 
     // ---------- Internals ----------
+
+    /// <summary>On an update, the [ServerOwned] properties take the stored row's values, whatever the client sent.</summary>
+    private static async Task KeepServerOwnedAsync(IEntityStore store, BatchOperationKind kind, T value, CancellationToken ct)
+    {
+        if (kind != BatchOperationKind.Update || RemoteMembers<T>.ServerOwned.Count == 0)
+            return;
+        if (SyncMetadata.Key(typeof(T)) is not { } key)
+            throw new EntityStoreException(EntityErrorCode.NotSupported,
+                $"{typeof(T).Name} has [ServerOwned] properties but no key ([Key] or Id) to read its stored row with.");
+
+        var parameter = Expression.Parameter(typeof(T), "e");
+        var sameKey = Expression.Lambda<Func<T, bool>>(
+            Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(value), key.PropertyType)), parameter);
+        if (await store.FirstOrDefaultAsync(sameKey, ct) is { } stored)
+            RemoteMembers<T>.KeepServerValues(value, stored);
+    }
+
+    /// <summary>Deepest page a client may ask for, in rows skipped: beyond, the database would read them all to skip them.</summary>
+    public const int MaxOffset = 1_000_000;
+
+    private static void CheckPage(int pageNumber, int pageSize)
+    {
+        Paging.Validate(pageNumber, pageSize);
+        if ((long)(pageNumber - 1) * pageSize > MaxOffset)
+            throw new ArgumentOutOfRangeException(nameof(pageNumber),
+                $"The page starts beyond {MaxOffset} rows: narrow the filter, or sort and filter from the last row seen.");
+    }
 
     private Expression<Func<T, bool>> Restrict(Expression<Func<T, bool>> predicate, EntityRequestContext context)
         => rows is null ? predicate : rows.Restrict(predicate, context.User);

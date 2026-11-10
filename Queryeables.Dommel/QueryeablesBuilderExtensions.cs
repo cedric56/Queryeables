@@ -13,11 +13,12 @@ public static class QueryeablesBuilderExtensions
     /// </summary>
     /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL"). For development.</param>
     public static QueryeablesBuilder UseDommel<TConnection>(this QueryeablesBuilder builder, string connectionString,
-        bool logCommands = false, LogLevel commandLogLevel = LogLevel.Information)
+        bool logCommands = false, LogLevel commandLogLevel = LogLevel.Debug, bool logParameterValues = false)
         where TConnection : DbConnection, new()
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Services.UseFactory<TConnection>(connectionString, logCommands, commandLogLevel: commandLogLevel);
+        builder.Services.UseFactory<TConnection>(connectionString, logCommands, commandLogLevel: commandLogLevel,
+            logParameterValues: logParameterValues);
         return builder.UseDommelStores();
     }
 

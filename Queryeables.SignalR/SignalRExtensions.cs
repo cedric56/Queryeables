@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography.X509Certificates;
 
 namespace Queryeables.SignalR;
 
@@ -17,6 +16,10 @@ public static class SignalRExtensions
     /// </summary>
     /// <param name="session">Receives the connection id, which changes on every reconnection.</param>
     /// <param name="registry">When provided, the change feed is added to it to receive the local database changes.</param>
+    /// <param name="validateCertificate">
+    /// Custom certificate validation (a pinned certificate, for example): it replaces the system's decision. Without it, the
+    /// system validates the certificate, on every platform. Ignored in the browser.
+    /// </param>
     /// <returns>Function that stops the connection and detaches the change feed.</returns>
     /// <remarks>
     /// When the server is unreachable at startup, the method does not throw:
@@ -50,25 +53,12 @@ public static class SignalRExtensions
                     options.Transports = HttpTransportType.WebSockets;
                     options.SkipNegotiation = false; // keep negotiation, unless you are sure WebSockets alone is enough
                 }
-                else if (OperatingSystem.IsAndroid())
+                else if (validateCertificate is not null)
                 {
-                    options.HttpMessageHandlerFactory = _ => new SocketsHttpHandler()
-                    {
-                        SslOptions =
-                        {
-                            RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
-                                   validateCertificate is null || validateCertificate(
-                                        certificate switch
-                                        {
-                                            null => null,
-                                            X509Certificate2 cert2 => cert2,
-                                            _ => X509CertificateLoader.LoadCertificate(
-                                                certificate.GetRawCertData())
-                                        },
-                                        chain,
-                                        errors)
-                        }
-                    };
+                    // Both transports: the HTTP handler (negotiation, long polling, server-sent events) and the WebSocket.
+                    // Without a validator, nothing is changed: the system validates the certificate.
+                    options.HttpMessageHandlerFactory = inner => CertificateValidation.Attach(inner, validateCertificate);
+                    options.WebSocketConfiguration = socket => CertificateValidation.Attach(socket, validateCertificate);
                 }
             })
             .WithAutomaticReconnect(policy)
