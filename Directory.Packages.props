@@ -23,7 +23,7 @@
     <PackageVersion Include="MagicOnion.Client" Version="7.11.0" />
     <PackageVersion Include="Grpc.AspNetCore" Version="2.84.0" />
     <PackageVersion Include="GrpcWebSocketBridge.AspNetCore" Version="1.4.0" />
-    <PackageVersion Include="GrpcWebSocketBridge.Client" Version="1.4.0" />
+    <PackageVersion Include="GrpcWebSocketBridge.Client" Version="1.4.1" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.14" />
   </ItemGroup>
