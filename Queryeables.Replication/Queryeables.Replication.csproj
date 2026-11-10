@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>Queryeables.Replication</PackageId>
+    <Description>A durable server for the Routeables Remote Protocol: its log, merged documents and replicas in any Queryeables store (EF Core, MongoDB, Dommel, PostgreSQL), and the merged documents written to your own entities.</Description>
+  </PropertyGroup>
+
+  <!--
+    The Routeables Remote Protocol lives in the Routeables.SignalR repository (src/Routeables.Remote, no package reference). While
+    it is developed: its sources, checked out at RouteablesSignalRRoot (.external/Routeables.SignalR, then ../Routeables.SignalR);
+    its package when RouteablesRemoteVersion is given (dotnet pack -p:RouteablesRemoteVersion=2.0.0).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Routeables.Remote\src\Routeables.Remote\Routeables.Remote.csproj" />
+  </ItemGroup>
+  <!--<ItemGroup Condition="'$(RouteablesRemoteVersion)' != ''">
+    <PackageReference Include="Routeables.Remote" VersionOverride="$(RouteablesRemoteVersion)" />
+  </ItemGroup>-->
+
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Queryeables.Tests" />
+  </ItemGroup>
+
+</Project>

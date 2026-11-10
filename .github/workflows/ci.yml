@@ -14,6 +14,9 @@ permissions:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # The revision of Routeables.SignalR whose src/Routeables.Remote Queryeables.Replication is built against (until it uses the
+  # published package). Pin it to a commit, in its own change: a change there never breaks this build by surprise.
+  ROUTEABLES_SIGNALR_REF: master
 
 jobs:
   build:
@@ -37,6 +40,13 @@ jobs:
       QUERYEABLES_MONGODB: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesSignalRRoot).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: cedric56/Routeables.SignalR
+          ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
+          path: .external/Routeables.SignalR
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
@@ -156,6 +166,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesSignalRRoot).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: cedric56/Routeables.SignalR
+          ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
+          path: .external/Routeables.SignalR
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:

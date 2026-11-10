@@ -19,6 +19,12 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # The Routeables Remote Protocol, for Queryeables.Replication (see ci.yml).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: cedric56/Routeables.SignalR
+          ref: master
+          path: .external/Routeables.SignalR
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:

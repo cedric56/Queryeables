@@ -207,6 +207,7 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables.MagicOnion.Server`](Queryeables.MagicOnion.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
 | [`Queryeables.Browser`](Queryeables.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
 | [`Queryeables.SignalR`](Queryeables.SignalR/README.md), [`.SignalR.Server`](Queryeables.SignalR.Server/README.md) | Change notifications over SignalR |
+| [`Queryeables.Replication`](Queryeables.Replication/README.md) | A durable server for the Routeables Remote Protocol (offline-first replication with merge): its log and documents in any store, projected to your entities |
 | [`Queryeables.Templates`](Queryeables.Templates/README.md) | `dotnet new queryeables-console`, `queryeables-client-server` |
 
 ## Security

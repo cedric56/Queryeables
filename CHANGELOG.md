@@ -30,6 +30,9 @@ First public version.
   a name identifier nor a name) cannot send idempotent writes.
 
 ### Added
+- `Queryeables.Replication`: `EntityReplicationStore`, the log, merged documents and replicas of a Routeables Remote
+  Protocol server (`Routeables.Remote`) in any Queryeables store, one transaction per decision; `ReplicationProjection<T>`
+  writes the merged documents to the application's entities. Tested on memory, EF Core (SQLite) and MongoDB.
 - `Queryeables.Templates`: `dotnet new queryeables-console` and `queryeables-client-server`. The CI installs them from the
   packages it has just made, generates both outside the repository, builds and runs them.
 - A [tutorial](docs/tutorial.md) in four steps on one application (local, cache, graph, server and offline), and the way to
