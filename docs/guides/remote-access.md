@@ -10,7 +10,7 @@ call to its own stores.
 | Your code | `IPersonRepository`, `IEntityCache<Person, long>` | (the same entities) |
 | Remote core (`Queryeables`) | `RemoteEntityStore` | `EntityRequestDispatcher`, `EntityHandler<T>` |
 | Transport | `IEntityTransport` | forwards to the dispatcher |
-| MagicOnion | `Queryeables.Onion.Client` | `Queryeables.Server` |
+| MagicOnion | `Queryeables.MagicOnion.Client` | `Queryeables.MagicOnion.Server` |
 
 The remote core does not depend on MagicOnion: a transport implements `IEntityTransport` on the client and calls the
 dispatcher on the server. `dispatcher.AsTransport()` connects both in process, which the sample and the tests use.

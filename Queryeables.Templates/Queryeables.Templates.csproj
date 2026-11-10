@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The "dotnet new" templates: a package of files, nothing compiled. dotnet new install Queryeables.Templates -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Queryeables.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Description>dotnet new templates for Queryeables: queryeables-console (SQLite, a cache, a parent with its children) and queryeables-client-server (a MagicOnion server and its client, sharing their entities).</Description>
+    <PackageTags>dotnet-new;templates;queryeables</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <!-- No lib/ folder: it is a template package. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**" Pack="true" PackagePath="content" />
+  </ItemGroup>
+
+</Project>

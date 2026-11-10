@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
-using Queryeables.Onion;
-using Queryeables.Onion.Client;
+using Queryeables.MagicOnion;
+using Queryeables.MagicOnion.Client;
 using Queryeables.Remote;
-using Queryeables.Server;
+using Queryeables.MagicOnion.Server;
 using System.Net;
 
 namespace Queryeables.Benchmarks;

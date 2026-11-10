@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion.Client;
+namespace Queryeables.MagicOnion.Client;
 
 
 /// <summary>

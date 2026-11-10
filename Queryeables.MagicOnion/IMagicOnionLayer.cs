@@ -1,7 +1,7 @@
 using MagicOnion;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>
 /// MagicOnion service for remote entity access: the MagicOnion form of <see cref="IEntityTransport"/>.

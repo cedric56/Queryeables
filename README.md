@@ -22,9 +22,18 @@ builder or a query-string filter library, and not a GraphQL server. It is the la
 and remotely, in-memory caches that follow the database, parent-child graphs saved in one transaction, and change
 notifications between clients.
 
-> **Status:** early. Packages are not published on NuGet yet, and the API may still change.
+> **Status:** early. Packages are not published on NuGet yet, and the API may still change. To try it now, build them
+> from the sources into a local package source: three commands, in
+> [getting started](docs/getting-started.md#before-the-packages-are-published).
+
+```bash
+dotnet new install Queryeables.Templates
+dotnet new queryeables-console -n MyApp            # SQLite, a cache, a person and its contacts
+dotnet new queryeables-client-server -n Shop       # the same, through a MagicOnion server
+```
 
 📖 **[Documentation](https://cedric56.github.io/Queryeables/)**: [getting started](docs/getting-started.md),
+[tutorial](docs/tutorial.md) (local app, cache, graph, server, offline),
 [guides](docs/guides/stores-and-transactions.md), [benchmarks](docs/benchmarks.md),
 [when to choose something else](docs/introduction.md#when-to-choose-something-else).
 
@@ -77,11 +86,11 @@ setup and the source generator. There is nothing else to add.
 | MongoDB | [`Queryeables.MongoDB`](Queryeables.MongoDB/README.md) | `q.UseMongoDB(connectionString, "app", notifications: n => n.Watch<Person>())`, with change streams |
 | SQL Server, MySQL... | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | `q.UseDommel<SqlConnection>(connectionString)` |
 | Any EF Core provider | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | `q.UseEntityFramework(sp => new AppDbContext(options))` |
-| A Queryeables server | [`Queryeables.Onion.Client`](Queryeables.Onion.Client/README.md) | `q.UseMagicOnion("https://server:5001")` |
+| A Queryeables server | [`Queryeables.MagicOnion.Client`](Queryeables.MagicOnion.Client/README.md) | `q.UseMagicOnion("https://server:5001")` |
 | Your own store | [`Queryeables`](Queryeables.Core/README.md) | `q.UseStores(sp => new MyStore(...))` |
 
 ```bash
-dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .EntityFramework, .Onion.Client
+dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .EntityFramework, .MagicOnion.Client
 ```
 
 ## What you get
@@ -128,7 +137,7 @@ flowchart LR
     H -. MagicOnion or SignalR .-> M
 ```
 
-**Server**: [`Queryeables.Server`](Queryeables.Server/README.md).
+**Server**: [`Queryeables.MagicOnion.Server`](Queryeables.MagicOnion.Server/README.md).
 
 ```csharp
 builder.Services.UseQueryeables(q => q
@@ -193,11 +202,12 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables.MongoDB`](Queryeables.MongoDB/README.md) | Stores on MongoDB, with transactions and change streams |
 | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | Stores on EF Core |
 | [`Queryeables.SqlDependency`](Queryeables.SqlDependency/README.md) | SQL Server change notifications |
-| [`Queryeables.Onion`](Queryeables.Onion/README.md) | MagicOnion messages and serializer, shared by client and server |
-| [`Queryeables.Onion.Client`](Queryeables.Onion.Client/README.md) | `UseMagicOnion`, change hub subscription |
-| [`Queryeables.Server`](Queryeables.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
+| [`Queryeables.MagicOnion`](Queryeables.MagicOnion/README.md) | MagicOnion messages and serializer, shared by client and server |
+| [`Queryeables.MagicOnion.Client`](Queryeables.MagicOnion.Client/README.md) | `UseMagicOnion`, change hub subscription |
+| [`Queryeables.MagicOnion.Server`](Queryeables.MagicOnion.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
 | [`Queryeables.Browser`](Queryeables.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
 | [`Queryeables.SignalR`](Queryeables.SignalR/README.md), [`.SignalR.Server`](Queryeables.SignalR.Server/README.md) | Change notifications over SignalR |
+| [`Queryeables.Templates`](Queryeables.Templates/README.md) | `dotnet new queryeables-console`, `queryeables-client-server` |
 
 ## Security
 

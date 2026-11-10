@@ -15,9 +15,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Sqlite\Queryeables.Sqlite.csproj" />
-    <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
-    <ProjectReference Include="..\Queryeables.Onion.Client\Queryeables.Onion.Client.csproj" />
-    <ProjectReference Include="..\Queryeables.Server\Queryeables.Server.csproj" />
+    <ProjectReference Include="..\Queryeables.MagicOnion\Queryeables.MagicOnion.csproj" />
+    <ProjectReference Include="..\Queryeables.MagicOnion.Client\Queryeables.MagicOnion.Client.csproj" />
+    <ProjectReference Include="..\Queryeables.MagicOnion.Server\Queryeables.MagicOnion.Server.csproj" />
   </ItemGroup>
 
 </Project>

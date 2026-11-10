@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Cédric Boutin",
+  "classifications": ["Console", "Data"],
+  "identity": "Queryeables.Templates.Console",
+  "name": "Queryeables console application",
+  "description": "A console application with SQLite: a cache that follows the table, and a person saved with its contacts in one transaction.",
+  "shortName": "queryeables-console",
+  "sourceName": "QueryeablesApp",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "symbols": {
+    "QueryeablesVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "*-*",
+      "replaces": "QUERYEABLES_VERSION",
+      "description": "The version of the Queryeables packages: the latest one, previews included, by default."
+    }
+  }
+}

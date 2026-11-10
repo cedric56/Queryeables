@@ -2,6 +2,8 @@
   href: introduction.md
 - name: Getting started
   href: getting-started.md
+- name: Tutorial
+  href: tutorial.md
 - name: Guides
   href: guides/
 - name: Benchmarks

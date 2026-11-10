@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
+    <ProjectReference Include="..\Queryeables.MagicOnion\Queryeables.MagicOnion.csproj" />
     <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
   </ItemGroup>
 

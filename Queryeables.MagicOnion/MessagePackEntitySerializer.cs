@@ -1,7 +1,7 @@
 using MessagePack;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>
 /// <see cref="IEntitySerializer"/> with MessagePack, the serializer of MagicOnion. Entities need <c>[MessagePackObject]</c>

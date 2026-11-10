@@ -1,10 +1,10 @@
-# Queryeables.Onion
+# Queryeables.MagicOnion
 
 The [MagicOnion](https://github.com/Cysharp/MagicOnion) transport of [Queryeables](https://github.com/cedric56/Queryeables):
 what the client and the server share. Targets **.NET 10**.
 
-You do not reference it directly: [`Queryeables.Onion.Client`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Onion.Client/README.md) and
-[`Queryeables.Server`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Server/README.md) bring it.
+You do not reference it directly: [`Queryeables.MagicOnion.Client`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion.Client/README.md) and
+[`Queryeables.MagicOnion.Server`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion.Server/README.md) bring it.
 
 ## Contents
 

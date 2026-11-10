@@ -5,7 +5,7 @@ It holds the contracts (`IEntityStore`, `EntityResult`, caches, graphs), the rem
 and the source generator. It has no database and no transport: add a provider package to use it. Targets **.NET 10**.
 
 ```bash
-dotnet add package Queryeables.Sqlite   # or Queryeables.Dommel, .PostgreSql, .EntityFramework, .Onion.Client
+dotnet add package Queryeables.Sqlite   # or Queryeables.Dommel, .PostgreSql, .EntityFramework, .MagicOnion.Client
 ```
 
 Every provider brings this package: you rarely reference it directly, except to write your own store.

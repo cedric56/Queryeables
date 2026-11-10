@@ -1,7 +1,7 @@
 using MessagePack;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>MessagePack form of a <see cref="FilterCondition"/>.</summary>
 [MessagePackObject]

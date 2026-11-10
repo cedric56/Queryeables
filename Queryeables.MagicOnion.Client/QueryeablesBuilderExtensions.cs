@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion.Client;
+namespace Queryeables.MagicOnion.Client;
 
 public static class QueryeablesBuilderExtensions
 {

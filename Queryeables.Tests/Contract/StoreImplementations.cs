@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.EntityFramework;
-using Queryeables.Onion;
+using Queryeables.MagicOnion;
 using Queryeables.Remote;
 
 namespace Queryeables.Tests.Contract;

@@ -1,6 +1,6 @@
 ﻿using Queryeables.Abstraction;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>
 /// Receives changes from the MagicOnion hub and publishes them on the local change feed, except this client's own

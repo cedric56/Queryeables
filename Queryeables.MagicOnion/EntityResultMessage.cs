@@ -2,7 +2,7 @@ using MessagePack;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>MessagePack form of a <see cref="TransportResult"/>, the server response.</summary>
 [MessagePackObject]

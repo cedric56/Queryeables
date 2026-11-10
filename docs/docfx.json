@@ -12,9 +12,9 @@
             "Queryeables.Sqlite/*.csproj",
             "Queryeables.PostgreSql/*.csproj",
             "Queryeables.EntityFramework/*.csproj",
-            "Queryeables.Onion/*.csproj",
-            "Queryeables.Onion.Client/*.csproj",
-            "Queryeables.Server/*.csproj"
+            "Queryeables.MagicOnion/*.csproj",
+            "Queryeables.MagicOnion.Client/*.csproj",
+            "Queryeables.MagicOnion.Server/*.csproj"
           ]
         }
       ],

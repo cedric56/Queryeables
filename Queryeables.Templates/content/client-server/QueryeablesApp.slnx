@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="QueryeablesApp.Shared/QueryeablesApp.Shared.csproj" />
+  <Project Path="QueryeablesApp.Server/QueryeablesApp.Server.csproj" />
+  <Project Path="QueryeablesApp.Client/QueryeablesApp.Client.csproj" />
+</Solution>

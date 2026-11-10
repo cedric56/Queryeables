@@ -25,7 +25,7 @@
     <ProjectReference Include="..\Queryeables.MongoDB\Queryeables.MongoDB.csproj" />
     <ProjectReference Include="..\Queryeables.Dommel\Queryeables.Dommel.csproj" />
     <ProjectReference Include="..\Queryeables.EntityFramework\Queryeables.EntityFramework.csproj" />
-    <ProjectReference Include="..\Queryeables.Onion\Queryeables.Onion.csproj" />
+    <ProjectReference Include="..\Queryeables.MagicOnion\Queryeables.MagicOnion.csproj" />
   </ItemGroup>
 
   <!-- The source generator, run on the test entities like in an application, and called directly by the generator tests. -->

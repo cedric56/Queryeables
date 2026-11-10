@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Cédric Boutin",
+  "classifications": ["Web", "Console", "Data"],
+  "identity": "Queryeables.Templates.ClientServer",
+  "name": "Queryeables client and server",
+  "description": "A MagicOnion server with SQLite, its console client, and the entities they share: the client code is the code of a local application.",
+  "shortName": "queryeables-client-server",
+  "sourceName": "QueryeablesApp",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "solution" },
+  "symbols": {
+    "QueryeablesVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "*-*",
+      "replaces": "QUERYEABLES_VERSION",
+      "description": "The version of the Queryeables packages: the latest one, previews included, by default."
+    }
+  }
+}

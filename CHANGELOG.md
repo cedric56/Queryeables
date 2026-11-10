@@ -21,6 +21,7 @@ First public version.
   | `IEntityRemote`, `MagicOnionRemote`, `AsRemote()` | `IEntityTransport`, `MagicOnionTransport`, `AsTransport()` |
   | `EntityRowFilter` | `RowLevelSecurity` |
   | `SyncConventionsStore` | `SyncConventionsDecorator` |
+  | `Queryeables.Onion`, `Queryeables.Onion.Client`, `Queryeables.Server` (packages and namespaces) | `Queryeables.MagicOnion`, `Queryeables.MagicOnion.Client`, `Queryeables.MagicOnion.Server` |
 - Changes reported by clients to a hub are no longer relayed by default (`ChangeHubOptions.RelayClientChanges`).
 - The SQL log (`logCommands`) is written at `Debug` instead of `Information`, without the parameter values unless
   `logParameterValues: true`.
@@ -29,6 +30,10 @@ First public version.
   a name identifier nor a name) cannot send idempotent writes.
 
 ### Added
+- `Queryeables.Templates`: `dotnet new queryeables-console` and `queryeables-client-server`. The CI installs them from the
+  packages it has just made, generates both outside the repository, builds and runs them.
+- A [tutorial](docs/tutorial.md) in four steps on one application (local, cache, graph, server and offline), and the way to
+  use the packages before they are published (a local package source, in [getting started](docs/getting-started.md)).
 - `[NotQueryable]` and `[ServerOwned]`; columns left out by the serializer can no longer be filtered or sorted on.
 - `EntityServerBuilder.DetailedErrors` and `MaxBatchSize`; `ChangeHubOptions` (client changes, rate, queue, key length);
   `CertificateValidation` for the transports; `DbFactoryOptions.LogParameterValues`.

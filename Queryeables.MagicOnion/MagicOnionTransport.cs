@@ -1,7 +1,7 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>
 /// The MagicOnion transport of the client: <see cref="IEntityTransport"/> over the <see cref="IMagicOnionLayer"/> service.

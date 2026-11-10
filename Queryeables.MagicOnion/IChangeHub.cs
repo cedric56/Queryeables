@@ -1,6 +1,6 @@
 ﻿using MagicOnion;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 public interface IChangeHubReceiver<TObject> where TObject : class
 {

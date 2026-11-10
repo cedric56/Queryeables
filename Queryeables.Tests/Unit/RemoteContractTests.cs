@@ -1,5 +1,5 @@
 using Queryeables.Abstraction;
-using Queryeables.Onion;
+using Queryeables.MagicOnion;
 using Queryeables.Remote;
 using System.Security.Claims;
 

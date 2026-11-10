@@ -1,11 +1,11 @@
-# Queryeables.Onion.Client
+# Queryeables.MagicOnion.Client
 
 Use a Queryeables server from a client application (desktop, mobile, browser) over
 [MagicOnion](https://github.com/Cysharp/MagicOnion). The client code is the same as with a local database: only the
 provider changes. Targets **.NET 10**.
 
 ```bash
-dotnet add package Queryeables.Onion.Client
+dotnet add package Queryeables.MagicOnion.Client
 ```
 
 ## Set up

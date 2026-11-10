@@ -1,7 +1,7 @@
 using MessagePack;
 using Queryeables.Abstraction;
 
-namespace Queryeables.Onion;
+namespace Queryeables.MagicOnion;
 
 /// <summary>
 /// Wire form of <see cref="EntityChange{T}"/> for the MagicOnion hub. Annotated for MessagePack so that its source

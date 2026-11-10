@@ -106,6 +106,39 @@ jobs:
       - name: Pack
         run: dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
 
+      # The way in of a newcomer, with the packages just made: the templates are installed, generated outside the
+      # repository, restored from these packages (and only them for Queryeables.*), built and run.
+      - name: Templates, from the packages
+        shell: bash
+        run: |
+          feed="$GITHUB_WORKSPACE/artifacts"
+          work="$RUNNER_TEMP/newcomer"
+          mkdir -p "$work" && cd "$work"
+          cat > nuget.config <<EOF
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              <add key="queryeables-local" value="$feed" />
+            </packageSources>
+            <packageSourceMapping>
+              <packageSource key="queryeables-local"><package pattern="Queryeables" /><package pattern="Queryeables.*" /></packageSource>
+              <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
+          dotnet new install "$feed/Queryeables.Templates.${{ steps.version.outputs.value }}.nupkg"
+
+          dotnet new queryeables-console -n Newcomer -o console
+          dotnet run --project console
+
+          dotnet new queryeables-client-server -n Shop -o client-server
+          dotnet build client-server/Shop.slnx
+          dotnet run --project client-server/Shop.Server --no-build &
+          server=$!
+          trap 'kill $server' EXIT
+          dotnet run --project client-server/Shop.Client --no-build
+
       - name: Upload packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

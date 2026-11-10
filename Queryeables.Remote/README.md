@@ -51,4 +51,4 @@ q.AddEntityServer(serializer, server => server
 
 Implement `IEntityTransport` on the client, and forward each call to `EntityRequestDispatcher` on the server with an
 `EntityRequestContext` (the authenticated user, the notification connection). `TransportResult` carries the data or the
-error kind. [`Queryeables.Onion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Onion/README.md) is the MagicOnion transport.
+error kind. [`Queryeables.MagicOnion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion/README.md) is the MagicOnion transport.

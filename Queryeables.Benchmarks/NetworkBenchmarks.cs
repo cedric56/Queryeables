@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
-using Queryeables.Onion;
+using Queryeables.MagicOnion;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
