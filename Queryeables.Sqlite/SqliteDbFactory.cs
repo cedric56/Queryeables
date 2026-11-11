@@ -4,6 +4,7 @@ using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.Dommel.Logging;
 using SQLitePCL;
+using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
 
@@ -40,6 +41,15 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
     /// </summary>
     public TimeSpan UnsignaledCommitDelay { get; init; } = TimeSpan.FromMilliseconds(50);
 
+    /// <summary>
+    /// A commit made outside <see cref="DommelEntityStore"/> is reported again after this delay: if it took longer than
+    /// <see cref="UnsignaledCommitDelay"/> (a slow disk), the first report was read before the commit, the second after.
+    /// </summary>
+    public TimeSpan UnsignaledCommitRecheck { get; init; } = TimeSpan.FromSeconds(1);
+
+    // Whether the rowid of a table is its key (an INTEGER PRIMARY KEY): only then is a change reported with its key.
+    private readonly ConcurrentDictionary<string, bool> _rowIdIsKey = new(StringComparer.OrdinalIgnoreCase);
+
     public override DbConnection CreateConnection()
     {
         var connection = base.CreateConnection();
@@ -69,17 +79,19 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         public readonly List<Change> Committed = [];
     }
 
-    private void PublishCommitted(ConnectionChanges changes)
+    /// <returns>The changes reported, or null when there were none (the store reported them first).</returns>
+    private List<Change>? PublishCommitted(ConnectionChanges changes)
     {
         List<Change> committed;
         lock (changes.Gate)
         {
             if (changes.Committed.Count == 0)
-                return;
+                return null;
             committed = [.. changes.Committed];
             changes.Committed.Clear();
         }
         Publish(committed);
+        return committed;
     }
 
     private void RegisterHooks(SqliteConnection sqlite, ConnectionChanges changes)
@@ -103,7 +115,8 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
             }
             else
             {
-                Publish([change]);
+                // Off the SQLite thread: the report may read the schema (RowIdIsKey) on another connection.
+                _ = Task.Run(() => Publish([change]));
             }
         }, null);
 
@@ -118,12 +131,15 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
             }
 
             // Reported when the store signals the end of the commit; otherwise (a commit made without the store),
-            // after a short delay, outside the SQLite thread.
+            // after a short delay, outside the SQLite thread, and once more later in case the commit was not over yet.
             if (any)
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(UnsignaledCommitDelay);
-                    PublishCommitted(changes);
+                    if (PublishCommitted(changes) is not { } unsignaled)
+                        return;
+                    await Task.Delay(UnsignaledCommitRecheck);
+                    Publish(unsignaled);
                 });
 
             return 0; // 0 = let the commit proceed
@@ -147,12 +163,56 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         {
             try
             {
-                _registry.Publish(change.Type, change.Table, change.RowId, change.ConnectionId);
+                // The rowid is the key of an INTEGER PRIMARY KEY table only. Otherwise ("Id INT PRIMARY KEY", a text key...)
+                // the change is reported without a key: the caches of the table synchronize instead of reading another row.
+                var key = RowIdIsKey(change.Table) ? EntityKey.Format(change.RowId) : string.Empty;
+                _registry.Publish(change.Type, change.Table, key, change.ConnectionId);
             }
             catch (Exception ex)
             {
                 Logger?.LogError(ex, "Failed to report the change {Table}#{RowId}.", change.Table, change.RowId);
             }
+        }
+    }
+
+    /// <summary>
+    /// Whether the table's primary key is its rowid: a single column declared exactly INTEGER (an alias of the rowid). Read
+    /// once per table, on a connection of its own (never inside a SQLite hook). A table the probe cannot see (a private
+    /// in-memory database) keeps the rowid, as before; a WITHOUT ROWID table reports nothing to the hooks at all.
+    /// </summary>
+    private bool RowIdIsKey(string table)
+    {
+        if (_rowIdIsKey.TryGetValue(table, out var known))
+            return known;
+        try
+        {
+            using var connection = base.CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA table_info(\"{table.Replace("\"", "\"\"", StringComparison.Ordinal)}\")";
+            var keys = new List<string>();
+            var columns = 0;
+            using (var reader = command.ExecuteReader())
+            {
+                // cid, name, type, notnull, dflt_value, pk
+                while (reader.Read())
+                {
+                    columns++;
+                    if (reader.GetInt64(5) > 0)
+                        keys.Add(reader.GetString(2));
+                }
+            }
+            if (columns == 0)
+                return true;
+            var isKey = keys is [var type] && string.Equals(type.Trim(), "INTEGER", StringComparison.OrdinalIgnoreCase);
+            if (!isKey)
+                Logger?.LogInformation("The key of {Table} is not its rowid: its changes are reported without a key, and its caches synchronize.", table);
+            return _rowIdIsKey[table] = isKey;
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException)
+        {
+            Logger?.LogWarning(ex, "The key of {Table} could not be read: its changes are reported without a key.", table);
+            return false;
         }
     }
 

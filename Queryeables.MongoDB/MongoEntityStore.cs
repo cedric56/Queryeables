@@ -25,6 +25,9 @@ namespace Queryeables.MongoDB;
 [RequiresDynamicCode(MongoAot.DynamicCode)]
 public sealed class MongoEntityStore : IEntityStore
 {
+    /// <summary>Sorted pages are a sort, skip and limit of the server.</summary>
+    public bool SortsInStore => true;
+
     /// <summary>The collection of the counters that generate numeric keys.</summary>
     public const string CountersCollection = "queryeables_counters";
 

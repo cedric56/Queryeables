@@ -1,4 +1,12 @@
 <Solution>
+  <!--
+    Routeables.Remote, in the repository Routeables.SignalR next to this one: Queryeables.Replication references it, and Visual
+    Studio restores only the projects of the solution. Its package is published by Routeables.SignalR: the CI drops the one
+    "dotnet pack" makes here.
+  -->
+  <Folder Name="/Routeables.SignalR/">
+    <Project Path="../Routeables.SignalR/src/Routeables.Remote/Routeables.Remote.csproj" />
+  </Folder>
   <Folder Name="/Samples/">
     <Project Path="Samples/Queryeables.OfflineDemo/Queryeables.OfflineDemo.csproj" />
     <Project Path="Samples/Queryeables.Sample/Queryeables.Sample.csproj" />

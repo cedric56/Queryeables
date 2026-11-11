@@ -25,6 +25,8 @@ public sealed class OfflineStoreFactory(IEntityStoreFactory online, OfflineMode 
 /// <summary>A remote store that reports a lost network to <see cref="OfflineMode"/>, and otherwise changes nothing.</summary>
 internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) : IEntityStore
 {
+    public bool SortsInStore => inner.SortsInStore;
+
     public Task<IReadOnlyList<TEntity>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(CancellationToken ct = default)
         where TEntity : class
         => Watch(inner.GetAllAsync<TEntity>(ct), ct);

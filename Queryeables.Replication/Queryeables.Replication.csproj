@@ -10,20 +10,17 @@
   </PropertyGroup>
 
   <!--
-    The Routeables Remote Protocol lives in the Routeables.SignalR repository (src/Routeables.Remote, no package reference). While
-    it is developed: its sources, checked out at RouteablesSignalRRoot (.external/Routeables.SignalR, then ../Routeables.SignalR);
-    its package when RouteablesRemoteVersion is given (dotnet pack -p:RouteablesRemoteVersion=2.0.0).
+    The Routeables Remote Protocol (src/Routeables.Remote, no package reference). For now its sources, in the repository
+    Routeables.SignalR next to this one (RouteablesRemoteRoot, Directory.Build.props). Once Routeables.Remote
+    is published, the package replaces them (see the commented reference).
   -->
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
+    <ProjectReference Include="$(RouteablesRemoteRoot)src\Routeables.Remote\Routeables.Remote.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\Routeables.Remote\src\Routeables.Remote\Routeables.Remote.csproj" />
-  </ItemGroup>
-  <!--<ItemGroup Condition="'$(RouteablesRemoteVersion)' != ''">
+  <!--<ItemGroup>
     <PackageReference Include="Routeables.Remote" VersionOverride="$(RouteablesRemoteVersion)" />
   </ItemGroup>-->
-
 
   <ItemGroup>
     <InternalsVisibleTo Include="Queryeables.Tests" />

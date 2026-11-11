@@ -31,6 +31,11 @@ public sealed class ChangeHubOptions
 /// receive its own change: the server only believes that name when the connection belongs to the caller. Otherwise a
 /// client could name another user's connection and keep the change from it.
 /// </summary>
+/// <remarks>
+/// Only a user that can be told apart owns its connections. Anonymous users (and users without a name identifier nor a
+/// name) all have the same key: one of them could claim another's connection, so none does, and their changes reach every
+/// client, their author included (a cache that reads its own change again).
+/// </remarks>
 public sealed class ConnectionOwners
 {
     private readonly ConcurrentDictionary<string, string> _owners = new(StringComparer.Ordinal);
@@ -39,7 +44,10 @@ public sealed class ConnectionOwners
     public void Register(string connectionId, ClaimsPrincipal? user)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
-        _owners[connectionId] = UserKey.Of(user) ?? string.Empty;
+        if (UserKey.Of(user) is { Length: > 0 } owner)
+            _owners[connectionId] = owner;
+        else
+            _owners.TryRemove(connectionId, out _);
     }
 
     public void Remove(string connectionId)
@@ -53,7 +61,8 @@ public sealed class ConnectionOwners
     /// user's), so that the change goes to every client, the caller included.
     /// </summary>
     public string? Verify(string? connectionId, ClaimsPrincipal? user)
-        => connectionId is not null && _owners.TryGetValue(connectionId, out var owner) && owner == (UserKey.Of(user) ?? string.Empty)
+        => connectionId is not null && _owners.TryGetValue(connectionId, out var owner)
+           && UserKey.Of(user) is { Length: > 0 } caller && owner == caller
             ? connectionId
             : null;
 }
@@ -65,6 +74,11 @@ public static class UserKey
     /// The issuer and subject of the user (<see cref="ClaimTypes.NameIdentifier"/>, else its name); an empty key for an
     /// anonymous user; null for an authenticated user with neither, who cannot be told apart from another.
     /// </summary>
+    /// <remarks>
+    /// Every anonymous user has the same, empty key: it owns no connection (<see cref="ConnectionOwners"/>), and its
+    /// operation ids (offline writes) are told apart only by their own randomness: a GUID another anonymous client
+    /// cannot guess.
+    /// </remarks>
     public static string? Of(ClaimsPrincipal? user)
     {
         if (user?.Identity is not { IsAuthenticated: true } identity)

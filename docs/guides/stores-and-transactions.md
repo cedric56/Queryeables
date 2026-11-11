@@ -63,7 +63,8 @@ Where sorting and projections run:
 | --- | --- | --- |
 | EF Core | In the database, the key breaking ties | In the database: only the selected columns are read |
 | Remote | By the server, with its own store; only the page crosses the network | On the client, after reading the entities (no expression goes over the wire) |
-| Dommel, your own store | In memory, after the filtered read | In memory, after the read |
+| Dommel | In the database (ORDER BY, then LIMIT or OFFSET/FETCH), the key breaking ties | In memory, after the read |
+| Your own store | In memory, after the filtered read (`SortsInStore` is false): a server reads at most `maxReadSize` rows for it | In memory, after the read |
 
 A sort names properties of the entity, at most 8; a server checks them against the exposed type.
 

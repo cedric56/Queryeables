@@ -108,6 +108,24 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- The build: `Queryeables.Replication` references `Routeables.Remote` in the Routeables.SignalR repository next to this one
+  (`RouteablesRemoteRoot`), the path the CI provides too; the solution lists that project, as Visual Studio needs.
+- A remote client could make the server read a whole table with a sorted page on Dommel (SQLite, PostgreSQL, SQL Server):
+  `DommelEntityStore` sorts and pages in the database (ORDER BY with LIMIT or OFFSET/FETCH, the key breaking ties), and
+  the server bounds a sorted page on a store that sorts in memory to `maxReadSize` rows (`IEntityStore.SortsInStore`).
+- An update checked against the stored row (row filter, `[ServerOwned]` values) reads it and writes it in one
+  transaction.
+- A commit of a `RemoteEntityStore` carries an operation id, and is sent again with it when the call fails
+  (`BatchRetries`, 2): the server applies it once (`IEntityTransport.ExecuteBatchOnceAsync`, MagicOnion included).
+- `!(e.Flag == true)` on a `bool?` is refused (as an ordering on a nullable is): the server and the offline copy would
+  disagree on null. Write `e.Flag != true`.
+- An anonymous user owns no hub connection: another anonymous client cannot keep a change from it.
+- SQLite: a change of a table whose key is not its rowid (`Id INT PRIMARY KEY`) is reported without a key, so that its
+  caches synchronize instead of reading another row; a commit made outside the stores is reported again after one second.
+- A change feed without `[Table]` also answers to Dommel's plural (`Person` → `Persons`).
+- PostgreSQL: notifications carry the schema (two tables of one name in two schemas are told apart) and the key column
+  only, not the whole row.
+- `Queryeables.Server/`, left over from the renaming to `Queryeables.MagicOnion.Server`, is removed.
 - Security, from the November audit:
   - On Android, the MagicOnion and SignalR clients accepted any server certificate when no validator was given
     (interception). The system now validates it on every platform.

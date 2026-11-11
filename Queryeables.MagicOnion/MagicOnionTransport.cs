@@ -54,6 +54,9 @@ public sealed class MagicOnionTransport(IMagicOnionLayer layer) : IEntityTranspo
     public async Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).ExecuteBatchAsync(BatchOperationMessage.From(operations))).ToTransportResult();
 
+    public async Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
+        => (await _layer.WithCancellationToken(ct).ExecuteBatchOnceAsync(operationId, BatchOperationMessage.From(operations))).ToTransportResult();
+
     public async Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
         CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).WriteOnceAsync(operationId, kind, type, entity, connectionId)).ToTransportResult();

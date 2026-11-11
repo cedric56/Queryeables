@@ -109,4 +109,8 @@ internal static class IdempotencyKey
     /// </summary>
     public static string? Of(Guid operationId, ClaimsPrincipal? user, string type, BatchOperationKind kind)
         => UserKey.Of(user) is { } who ? $"{who.Length}:{who}:{type.Length}:{type}:{(int)kind}:{operationId:N}" : null;
+
+    /// <summary>A batch: the operation for this user, apart from every single write (no type is empty).</summary>
+    public static string? OfBatch(Guid operationId, ClaimsPrincipal? user)
+        => UserKey.Of(user) is { } who ? $"{who.Length}:{who}:0::batch:{operationId:N}" : null;
 }

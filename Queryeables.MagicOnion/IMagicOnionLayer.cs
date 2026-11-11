@@ -48,6 +48,9 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
     /// </summary>
     UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations);
 
+    /// <summary>A batch applied once per <paramref name="operationId"/>: sent again after a lost answer, it returns the first result.</summary>
+    UnaryResult<EntityResultMessage> ExecuteBatchOnceAsync(Guid operationId, BatchOperationMessage[] operations);
+
     /// <summary>
     /// A write applied once per <paramref name="operationId"/>: sent again after a lost answer, it returns the first result
     /// (offline synchronization).

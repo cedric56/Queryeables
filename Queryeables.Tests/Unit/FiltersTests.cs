@@ -16,12 +16,13 @@ public class FiltersTests
         public int? SponsorId { get; set; }
         public Guid Ref { get; set; }
         public DateTime Creation { get; set; }
+        public bool? Verified { get; set; }
     }
 
     private static readonly Row[] Rows =
     [
-        new() { Id = 1, Name = "Ana", Status = Status.Active, Active = true, SponsorId = null, Ref = Guid.Parse("11111111-1111-1111-1111-111111111111"), Creation = new DateTime(2026, 1, 1) },
-        new() { Id = 2, Name = "Bob", Status = Status.Inactive, Active = false, SponsorId = 1, Ref = Guid.Empty, Creation = new DateTime(2026, 6, 1) },
+        new() { Id = 1, Name = "Ana", Status = Status.Active, Active = true, SponsorId = null, Ref = Guid.Parse("11111111-1111-1111-1111-111111111111"), Creation = new DateTime(2026, 1, 1), Verified = true },
+        new() { Id = 2, Name = "Bob", Status = Status.Inactive, Active = false, SponsorId = 1, Ref = Guid.Empty, Creation = new DateTime(2026, 6, 1), Verified = false },
         new() { Id = 5, Name = "Annabelle", Status = Status.Active, Active = true, SponsorId = 1, Ref = Guid.Empty, Creation = new DateTime(2026, 9, 1) },
     ];
 
@@ -129,6 +130,16 @@ public class FiltersTests
     [Fact]
     public void Negating_an_ordering_on_a_nullable_is_rejected()
         => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !(c.SponsorId > 0)));
+
+    [Fact]
+    public void Negating_a_nullable_flag_is_rejected_and_its_explicit_form_kept()
+    {
+        // !(Verified == true) is true for a null in C# (the offline copy), Verified == false is not (the server).
+        var error = Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !(c.Verified == true)));
+        Assert.Contains("!= true", error.Message);
+        AssertRoundTrip(c => c.Verified != true);
+        AssertRoundTrip(c => !c.Active);                        // a flag that cannot be null: as before
+    }
 
     [Fact]
     public void Comparing_two_properties_is_rejected()

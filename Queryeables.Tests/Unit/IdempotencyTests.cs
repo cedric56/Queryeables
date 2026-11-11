@@ -59,6 +59,94 @@ public class IdempotencyTests
     }
 
     [Fact]
+    public async Task A_batch_sent_again_with_its_id_is_applied_once()
+    {
+        var id = Guid.NewGuid();
+        BatchOperation[] batch = [new(EntityName.Of<TestClient>(), BatchOperationKind.Insert, Client("Ana"), null),
+                                  new(EntityName.Of<TestClient>(), BatchOperationKind.Insert, Client("Bob"), null)];
+        var first = await _dispatcher.ExecuteBatchOnceAsync(id, batch, As("ana"));
+        var again = await _dispatcher.ExecuteBatchOnceAsync(id, batch, As("ana"));
+
+        Assert.True(first.Successful);
+        Assert.Equal(first.Data, again.Data);
+        Assert.Equal(2, _database.All<TestClient>().Count);
+        Assert.Equal(EntityErrorCode.InvalidRequest, (await _dispatcher.ExecuteBatchOnceAsync(Guid.Empty, batch, As("ana"))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_commit_whose_answer_is_lost_is_sent_again_and_applied_once()
+    {
+        var transport = new LosingTransport(_dispatcher.AsTransport(As("ana")));
+        await using var store = new RemoteEntityStore(transport, _serializer);
+        var ana = new TestClient { Name = "Ana" };
+
+        await using (var transaction = await store.BeginTransactionAsync())
+        {
+            await store.InsertAsync(ana);
+            transport.LoseNextAnswer = true;
+            Assert.True((await transaction.CommitAsync()).Successful);
+        }
+
+        Assert.Equal(2, transport.BatchCalls);                 // the first answer was lost
+        Assert.Single(_database.All<TestClient>());
+        Assert.NotEqual(0, ana.Id);                            // the key of the first, and only, insert
+    }
+
+    [Fact]
+    public async Task A_transport_without_operation_ids_sends_a_plain_batch_once()
+    {
+        var transport = new LosingTransport(_dispatcher.AsTransport(As("ana"))) { CarriesIds = false };
+        await using var store = new RemoteEntityStore(transport, _serializer);
+
+        await using (var transaction = await store.BeginTransactionAsync())
+        {
+            await store.InsertAsync(new TestClient { Name = "Ana" });
+            Assert.True((await transaction.CommitAsync()).Successful);
+        }
+
+        Assert.Equal(1, transport.PlainBatches);
+        Assert.Single(_database.All<TestClient>());
+    }
+
+    /// <summary>A network that delivers a batch to the server, then may lose its answer.</summary>
+    private sealed class LosingTransport(IEntityTransport inner) : IEntityTransport
+    {
+        public bool LoseNextAnswer { get; set; }
+        public bool CarriesIds { get; init; } = true;
+        public int BatchCalls { get; private set; }
+        public int PlainBatches { get; private set; }
+
+        public async Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
+        {
+            if (!CarriesIds)
+                return TransportResult.Failure(EntityErrorCode.NotSupported, "No ids.");
+            BatchCalls++;
+            var result = await inner.ExecuteBatchOnceAsync(operationId, operations, ct);
+            if (LoseNextAnswer)
+            {
+                LoseNextAnswer = false;
+                throw new IOException("The connection was reset.");
+            }
+            return result;
+        }
+
+        public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
+        {
+            PlainBatches++;
+            return inner.ExecuteBatchAsync(operations, ct);
+        }
+
+        public Task<TransportResult> GetAllAsync(string type, CancellationToken ct = default) => inner.GetAllAsync(type, ct);
+        public Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any, CancellationToken ct = default) => inner.SelectAsync(type, conditions, any, ct);
+        public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize, CancellationToken ct = default)
+            => inner.SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct);
+        public Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default) => inner.GetChangesAsync(type, sinceUtc, ct);
+        public Task<TransportResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default) => inner.InsertAsync(type, entity, connectionId, ct);
+        public Task<TransportResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default) => inner.UpdateAsync(type, entity, connectionId, ct);
+        public Task<TransportResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default) => inner.DeleteAsync(type, entity, connectionId, ct);
+    }
+
+    [Fact]
     public async Task A_refused_operation_is_not_remembered_and_is_checked_again()
     {
         var invalid = await _dispatcher.WriteOnceAsync(Guid.Empty, EntityName.Of<TestClient>(), BatchOperationKind.Insert, Client("X"), As("ana"));

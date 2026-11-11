@@ -18,6 +18,12 @@ A `[ServerOwned]` property never takes its value from a client: on an insert it 
 the stored value is kept, whatever was sent. For a creator, an approval flag, a role, a balance: set them in the
 server's own code or in the database.
 
+An update reads the stored row (its `[ServerOwned]` values, and its owner with a row filter) and writes it back in one
+transaction. Under READ COMMITTED (PostgreSQL, SQL Server), the server's own code may still change the row between the
+two: give such an entity a version (`[ConcurrencyCheck] public long Version`), and a client update made against the old row becomes a `Conflict`
+instead of writing an old balance back. An entity saved by its own transactional service (`IAggregateRepository`) is
+checked before the service's transaction: its service decides.
+
 ```csharp
 public class Account
 {

@@ -24,6 +24,8 @@ namespace Queryeables.Abstraction;
 public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? clock = null) : IEntityStore
 {
     private readonly IEntityStore _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+
+    public bool SortsInStore => _inner.SortsInStore;
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;

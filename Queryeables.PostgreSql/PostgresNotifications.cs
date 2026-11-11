@@ -57,6 +57,15 @@ public sealed class PostgresNotifications
         return Watch(table);
     }
 
+    /// <summary>
+    /// The name a change of <paramref name="schema"/>.<paramref name="table"/> is reported under: <c>schema.table</c> for a
+    /// table watched with its schema (two tables of one name in two schemas are told apart), the name otherwise.
+    /// </summary>
+    internal string ReportedName(string? schema, string table)
+        => _tables.Find(t => t.Name == table && t.Schema is not null && t.Schema == schema) is { } qualified
+            ? $"{qualified.Schema}.{qualified.Name}"
+            : table;
+
     /// <summary>Watches a table by name.</summary>
     public PostgresNotifications Watch(WatchedTable table)
     {
@@ -76,17 +85,19 @@ public sealed class PostgresNotifications
         sql.Append($"""
             CREATE OR REPLACE FUNCTION {FunctionName}() RETURNS trigger AS $queryeables$
             DECLARE
-                changed jsonb;
+                changed_key text;
             BEGIN
+                -- The key column only (its name is the trigger's argument), not the whole row.
                 IF TG_OP = 'DELETE' THEN
-                    changed := to_jsonb(OLD);
+                    EXECUTE format('SELECT ($1).%I::text', TG_ARGV[0]) USING OLD INTO changed_key;
                 ELSE
-                    changed := to_jsonb(NEW);
+                    EXECUTE format('SELECT ($1).%I::text', TG_ARGV[0]) USING NEW INTO changed_key;
                 END IF;
                 PERFORM pg_notify('{Channel}', json_build_object(
+                    'schema', TG_TABLE_SCHEMA,
                     'table', TG_TABLE_NAME,
                     'op', TG_OP,
-                    'key', changed ->> TG_ARGV[0])::text);
+                    'key', changed_key)::text);
                 RETURN NULL;
             END;
             $queryeables$ LANGUAGE plpgsql;
@@ -95,7 +106,7 @@ public sealed class PostgresNotifications
 
         foreach (var table in _tables)
         {
-            var trigger = Quote($"{FunctionName}_{table.Name}");
+            var trigger = Quote(table.Schema is null ? $"{FunctionName}_{table.Name}" : $"{FunctionName}_{table.Schema}_{table.Name}");
             sql.Append($"DROP TRIGGER IF EXISTS {trigger} ON {table.QualifiedName};\n");
             sql.Append($"CREATE TRIGGER {trigger} AFTER INSERT OR UPDATE OR DELETE ON {table.QualifiedName} ");
             sql.Append($"FOR EACH ROW EXECUTE FUNCTION {FunctionName}({Literal(table.KeyColumn)});\n");

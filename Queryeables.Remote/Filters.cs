@@ -114,6 +114,14 @@ internal static class Filters
             && Nullable.GetUnderlyingType(compared.PropertyType) is not null)
             throw Unsupported($"'{term}' on a nullable property cannot be negated");
 
+        // Same with a nullable flag: !(e.Flag == true) is true for a null flag in C#, e.Flag == false is not. The offline
+        // copy evaluates the C# predicate, the server the condition: the two would disagree. Write e.Flag != true instead.
+        if (condition.Operator == FilterOperator.Equal && condition.Value is bool
+            && (term is BinaryExpression flagged ? AsProperty(flagged.Left, parameter) ?? AsProperty(flagged.Right, parameter) : AsProperty(term, parameter))
+                is { } nullableFlag
+            && Nullable.GetUnderlyingType(nullableFlag.PropertyType) is not null)
+            throw Unsupported($"'{term}' on a nullable property cannot be negated (write e.{nullableFlag.Name} != {condition.Value.ToString()!.ToLowerInvariant()} instead)");
+
         var op = condition.Operator switch
         {
             FilterOperator.Equal when condition.Value is bool flag => (FilterOperator?)null,

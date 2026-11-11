@@ -174,6 +174,25 @@ public class ServerLimitsTests
     }
 
     [Fact]
+    public async Task A_sorted_page_on_a_store_that_sorts_in_memory_never_reads_more_than_the_limit()
+    {
+        var server = Server().Create();
+        for (var i = 0; i < 100; i++)
+            await server.InsertAsync(new TestClient { Name = $"Other {i:000}", SponsorId = 2 });
+        await using var store = Unbounded(maxReadSize: 10);
+        Assert.False(server.SortsInStore);              // the memory store reads, then sorts
+
+        _database.RowsRead = 0;
+        var error = await Assert.ThrowsAsync<EntityStoreException>(
+            () => store.SelectPagedAsync<TestClient>(c => true, 1, 1, Sort<TestClient>.By(c => c.Name)));
+
+        Assert.Equal(EntityErrorCode.InvalidRequest, error.ErrorCode);
+        Assert.Equal(11, _database.RowsRead);          // the limit and one more, not the 105 rows of the table
+        var page = await store.SelectPagedAsync<TestClient>(c => c.SponsorId == 1, 2, 1, Sort<TestClient>.ByDescending(c => c.Name));
+        Assert.Equal("Ana", Assert.Single(page).Name);  // under the limit: sorted and paged as before
+    }
+
+    [Fact]
     public async Task The_limit_counts_the_rows_of_the_user_only()
     {
         await using var store = Client(sponsor: 1, maxReadSize: 2);

@@ -44,9 +44,16 @@ public interface IEntityStore : IAsyncDisposable, IDisposable
         CancellationToken ct = default) where TEntity : class;
 
     /// <summary>
+    /// Whether <see cref="SelectPagedAsync{TEntity}(Expression{Func{TEntity, bool}}, int, int, Sort{TEntity}, CancellationToken)"/>
+    /// sorts and pages in the database (true), or reads every matching row and sorts them in memory (false: the default
+    /// implementation). A server bounds a sorted page read in memory as it bounds any read of every row.
+    /// </summary>
+    bool SortsInStore => false;
+
+    /// <summary>
     /// A page of the entities matching the predicate, in the given order. Stores that can sort in the database
-    /// (EF Core, a remote server) override it; the default implementation reads the matching rows, then sorts and pages
-    /// them in memory.
+    /// (Dommel, EF Core, MongoDB, a remote server) override it, and <see cref="SortsInStore"/>; the default implementation
+    /// reads the matching rows, then sorts and pages them in memory.
     /// </summary>
     /// <param name="pageNumber">Page number, starting at 1.</param>
     async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(

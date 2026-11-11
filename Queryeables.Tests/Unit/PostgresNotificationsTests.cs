@@ -17,9 +17,9 @@ public class PostgresNotificationsTests
     [Fact]
     public void A_notification_is_read()
     {
-        Assert.Equal((ChangeType.Insert, "PgItem", "42"),
-            PostgresChangeListener.Parse("""{"table":"PgItem","op":"INSERT","key":"42"}""")!.Value);
-        Assert.Equal((ChangeType.Delete, "PgItem", ""),
+        Assert.Equal((ChangeType.Insert, (string?)"public", "PgItem", "42"),
+            PostgresChangeListener.Parse("""{"schema":"public","table":"PgItem","op":"INSERT","key":"42"}""")!.Value);
+        Assert.Equal((ChangeType.Delete, (string?)null, "PgItem", ""),
             PostgresChangeListener.Parse("""{"table":"PgItem","op":"DELETE","key":null}""")!.Value);
         Assert.Null(PostgresChangeListener.Parse("""{"table":"PgItem","op":"TRUNCATE"}"""));
     }
@@ -36,6 +36,60 @@ public class PostgresNotificationsTests
         Assert.Contains("CREATE OR REPLACE FUNCTION queryeables_notify()", script);
         Assert.Contains("""ON "PgItem" FOR EACH ROW EXECUTE FUNCTION queryeables_notify('Id')""", script);
         Assert.Contains("""DROP TRIGGER IF EXISTS "queryeables_notify_Clients" ON "Clients";""", script);
+    }
+
+    [Table("Orders", Schema = "sales")]
+    public sealed class SalesOrder
+    {
+        public long Id { get; set; }
+    }
+
+    [Table("Orders", Schema = "archive")]
+    public sealed class ArchivedOrder
+    {
+        public long Id { get; set; }
+    }
+
+    [Fact]
+    public void Two_tables_of_one_name_in_two_schemas_are_told_apart()
+    {
+        var notifications = new PostgresNotifications().Watch<SalesOrder>(o => o.Id).Watch<ArchivedOrder>(o => o.Id);
+        var registry = new ChangeFeedRegistry();
+        var sales = new ChangeFeed<SalesOrder>();
+        var archive = new ChangeFeed<ArchivedOrder>();
+        registry.Add(sales);
+        registry.Add(archive);
+        var received = new List<string>();
+        sales.ChangeReceived += (_, c) => received.Add("sales " + c.EntityKey);
+        archive.ChangeReceived += (_, c) => received.Add("archive " + c.EntityKey);
+
+        registry.Publish(ChangeType.Update, notifications.ReportedName("archive", "Orders"), "7");
+
+        Assert.Equal(["archive 7"], received);
+        Assert.Equal(2, notifications.Tables.Count);
+        var script = notifications.TriggerScript();
+        Assert.Contains("TG_TABLE_SCHEMA", script);
+        Assert.DoesNotContain("to_jsonb", script);                       // the key column only, not the whole row
+        Assert.Contains("\"queryeables_notify_sales_Orders\"", script);  // one trigger per schema
+    }
+
+    public sealed class Category
+    {
+        public long Id { get; set; }
+    }
+
+    [Fact]
+    public void A_feed_without_table_name_also_answers_to_the_table_Dommel_creates()
+    {
+        var feed = new ChangeFeed<Category>();
+        var keys = new List<string>();
+        feed.ChangeReceived += (_, c) => keys.Add(c.EntityKey);
+
+        feed.Publish(ChangeType.Update, "Categories", "1", null);        // Dommel's default name
+        feed.Publish(ChangeType.Update, "Category", "2", null);          // the type name, as before
+        feed.Publish(ChangeType.Update, "Products", "3", null);
+
+        Assert.Equal(["1", "2"], keys);
     }
 
     [Fact]

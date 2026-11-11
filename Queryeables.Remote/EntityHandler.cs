@@ -141,8 +141,14 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                 CheckPage(pageNumber, Math.Min(pageSize, _maxPageSize));
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
                 await using var store = _storeFactory();
-                return SerializeMany(serializer,
-                    await store.SelectPagedAsync(Restrict(predicate, context), pageNumber, Math.Min(pageSize, _maxPageSize), order, ct));
+                var size = Math.Min(pageSize, _maxPageSize);
+                if (store.SortsInStore)
+                    return SerializeMany(serializer, await store.SelectPagedAsync(Restrict(predicate, context), pageNumber, size, order, ct));
+
+                // A store that sorts in memory reads every matching row: at most maxReadSize of them, as any read of every
+                // row, so that "page 1 of 1, sorted" never loads a whole table.
+                var rows = await ReadBoundedAsync(store, Restrict(predicate, context), ct);
+                return SerializeMany(serializer, order.Apply(rows).Skip((pageNumber - 1) * size).Take(size).ToList());
             });
 
     public override Task<TransportResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
@@ -167,7 +173,16 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                 return await WriteThroughAggregateAsync(serializer, aggregate, kind, entity, context, ct);
 
             await using var store = _storeFactory();
-            return await WriteAsync(serializer, store, kind, entity, context, requireEffect: false, ct);
+            if (rows is null && RemoteMembers<T>.ServerOwned.Count == 0)
+                return await WriteAsync(serializer, store, kind, entity, context, requireEffect: false, ct);
+
+            // What is checked or kept from the stored row (its owner, its [ServerOwned] values) and the write itself, in one
+            // transaction: with SQLite or under SERIALIZABLE the row cannot change in between. Under READ COMMITTED
+            // (PostgreSQL, SQL Server), a version ([ConcurrencyCheck]) on the entity turns a concurrent change into a Conflict.
+            await using var transaction = await store.BeginTransactionAsync(ct);
+            var written = await WriteAsync(serializer, store, kind, entity, context, requireEffect: false, ct);
+            (await transaction.CommitAsync(ct)).ThrowIfFailed();
+            return written;
         });
 
     public override async Task<byte[]> WriteAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, byte[] entity,

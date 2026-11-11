@@ -41,12 +41,15 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesSignalRRoot).
+      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: cedric56/Routeables.SignalR
           ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
           path: .external/Routeables.SignalR
+      - name: Put Routeables.SignalR next to this repository
+        shell: bash
+        run: mv .external/Routeables.SignalR ../Routeables.SignalR
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
@@ -114,7 +117,10 @@ jobs:
           fi
 
       - name: Pack
-        run: dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
+        # Routeables.Remote is in the solution (Visual Studio needs it) but published by Routeables.SignalR, not here.
+        run: |
+          dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
+          rm -f artifacts/Routeables.Remote.*
 
       # The way in of a newcomer, with the packages just made: the templates are installed, generated outside the
       # repository, restored from these packages (and only them for Queryeables.*), built and run.
@@ -167,12 +173,15 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesSignalRRoot).
+      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: cedric56/Routeables.SignalR
           ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
           path: .external/Routeables.SignalR
+      - name: Put Routeables.SignalR next to this repository
+        shell: bash
+        run: mv .external/Routeables.SignalR ../Routeables.SignalR
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:

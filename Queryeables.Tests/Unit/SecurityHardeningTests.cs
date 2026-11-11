@@ -263,6 +263,23 @@ public class SecurityHardeningTests
     }
 
     [Fact]
+    public void An_anonymous_user_owns_no_connection()
+    {
+        var owners = new ConnectionOwners();
+        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
+        owners.Register("first-anonymous", anonymous);
+
+        // Another anonymous client has the same (empty) key: it must not keep the change from the first one.
+        Assert.Null(owners.Verify("first-anonymous", new ClaimsPrincipal(new ClaimsIdentity())));
+        Assert.Null(owners.Verify("first-anonymous", null));
+
+        // A connection registered by a user and then by an anonymous caller is no one's any more.
+        owners.Register("shared", User("ana"));
+        owners.Register("shared", anonymous);
+        Assert.Null(owners.Verify("shared", User("ana")));
+    }
+
+    [Fact]
     public void An_authenticated_user_without_identity_cannot_be_told_apart()
     {
         Assert.Null(UserKey.Of(new ClaimsPrincipal(new ClaimsIdentity([], "test"))));

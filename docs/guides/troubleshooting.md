@@ -13,9 +13,12 @@ The collection was an empty list instead of null: an entity read from a cache, w
 
 ### The cache does not follow the database
 
-- The change feed listens to a table name: the `[Table]` name of the type, otherwise its name. Dommel pluralizes table names
-  by default; name the table with `[Table]`.
-- With SQLite, only changes made through the application's connections are reported.
+- The change feed listens to a table name: the `[Table]` name of the type (with its schema, if any), otherwise the type
+  name and the plural Dommel gives it (`Person`, `Persons`). A table named otherwise (EF Core's `DbSet` name, `People`)
+  needs `[Table]`.
+- With SQLite, only changes made through the application's connections are reported. A table whose key is not an
+  `INTEGER PRIMARY KEY` (`Id INT PRIMARY KEY`, a text key) reports its changes without a key: its caches synchronize
+  instead of reading one row. A `WITHOUT ROWID` table reports nothing.
 - Subscribe to `RefreshFailed` on `EntityCache` to see the errors of background updates.
 
 ### `The SSL connection could not be established` / frame size errors

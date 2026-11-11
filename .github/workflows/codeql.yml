@@ -25,6 +25,9 @@ jobs:
           repository: cedric56/Routeables.SignalR
           ref: master
           path: .external/Routeables.SignalR
+      - name: Put Routeables.SignalR next to this repository
+        shell: bash
+        run: mv .external/Routeables.SignalR ../Routeables.SignalR
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:

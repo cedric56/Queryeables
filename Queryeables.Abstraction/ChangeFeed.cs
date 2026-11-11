@@ -50,13 +50,50 @@ public interface IChangeFeed<TEntity> : IChangeFeed where TEntity : class
 public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : class
 {
     /// <param name="table">
-    /// Name of the monitored table. Defaults to the name given by [Table] on the entity type, otherwise the type name.
+    /// Name of the monitored table. Defaults to the name given by [Table] on the entity type (with its schema:
+    /// <c>sales.Orders</c>), otherwise the type name.
     /// </param>
+    /// <remarks>
+    /// Without a name or [Table], the feed also answers to the plural Dommel gives the type by default (Person → Persons,
+    /// Category → Categories): the table Dommel creates and writes. A table named otherwise (EF Core's DbSet name...)
+    /// needs [Table].
+    /// </remarks>
     public ChangeFeed(string? table = null)
-        => Table = table ?? typeof(TEntity).GetCustomAttribute<TableAttribute>()?.Name ?? typeof(TEntity).Name;
+    {
+        var attribute = typeof(TEntity).GetCustomAttribute<TableAttribute>();
+        if (table is not null)
+        {
+            Table = table;
+            _names = [table];
+        }
+        else if (attribute is null)
+        {
+            Table = typeof(TEntity).Name;
+            _names = [Table, DommelPlural(Table)];
+        }
+        else if (attribute.Schema is { Length: > 0 } schema)
+        {
+            // A source that knows schemas (PostgreSQL) reports "schema.table"; one that does not (SQLite), the name only.
+            Table = $"{schema}.{attribute.Name}";
+            _names = [Table, attribute.Name];
+        }
+        else
+        {
+            Table = attribute.Name;
+            _names = [Table];
+        }
+    }
+
+    private readonly string[] _names;
 
     /// <summary>Name of the monitored table.</summary>
     public string Table { get; }
+
+    /// <summary>Dommel's default table name: Product → Products, Category → Categories, Address → Address.</summary>
+    private static string DommelPlural(string name)
+        => name.EndsWith('y') || name.EndsWith('Y') ? name[..^1] + "ies"
+            : name.EndsWith('s') || name.EndsWith('S') ? name
+            : name + "s";
 
     public event EventHandler<EntityChange<TEntity>>? ChangeReceived;
 
@@ -72,7 +109,7 @@ public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : c
 
     public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
     {
-        if (!string.Equals(table, Table, StringComparison.OrdinalIgnoreCase))
+        if (!Array.Exists(_names, name => string.Equals(table, name, StringComparison.OrdinalIgnoreCase)))
             return;
 
         List<string> connections = string.IsNullOrWhiteSpace(connectionId) ? [] : [connectionId];

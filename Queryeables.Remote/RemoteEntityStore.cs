@@ -33,6 +33,9 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
     private readonly IEntitySerializer _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     private RemoteTransaction? _transaction;
 
+    /// <summary>Sorted pages are sorted by the server, which bounds them: only the page crosses the network.</summary>
+    public bool SortsInStore => true;
+
     /// <summary>A factory of remote stores (<see cref="IEntityStoreFactory.IsRemote"/> is true).</summary>
     public static IEntityStoreFactory Factory(IEntityTransport remote, IEntitySerializer serializer, IChangeSession? session = null)
     {
@@ -178,7 +181,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         TransportResult response;
         try
         {
-            response = await RemoteDiagnostics.ClientAsync("batch", "batch", () => _remote.ExecuteBatchAsync(operations, ct));
+            response = await SendBatchAsync(operations, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -196,6 +199,35 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         for (var i = 0; i < Math.Min(results.Length, transaction.Operations.Count); i++)
             transaction.Operations[i].ApplyResult(results[i]);
         return EntityResult.Success();
+    }
+
+    /// <summary>
+    /// How many times a commit is sent again, with the same operation id, when the call fails (a lost answer, a dropped
+    /// connection): the server applies it once and answers the first result. Not with a transport that cannot carry the id.
+    /// </summary>
+    public int BatchRetries { get; init; } = 2;
+
+    private async Task<TransportResult> SendBatchAsync(BatchOperation[] operations, CancellationToken ct)
+    {
+        var operationId = Guid.NewGuid();
+        for (var attempt = 0; ; attempt++)
+        {
+            TransportResult response;
+            try
+            {
+                response = await RemoteDiagnostics.ClientAsync("batch", "batch", () => _remote.ExecuteBatchOnceAsync(operationId, operations, ct));
+            }
+            catch (Exception) when (attempt < BatchRetries && !ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), ct);
+                continue;
+            }
+
+            // A transport without operation ids: a plain batch, sent once (no retry could tell a lost answer from a refusal).
+            return response is { Successful: false, ErrorCode: EntityErrorCode.NotSupported } && attempt == 0
+                ? await RemoteDiagnostics.ClientAsync("batch", "batch", () => _remote.ExecuteBatchAsync(operations, ct))
+                : response;
+        }
     }
 
     private void Abandon(RemoteTransaction transaction)

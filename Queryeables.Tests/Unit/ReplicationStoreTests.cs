@@ -49,7 +49,7 @@ public abstract class ReplicationStoreContractTests : IAsyncLifetime
             return person;
         });
 
-    private ReplicationServer StartServer() => new(store: new EntityReplicationStore(Stores, [People]));
+    private ReplicationServer StartServer() => new(AllowAllReplicationPolicy.Instance, store: new EntityReplicationStore(Stores, [People]));
 
     /// <summary>A device: its replica, its storage, and a channel that loses the next answer when asked.</summary>
     private sealed class Device(IReplicaStorage storage, Replica replica)

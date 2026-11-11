@@ -123,7 +123,7 @@ public sealed class PostgresChangeListener(
         try
         {
             if (Parse(e.Payload) is { } change)
-                registry.Publish(change.Type, change.Table, change.Key);
+                registry.Publish(change.Type, notifications.ReportedName(change.Schema, change.Table), change.Key);
         }
         catch (Exception ex)
         {
@@ -131,8 +131,8 @@ public sealed class PostgresChangeListener(
         }
     }
 
-    /// <summary>Reads a notification sent by the trigger: <c>{"table": ..., "op": ..., "key": ...}</c>.</summary>
-    internal static (ChangeType Type, string Table, string Key)? Parse(string payload)
+    /// <summary>Reads a notification sent by the trigger: <c>{"schema": ..., "table": ..., "op": ..., "key": ...}</c>.</summary>
+    internal static (ChangeType Type, string? Schema, string Table, string Key)? Parse(string payload)
     {
         using var document = JsonDocument.Parse(payload);
         var root = document.RootElement;
@@ -147,8 +147,9 @@ public sealed class PostgresChangeListener(
             _ => ChangeType.None
         };
         var key = root.TryGetProperty("key", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        var schema = root.TryGetProperty("schema", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
         return type == ChangeType.None || table.GetString() is not { } name
             ? null
-            : (type, name, key ?? string.Empty);
+            : (type, schema, name, key ?? string.Empty);
     }
 }

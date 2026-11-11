@@ -22,6 +22,9 @@ namespace Queryeables.EntityFramework;
 [RequiresDynamicCode(EfAot.DynamicCode)]
 public sealed class EfEntityStore : IEntityStore
 {
+    /// <summary>Sorted pages are an ORDER BY with OFFSET/FETCH of the database.</summary>
+    public bool SortsInStore => true;
+
     private readonly DbContext _context;
     private readonly bool _ownsContext;
 

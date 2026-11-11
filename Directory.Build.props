@@ -24,13 +24,14 @@
   </PropertyGroup>
 
   <!--
-    Where the Routeables.SignalR repository is checked out (Queryeables.Replication references its src/Routeables.Remote): in
-    .external/Routeables.SignalR (the CI), else next to this repository. As a full path, so that one project has one path.
+    Where Routeables.Remote is (Queryeables.Replication references its src/Routeables.Remote/Routeables.Remote.csproj): the
+    repository Routeables.SignalR, next to this one, as on a developer's disk and in the CI. Queryeables.slnx lists the project
+    at that path too: Visual Studio restores only the projects of the solution (NU1105 otherwise). Another place:
+    -p:RouteablesRemoteRoot=<folder>/ (with the trailing separator). As a full path: one project, one path.
   -->
   <PropertyGroup>
-    <RouteablesSignalRRoot Condition="'$(RouteablesSignalRRoot)' == '' And Exists('$(MSBuildThisFileDirectory).external/Routeables.SignalR')">$(MSBuildThisFileDirectory).external/Routeables.SignalR/</RouteablesSignalRRoot>
-    <RouteablesSignalRRoot Condition="'$(RouteablesSignalRRoot)' == ''">$(MSBuildThisFileDirectory)../Routeables.SignalR/</RouteablesSignalRRoot>
-    <RouteablesSignalRRoot>$([MSBuild]::NormalizeDirectory('$(RouteablesSignalRRoot)'))</RouteablesSignalRRoot>
+    <RouteablesRemoteRoot Condition="'$(RouteablesRemoteRoot)' == ''">$(MSBuildThisFileDirectory)../Routeables.SignalR/</RouteablesRemoteRoot>
+    <RouteablesRemoteRoot>$([MSBuild]::NormalizeDirectory('$(RouteablesRemoteRoot)'))</RouteablesRemoteRoot>
   </PropertyGroup>
 
   <!-- Every library builds without warnings (nullability, trimming, AOT): one place, so that no project escapes it. Tests,

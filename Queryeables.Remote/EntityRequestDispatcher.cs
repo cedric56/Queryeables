@@ -116,6 +116,24 @@ public sealed class EntityRequestDispatcher(
     }
 
     /// <summary>
+    /// <see cref="ExecuteBatchAsync"/> applied once per <paramref name="operationId"/> and user: sent again (its answer was
+    /// lost), it gets the first result back instead of writing again. A refused batch is not remembered.
+    /// </summary>
+    public Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, EntityRequestContext context,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (operationId == Guid.Empty)
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, "An operation id is required."));
+        // A user without a stable identity cannot own an operation id: NotSupported makes the client send a plain batch,
+        // once, as before.
+        if (IdempotencyKey.OfBatch(operationId, context.User) is not { } key)
+            return Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported,
+                "The user has no stable identity (neither a name identifier nor a name): a batch cannot be applied once per id."));
+        return Idempotency.RunOnceAsync(key, () => ExecuteBatchAsync(operations, context, ct), ct);
+    }
+
+    /// <summary>
     /// Runs every operation in a single transaction: if one fails (permissions, validation, conflict,
     /// vanished row), none is applied. Returns one serialized result per operation.
     /// </summary>
@@ -216,6 +234,9 @@ public sealed class EntityRequestDispatcher(
 
         public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => dispatcher.ExecuteBatchAsync(operations, caller, ct);
+
+        public Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
+            => dispatcher.ExecuteBatchOnceAsync(operationId, operations, caller, ct);
 
         public Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
             CancellationToken ct = default)

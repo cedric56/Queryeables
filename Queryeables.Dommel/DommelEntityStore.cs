@@ -98,6 +98,42 @@ public sealed class DommelEntityStore : IEntityStore
         return result.AsList();
     }
 
+    /// <summary>Sorted pages are an ORDER BY with the paging of the database (LIMIT, OFFSET/FETCH).</summary>
+    public bool SortsInStore => true;
+
+    public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize, Sort<TEntity> sort,
+        CancellationToken ct = default) where TEntity : class
+    {
+        Paging.Validate(pageNumber, pageSize);
+        ArgumentNullException.ThrowIfNull(sort);
+        var columns = sort.Keys
+            .Select(k => (Property: typeof(TEntity).GetProperty(k.Property) ?? throw new ArgumentException($"{typeof(TEntity).Name} has no property {k.Property}.", nameof(sort)), k.Descending))
+            .ToList();
+        // The key breaks the ties, as EF Core does: a page is the same page at every read.
+        foreach (var key in Resolvers.KeyProperties(typeof(TEntity)))
+            if (!columns.Exists(c => c.Property.Name == key.Property.Name))
+                columns.Add((key.Property, false));
+
+        await EnsureOpenAsync(ct);
+        // Dommel's FromAsync takes no cancellation token: cancellation is only possible before the call.
+        ct.ThrowIfCancellationRequested();
+        var filter = CapturedValues.Inline(predicate);
+        var result = await _connection.FromAsync<TEntity>(sql =>
+        {
+            sql.Select().Where(filter);
+            foreach (var (property, descending) in columns)
+            {
+                if (descending)
+                    sql.OrderByDescending(property);
+                else
+                    sql.OrderBy(property);
+            }
+            sql.Page(pageNumber, pageSize);
+        }, _transaction);
+        return result.AsList();
+    }
+
     public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {

@@ -59,6 +59,14 @@ public interface IEntityTransport
     Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default);
 
     /// <summary>
+    /// <see cref="ExecuteBatchAsync"/>, applied once however many times it is sent with the same
+    /// <paramref name="operationId"/>: a commit sent again after a lost answer gets the first result back, and inserts
+    /// nothing twice. A transport that cannot carry the id answers NotSupported: the client then sends a plain batch, once.
+    /// </summary>
+    Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
+        => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not carry operation ids for batches."));
+
+    /// <summary>
     /// A write that the server applies once, however many times it is sent with the same <paramref name="operationId"/>:
     /// a retry after a lost answer gets the first result back (see <see cref="IIdempotencyStore"/>). Used by the offline
     /// synchronization. A transport that cannot carry the id falls back to a plain write, without that guarantee.
