@@ -39,10 +39,10 @@ jobs:
       QUERYEABLES_POSTGRES: Host=localhost;Port=5432;Database=queryeables;Username=postgres;Password=queryeables
       QUERYEABLES_MONGODB: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cedric56/Routeables.SignalR
           ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
@@ -50,7 +50,7 @@ jobs:
       - name: Put Routeables.SignalR next to this repository
         shell: bash
         run: mv .external/Routeables.SignalR ../Routeables.SignalR
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -171,10 +171,10 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cedric56/Routeables.SignalR
           ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
@@ -183,7 +183,7 @@ jobs:
         shell: bash
         run: mv .external/Routeables.SignalR ../Routeables.SignalR
 
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -197,8 +197,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -222,7 +222,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 

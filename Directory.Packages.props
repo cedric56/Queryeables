@@ -6,7 +6,7 @@
   <!-- Databases -->
   <ItemGroup>
     <PackageVersion Include="Dommel" Version="3.5.3" />
-    <PackageVersion Include="MessagePack" Version="3.1.9" />
+    <PackageVersion Include="MessagePack" Version="3.1.12" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
@@ -21,9 +21,9 @@
     <PackageVersion Include="MagicOnion.Abstractions" Version="7.11.0" />
     <PackageVersion Include="MagicOnion.Server" Version="7.11.0" />
     <PackageVersion Include="MagicOnion.Client" Version="7.11.0" />
-    <PackageVersion Include="Grpc.AspNetCore" Version="2.84.0" />
-    <PackageVersion Include="GrpcWebSocketBridge.AspNetCore" Version="1.4.0" />
-    <PackageVersion Include="GrpcWebSocketBridge.Client" Version="1.4.0" />
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.85.0" />
+    <PackageVersion Include="GrpcWebSocketBridge.AspNetCore" Version="1.4.1" />
+    <PackageVersion Include="GrpcWebSocketBridge.Client" Version="1.4.1" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.14" />
   </ItemGroup>
@@ -45,7 +45,7 @@
   <!-- Tests and benchmarks -->
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
