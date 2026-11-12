@@ -268,7 +268,8 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     public async Task Unsupported_predicates_fail_before_calling_the_server()
     {
         await using var store = CreateStore();
-        await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Name.Length > 3));
+        // Name.Length is computed by the server now (the extended form); a method it does not know stays refused.
+        await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Name.GetHashCode() == 3));
     }
 
     /// <summary>
