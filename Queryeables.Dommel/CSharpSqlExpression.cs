@@ -35,6 +35,30 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
     protected override object VisitLambda(LambdaExpression expression)
         => new Sql(this, expression.Parameters[0]).Condition(expression.Body);
 
+    /// <summary>The SQL of a value computed from the entity (a key, the value of an aggregate); its parameters join this expression's.</summary>
+    public string ValueSql(LambdaExpression value) => new Sql(this, value.Parameters[0]).Value(value.Body);
+
+    /// <summary>The SQL of an aggregate over <paramref name="value"/> (count(*) without one), as C# computes it.</summary>
+    public string AggregateSql(AggregateFunction function, LambdaExpression? value, Type? type)
+    {
+        if (function == AggregateFunction.Count || value is null)
+            return "count(*)";
+        var sql = ValueSql(value);
+        var core = Nullable.GetUnderlyingType(type ?? typeof(object)) ?? type ?? typeof(object);
+        // SQLite keeps decimals as text: compared and summed as numbers. Averages of integers keep their fraction.
+        if (core == typeof(decimal) && Kind == Dialect.Sqlite)
+            sql = $"cast({sql} as real)";
+        else if (function == AggregateFunction.Average && core != typeof(decimal))
+            sql = $"cast({sql} as {(Kind == Dialect.Postgres ? "double precision" : Kind == Dialect.MySql ? "double" : "float")})";
+        return function switch
+        {
+            AggregateFunction.Sum => $"sum({sql})",
+            AggregateFunction.Min => $"min({sql})",
+            AggregateFunction.Max => $"max({sql})",
+            _ => $"avg({sql})",
+        };
+    }
+
     private enum Dialect
     {
         Sqlite,
@@ -368,6 +392,12 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
 
         private string DatePart(string part, string date, MemberExpression member)
         {
+            // A part of a DateTimeOffset depends on its offset in C#, and on the session's time zone or UTC in SQL (when the
+            // database keeps no offset): the same filter would select other rows. Refused rather than answer differently.
+            if (Nullable.GetUnderlyingType(member.Expression!.Type) is { } nullable ? nullable == typeof(DateTimeOffset) : member.Expression.Type == typeof(DateTimeOffset))
+                throw new NotSupportedException(
+                    $"'{member}': the parts of a DateTimeOffset are not translated (their value depends on the offset, which the " +
+                    "database may not keep). Compare the whole value with a bound instead (e.Date >= from && e.Date < to).");
             var sqlite = part switch
             {
                 "Year" => "%Y",
@@ -466,7 +496,12 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
         private static bool MayBeNull(Expression expression)
             => !expression.Type.IsValueType || Nullable.GetUnderlyingType(expression.Type) is not null;
 
-        private static bool IsNullConstant(Expression expression) => expression is ConstantExpression { Value: null };
+        /// <summary>
+        /// A null, written or computed without the entity (a method call, a ternary on variables): compared as C# compares
+        /// with null (<c>is null</c>), never as a parameter (<c>= null</c> keeps no row).
+        /// </summary>
+        private bool IsNullConstant(Expression expression)
+            => expression is ConstantExpression { Value: null } || !Uses(expression) && Evaluate(expression) is null;
 
         private static bool IsZero(Expression expression)
             => expression is ConstantExpression { Value: int zero } && zero == 0;

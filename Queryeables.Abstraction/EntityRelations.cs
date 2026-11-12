@@ -22,6 +22,12 @@ public static class EntityRelations
     /// </summary>
     public static int MaxKeys { get; set; } = 2000;
 
+    /// <summary>
+    /// The largest number of related rows a relation filter reads (one column of each, after counting them): beyond, it fails
+    /// with a message rather than load a table. A server stays bounded whatever the filter a client sends.
+    /// </summary>
+    public static int MaxRows { get; set; } = 100_000;
+
     /// <summary>Registers the graph of <typeparamref name="TParent"/>, replacing the one known.</summary>
     public static void Register<[DynamicallyAccessedMembers(EntityMembers.Required)] TParent>(IEntityGraph<TParent> graph) where TParent : class
     {

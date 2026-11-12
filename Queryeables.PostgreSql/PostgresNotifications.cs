@@ -106,12 +106,38 @@ public sealed class PostgresNotifications
 
         foreach (var table in _tables)
         {
-            var trigger = Quote(table.Schema is null ? $"{FunctionName}_{table.Name}" : $"{FunctionName}_{table.Schema}_{table.Name}");
+            var name = table.Schema is null ? $"{FunctionName}_{table.Name}" : $"{FunctionName}_{table.Schema}_{table.Name}";
+            var trigger = Quote(TriggerName(name));
+            if (TriggerName(name) != name)
+                sql.Append($"DROP TRIGGER IF EXISTS {Quote(name)} ON {table.QualifiedName};\n");     // as PostgreSQL cut it before
             sql.Append($"DROP TRIGGER IF EXISTS {trigger} ON {table.QualifiedName};\n");
             sql.Append($"CREATE TRIGGER {trigger} AFTER INSERT OR UPDATE OR DELETE ON {table.QualifiedName} ");
             sql.Append($"FOR EACH ROW EXECUTE FUNCTION {FunctionName}({Literal(table.KeyColumn)});\n");
         }
         return sql.ToString();
+    }
+
+    /// <summary>
+    /// <paramref name="name"/> when PostgreSQL keeps it whole (63 bytes); otherwise its start and a hash of it, rather than
+    /// the name cut silently by PostgreSQL, the same for two long names that only differ at the end.
+    /// </summary>
+    internal static string TriggerName(string name)
+    {
+        const int Max = 63;
+        if (Encoding.UTF8.GetByteCount(name) <= Max)
+            return name;
+        var hash = 2166136261u;                         // FNV-1a: stable across runs and platforms
+        foreach (var b in Encoding.UTF8.GetBytes(name))
+            hash = (hash ^ b) * 16777619u;
+        var suffix = "_" + hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+        var start = new StringBuilder();
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (Encoding.UTF8.GetByteCount(start.ToString()) + rune.Utf8SequenceLength + suffix.Length > Max)
+                break;
+            start.Append(rune.ToString());
+        }
+        return start + suffix;
     }
 
     private static string ColumnName(PropertyInfo property)

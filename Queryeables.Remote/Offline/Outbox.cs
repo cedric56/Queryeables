@@ -12,7 +12,8 @@ internal sealed record OutboxEntry(Guid Id, string Type, BatchOperationKind Kind
 
 /// <summary>
 /// The queue of writes made offline, in order. Several writes on the same row are merged, so that the server receives the
-/// final state: an update after an insert stays an insert, a delete after an insert cancels both.
+/// final state: an update after an insert stays an insert, a delete after an insert cancels both. A write is merged into
+/// the previous one on its row only when no write on another row came in between (the order of the writes is kept).
 /// Stored entry by entry: a write saves its own entry, and the list of ids only when an entry comes or goes.
 /// </summary>
 internal sealed class Outbox
@@ -41,6 +42,15 @@ internal sealed class Outbox
         {
             // Maybe applied already: merging would change a write the server may have recorded under this id, and the
             // change would be lost (the server answers a known id with its first result).
+            Append(kind, type, key, payload);
+            return;
+        }
+
+        if (index != _entries.Count - 1)
+        {
+            // Writes on other rows came in between, and may depend on the state this row had then (a row it now refers
+            // to, a unique value it gave up, a child inserted under it): merging would send the final state before them, or
+            // drop a row they need. Kept in order instead.
             Append(kind, type, key, payload);
             return;
         }

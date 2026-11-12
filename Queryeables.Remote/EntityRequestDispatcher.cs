@@ -168,6 +168,8 @@ public sealed class EntityRequestDispatcher(
         var handlers = new EntityHandler[operations.Length];
         for (var i = 0; i < operations.Length; i++)
         {
+            if (operations[i] is not { Type: not null, Entity: not null })
+                return Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, $"Operation {i} of the batch is empty."));
             if (!_registry.TryGet(operations[i].Type, out handlers[i]))
                 return Task.FromResult(UnknownType(operations[i].Type));
             if (SerializerProblem(handlers[i]) is { } problem)

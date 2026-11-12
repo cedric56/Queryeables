@@ -57,7 +57,11 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
             ?? (SqliteConnection)((DbLogConnection)connection).Inner;
         var changes = new ConnectionChanges();
 
-        // The connection is returned closed: hooks can only be set once the native handle is open.
+        // The connection is returned closed: hooks can only be set once the native handle is open. With pooling (the
+        // default of Microsoft.Data.Sqlite), a handle goes back to the pool with its hooks, and the next connection of this
+        // factory that takes it sets its own (a hook replaces the previous one). Only a connection opened elsewhere on the
+        // same connection string may take it with the hooks of a closed connection: its changes are then reported too,
+        // through that connection's queue, which is what a change feed of the database wants.
         sqlite.StateChange += (_, e) =>
         {
             if (e.CurrentState == ConnectionState.Open)

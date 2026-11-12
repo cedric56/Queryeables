@@ -277,9 +277,22 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     private async Task<byte[]> WriteThroughAggregateAsync(IEntitySerializer serializer, IAggregateRepository<T> service, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct)
     {
-        var value = await PrepareAsync(serializer, kind, entity, context, ct);
-        if (rows is not null || RemoteMembers<T>.ServerOwned.Count > 0 || OmittedBy(serializer).Length > 0)
+        var checks = rows is not null || RemoteMembers<T>.ServerOwned.Count > 0 || OmittedBy(serializer).Length > 0;
+        if (checks && service is IGraphRepository<T>)
         {
+            // A graph saves in a store given to it: the checks and the save in one transaction, as for a plain entity.
+            await using var store = _storeFactory();
+            await using var transaction = await store.BeginTransactionAsync(ct);
+            var written = await WriteAsync(serializer, store, kind, entity, context, requireEffect: false, ct);
+            (await transaction.CommitAsync(ct)).ThrowIfFailed();
+            return written;
+        }
+
+        var value = await PrepareAsync(serializer, kind, entity, context, ct);
+        if (checks)
+        {
+            // Another service saves in its own transaction: the stored row is checked just before, not inside it. A version
+            // ([ConcurrencyCheck]) on the entity turns a change made in between into a Conflict at the save.
             await using var store = _storeFactory();
             await CheckRowsAsync(store, kind, value, context, ct);
             await KeepStoredAsync(serializer, store, kind, value, ct);
@@ -381,7 +394,12 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         }
         await AuthorizeAsync(EntityOperation.Read, null, context, ct);
         await using var store = _storeFactory();
-        var rows = await store.AggregateAsync(Restrict(predicate, context), aggregation, ct);
+        var restricted = Restrict(predicate, context);
+
+        // A store that computes in memory reads every matching row: at most maxReadSize, counted first in the database.
+        if (!store.AggregatesInStore && await store.CountAsync(restricted, ct) > _maxReadSize)
+            throw TooMany();
+        var rows = await store.AggregateAsync(restricted, aggregation, ct);
         if (rows.Count > _maxReadSize)
             throw TooMany();
         return serializer.Serialize(rows
@@ -399,7 +417,10 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         var predicate = Predicate(request.Filter ?? [], request.Any, context);
         await AuthorizeAsync(EntityOperation.Read, null, context, ct);
         await using var store = _storeFactory();
-        var rows = await ReadBoundedAsync(store, Restrict(predicate, context), ct);
+        // Copies (through the serializer, which sends them anyway): a store may hand out the instances it keeps (a cache, an
+        // identity map), and clearing them would change what its next readers get.
+        var rows = (await ReadBoundedAsync(store, Restrict(predicate, context), ct))
+            .Select(r => serializer.Deserialize<T>(serializer.Serialize(r))!).ToList();
         var cleared = EntityValues.Columns<T>().Where(c => !kept.Contains(c.Name)).ToList();
         foreach (var row in rows)
         {
@@ -425,8 +446,12 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         var stored = await store.FirstOrDefaultAsync(Restrict(SyncMetadata.SameKey(modified), context), ct);
         if (stored is null)
             return [];
+
+        // The policy judges the row written, not what the client says of it: the stored row as it is, then as it will be.
+        await AuthorizeAsync(EntityOperation.Update, stored, context, ct);
         if (EntityPatch.Merge(stored, original, modified, columns))
         {
+            await AuthorizeAsync(EntityOperation.Update, stored, context, ct);
             Validate(stored);
             CheckVisible(stored, context);
             using (ChangeContext.Begin(context.ConnectionId))
@@ -454,6 +479,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         await using var transaction = await store.BeginTransactionAsync(ct);
         var rows = await ReadBoundedAsync(store, Restrict(predicate, context), ct);
         var count = 0;
+        var visible = Visible(context);
         using (ChangeContext.Begin(context.ConnectionId))
         {
             foreach (var row in rows)
@@ -469,7 +495,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                     property.SetValue(row, value);
                 await AuthorizeAsync(operation, row, context, ct);
                 Validate(row);
-                CheckVisible(row, context);
+                CheckVisible(row, visible);
                 if (!await store.UpdateAsync(row, ct))
                     throw NotFound();
                 count++;
@@ -524,9 +550,14 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     }
 
     /// <summary>A row written by a client must stay among the rows it may write.</summary>
-    private void CheckVisible(T value, EntityRequestContext context)
+    private void CheckVisible(T value, EntityRequestContext context) => CheckVisible(value, Visible(context));
+
+    /// <summary>The rule of the rows the user may write, compiled once for the rows of a request; null without row-level security.</summary>
+    private Func<T, bool>? Visible(EntityRequestContext context) => rows?.Rows(context.User).Compile(preferInterpretation: true);
+
+    private static void CheckVisible(T value, Func<T, bool>? visible)
     {
-        if (rows is not null && !rows.Rows(context.User).Compile(preferInterpretation: true)(value))
+        if (visible is not null && !visible(value))
             throw new EntityStoreException(EntityErrorCode.Forbidden, $"Access denied: this {typeof(T).Name} is outside the rows you may write.");
     }
 

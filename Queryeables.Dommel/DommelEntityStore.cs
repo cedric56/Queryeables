@@ -1,3 +1,4 @@
+using Dapper;
 using Dommel;
 using Queryeables.Abstraction;
 using System.Data;
@@ -194,6 +195,60 @@ public sealed class DommelEntityStore : IEntityStore
         return rows.Select(project).ToList();
     }
 
+    /// <summary>Aggregates are a GROUP BY of the database: only the results are read.</summary>
+    public bool AggregatesInStore => true;
+
+    /// <summary>One query: <c>select key, count(*), sum(...)... from T where ... group by key</c>.</summary>
+    public async Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(aggregation);
+        await EnsureOpenAsync(ct);
+        var (filter, none) = await TranslateAsync(predicate, ct);
+        if (none)
+            return aggregation.Compute([]);
+
+        var sql = new CSharpSqlExpression<TEntity>(DommelMapper.GetSqlBuilder(_connection));
+        var key = aggregation.Key is { } keyValue ? sql.ValueSql(keyValue) : null;
+        var columns = new List<string>();
+        if (key is not null)
+            columns.Add(key);
+        columns.Add("count(*)");
+        columns.AddRange(aggregation.Values.Select(v => sql.AggregateSql(v.Function, v.Value, v.Type)));
+        sql.Select(string.Join(", ", columns));
+        if (filter is not null)
+            sql.Where(filter);
+        var text = sql.ToSql(out var parameters);
+        if (key is not null)
+            text += $" group by {key}";
+
+        var rows = new List<AggregateRow>();
+        await using var reader = await _connection.ExecuteReaderAsync(new CommandDefinition(text, parameters, _transaction, cancellationToken: ct));
+        var offset = key is null ? 0 : 1;
+        while (await reader.ReadAsync(ct))
+        {
+            var values = new object?[aggregation.Values.Count];
+            for (var i = 0; i < values.Length; i++)
+            {
+                var value = aggregation.Values[i];
+                var read = reader.GetValue(offset + 1 + i);
+                values[i] = value.Function switch
+                {
+                    AggregateFunction.Count => Convert.ToInt64(read, System.Globalization.CultureInfo.InvariantCulture),
+                    // A sum of no row is 0 in C#, null in SQL.
+                    AggregateFunction.Sum => Aggregation<TEntity>.Coerce(read is DBNull ? 0 : read,
+                        Aggregation<TEntity>.ResultType(value.Function, value.Type!)),
+                    _ => Aggregation<TEntity>.Coerce(read, Aggregation<TEntity>.ResultType(value.Function, value.Type!)),
+                };
+            }
+            rows.Add(new AggregateRow(
+                key is null ? null : Aggregation<TEntity>.Coerce(reader.GetValue(0), aggregation.KeyType!),
+                Convert.ToInt64(reader.GetValue(offset), System.Globalization.CultureInfo.InvariantCulture),
+                values));
+        }
+        return rows;
+    }
+
     public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
@@ -315,18 +370,31 @@ public sealed class DommelEntityStore : IEntityStore
             _inner = inner;
         }
 
+        // Once committed or rolled back, the store works outside a transaction again (before the disposal of this one): the
+        // next commands are not given a finished transaction.
         public Task<EntityResult> CommitAsync(CancellationToken ct = default) => EntityResult.RunAsync(async () =>
         {
             await _inner.CommitAsync(ct);
+            Detach();
             CommittedWrites.Signal(_store._connection); // the changes are visible now
         });
-        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => EntityResult.RunAsync(() => _inner.RollbackAsync(ct));
+
+        public Task<EntityResult> RollbackAsync(CancellationToken ct = default) => EntityResult.RunAsync(async () =>
+        {
+            await _inner.RollbackAsync(ct);
+            Detach();
+        });
+
+        private void Detach()
+        {
+            if (ReferenceEquals(_store._transaction, _inner))
+                _store._transaction = null;
+        }
 
         public async ValueTask DisposeAsync()
         {
             await _inner.DisposeAsync(); // rolls back when not committed
-            if (ReferenceEquals(_store._transaction, _inner))
-                _store._transaction = null;
+            Detach();
         }
     }
 }

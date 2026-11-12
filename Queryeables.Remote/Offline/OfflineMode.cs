@@ -31,6 +31,11 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     private readonly Outbox _outbox = new();
     private readonly List<OfflineConflict> _conflicts = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    // Held by an offline transaction from its start to its end, and by the work that must not run in the middle of one
+    // (writes outside it, synchronization, conflicts): a rollback never erases another caller's writes, and nothing half
+    // done is sent. Always taken before the gate.
+    private readonly SemaphoreSlim _exclusive = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
     private readonly HashSet<OfflineEntityType> _dirty = [];
 
@@ -140,7 +145,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task<EntityResult> RefreshSnapshotAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             if (_outbox.Count > 0)
@@ -154,7 +159,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         Raise(OfflineEvent.SnapshotRefreshed);
@@ -168,7 +173,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task<EntityResult> GoOfflineAsync(CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             if (Mode == ConnectionMode.Offline)
@@ -187,7 +192,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         StartProbing();
@@ -205,7 +210,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         await EnsureInitializedAsync(ct);
         SyncReport report;
         using var activity = QueryeablesDiagnostics.ActivitySource.StartActivity("queryeables.offline.sync");
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             if (!await PingAsync(ct))
@@ -276,7 +281,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         _registry?.PublishReload();      // the caches now read the server: temporary rows of the copy must go
@@ -289,7 +294,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task<EntityResult> KeepMineAsync(OfflineConflict conflict, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(conflict);
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             var type = _types.Values.FirstOrDefault(t => t.Name == conflict.Type)
@@ -317,7 +322,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         Raise(OfflineEvent.Synchronized);
@@ -328,7 +333,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     public async Task KeepServerAsync(OfflineConflict conflict, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(conflict);
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             _conflicts.RemoveAll(c => c.Id == conflict.Id);
@@ -342,7 +347,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         Raise(OfflineEvent.Synchronized);
@@ -380,7 +385,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     /// </param>
     private async Task ForgetAsync(bool keepPendingWrites, CancellationToken ct)
     {
-        await _gate.WaitAsync(ct);
+        await EnterAsync(ct);
         try
         {
             if (keepPendingWrites && _outbox.Count > 0)
@@ -401,7 +406,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            Leave();
         }
 
         _registry?.PublishReload();      // the caches read the server again
@@ -434,6 +439,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
             await _probing.ContinueWith(static _ => { }, TaskScheduler.Default);
         _stop.Dispose();
         _gate.Dispose();
+        _exclusive.Dispose();
     }
 
     // ---------- Used by the stores ----------
@@ -448,6 +454,27 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
             $"{type.Name} is not available offline: add it with OfflineMode.Add<{type.Name}, TKey>(...).");
 
     internal SemaphoreSlim Gate => _gate;
+
+    /// <summary>Waits until no offline transaction is open, then takes the gate.</summary>
+    internal async Task EnterAsync(CancellationToken ct)
+    {
+        await _exclusive.WaitAsync(ct);
+        try
+        {
+            await _gate.WaitAsync(ct);
+        }
+        catch
+        {
+            _exclusive.Release();
+            throw;
+        }
+    }
+
+    internal void Leave()
+    {
+        _gate.Release();
+        _exclusive.Release();
+    }
 
     /// <summary>A key for a row created offline: negative numbers, or a new Guid.</summary>
     internal TKey NewTemporaryKey<TKey>()
@@ -505,9 +532,19 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     internal void AfterWrite() => Raise(OfflineEvent.ChangesPending);
 
     /// <summary>Starts an offline transaction: the copy and the queue are restored unless it commits.</summary>
+    /// <remarks>Exclusive: other writes, and a synchronization, wait until it commits or rolls back.</remarks>
     internal async Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct)
     {
-        await _gate.WaitAsync(ct);
+        await _exclusive.WaitAsync(ct);
+        try
+        {
+            await _gate.WaitAsync(ct);
+        }
+        catch
+        {
+            _exclusive.Release();
+            throw;
+        }
         try
         {
             var snapshot = (SnapshotTypes(), _outbox.Snapshot(), _state);
@@ -708,26 +745,36 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         await _storage.WriteAsync(Key("state"), OfflineCodec.Write(_state), ct);
     }
 
-    private sealed class OfflineTransaction(
+    internal sealed class OfflineTransaction(
         OfflineMode mode,
         (Dictionary<OfflineEntityType, object> Types, List<OutboxEntry> Outbox, OfflineState State) snapshot) : IEntityTransaction
     {
         private bool _done;
 
+        /// <summary>Neither committed nor rolled back: its store's writes belong to it.</summary>
+        public bool IsOpen => !_done;
+
         public async Task<EntityResult> CommitAsync(CancellationToken ct = default)
         {
             if (_done)
                 return EntityResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished.");
-            _done = true;
+            // Finished only once the gate is taken: a cancelled wait leaves it open, and its disposal rolls it back.
             await mode._gate.WaitAsync(ct);
+            if (_done)
+            {
+                mode._gate.Release();
+                return EntityResult.Failure(EntityErrorCode.InvalidRequest, "The transaction is already finished.");
+            }
+            _done = true;
             try
             {
                 mode._transactionDepth--;
-                await mode.PersistAsync(ct);
+                await mode.PersistAsync(CancellationToken.None);
             }
             finally
             {
                 mode._gate.Release();
+                mode._exclusive.Release();
             }
             mode.AfterWrite();
             return EntityResult.Success();
@@ -737,19 +784,25 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         {
             if (_done)
                 return EntityResult.Success();
-            _done = true;
             await mode._gate.WaitAsync(ct);
+            if (_done)
+            {
+                mode._gate.Release();
+                return EntityResult.Success();
+            }
+            _done = true;
             try
             {
                 mode.RestoreTypes(snapshot.Types);
                 mode._outbox.Restore(snapshot.Outbox);
                 mode._state = snapshot.State with { Mode = mode._state.Mode };
                 mode._transactionDepth--;
-                await mode.PersistAsync(ct);
+                await mode.PersistAsync(CancellationToken.None);
             }
             finally
             {
                 mode._gate.Release();
+                mode._exclusive.Release();
             }
             mode._registry?.PublishReload();
             return EntityResult.Success();

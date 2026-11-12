@@ -31,7 +31,23 @@ public sealed class ChangeHubOptions
 
     /// <summary>Longest key accepted in a change reported by a client.</summary>
     public int MaxKeyLength { get; init; } = 256;
+
+    /// <summary>
+    /// Who hears of a change of a row. Without it, every subscriber does: the key of the row and the activity on it reach
+    /// users that the row-level security of the services would not let read it. With it, a change reaches only the
+    /// subscribers it accepts (a "synchronize everything", which names no row, reaches every one); the rule usually reads
+    /// the row and applies the same check as the services' row-level security.
+    /// </summary>
+    /// <remarks>
+    /// Checked after the change, once per subscriber: keep it fast (a lookup by key). A user who could see the row before
+    /// the change, but not after, is not told of it, and keeps the row until the next refresh of its cache.
+    /// </remarks>
+    public Func<ChangeAudience, CancellationToken, ValueTask<bool>>? Visibility { get; init; }
 }
+
+/// <summary>A change about to reach a subscriber: <see cref="ChangeHubOptions.Visibility"/> says whether it may.</summary>
+/// <param name="User">The user of the subscribed connection; null when anonymous.</param>
+public sealed record ChangeAudience(ClaimsPrincipal? User, Type EntityType, string EntityKey, ChangeType ChangeType);
 
 /// <summary>
 /// Which user each hub connection belongs to. A write names the connection of its author, so that the author does not

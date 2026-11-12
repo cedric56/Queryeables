@@ -18,7 +18,7 @@ namespace Queryeables.Abstraction;
 /// </summary>
 public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : class
 {
-    private readonly HashSet<string> _subscribers = new();
+    private readonly Dictionary<string, ClaimsPrincipal?> _subscribers = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     private readonly IChangeFeed<TObject> _monitor;
     private readonly ChangeFeedRegistry? _registry;
@@ -64,7 +64,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
     /// <summary>Subscribed connections (snapshot).</summary>
     public IReadOnlyCollection<string> Subscribers
     {
-        get { lock (_gate) return _subscribers.ToArray(); }
+        get { lock (_gate) return _subscribers.Keys.ToArray(); }
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
         _owners?.Register(connectionId, user);
         lock (_gate)
-            return _subscribers.Add(connectionId);
+            return _subscribers.TryAdd(connectionId, user);
     }
 
     /// <returns>true if the connection was subscribed.</returns>
@@ -124,7 +124,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
 
         lock (_gate)
         {
-            if (!_subscribers.Contains(connectionId))
+            if (!_subscribers.ContainsKey(connectionId))
                 return false;
             var second = Environment.TickCount64 / 1000;
             var rate = _clientRates.TryGetValue(connectionId, out var current) && current.Second == second ? current : (second, 0);
@@ -169,7 +169,7 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
                 {
                     // The connections to leave out are the server's business: the clients only see the row and the change.
                     var shown = new EntityChange<TObject>(record.EntityKey, record.ChangeType);
-                    await SendAsync(shown, record.Connections ?? [], ct);
+                    await SendAsync(shown, await ExcludedAsync(record, ct), ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -188,6 +188,37 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         {
             OnError(ex);
         }
+    }
+
+    /// <summary>The connections left out: those that named themselves, and those <see cref="ChangeHubOptions.Visibility"/> refuses.</summary>
+    private async Task<IReadOnlyList<string>> ExcludedAsync(EntityChange<TObject> record, CancellationToken ct)
+    {
+        IReadOnlyList<string> named = record.Connections ?? [];
+        if (_options.Visibility is not { } visibility || string.IsNullOrEmpty(record.EntityKey))
+            return named;
+
+        KeyValuePair<string, ClaimsPrincipal?>[] subscribers;
+        lock (_gate)
+            subscribers = _subscribers.ToArray();
+        var excluded = new List<string>(named);
+        foreach (var (connection, user) in subscribers)
+        {
+            if (named.Contains(connection))
+                continue;
+            bool allowed;
+            try
+            {
+                allowed = await visibility(new ChangeAudience(user, typeof(TObject), record.EntityKey, record.ChangeType), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                OnError(ex);
+                allowed = false;                // a rule that fails tells nothing
+            }
+            if (!allowed)
+                excluded.Add(connection);
+        }
+        return excluded;
     }
 
     public void Dispose()

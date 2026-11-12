@@ -114,6 +114,12 @@ public interface IEntityStore : IAsyncDisposable, IDisposable
         => SelectPagedAsync(SyncMetadata.And(SyncMetadata.ModifiedSince<TEntity>(sinceUtc), predicate), 1, maxRows, ct);
 
     /// <summary>
+    /// True when <see cref="AggregateAsync{TEntity}"/> computes in the database (GROUP BY): the rows never reach this process.
+    /// False by default: the values of every matching row are read, and a server counts them first (at most its read limit).
+    /// </summary>
+    bool AggregatesInStore => false;
+
+    /// <summary>
     /// Values computed over the rows matching <paramref name="predicate"/>, for all of them or by group: counts, sums,
     /// minimums, maximums, averages. By default, the store reads only the values needed (a projection) and computes them;
     /// a remote store has the server compute them.

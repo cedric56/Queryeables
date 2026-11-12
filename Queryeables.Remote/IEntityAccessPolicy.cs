@@ -23,7 +23,12 @@ public sealed record EntityRequestContext(ClaimsPrincipal? User = null, string? 
     public EntityRequestContext WithConnection(string? connectionId) => this with { ConnectionId = connectionId };
 }
 
-/// <param name="Entity">The entity concerned by a write; null for a read (type-level check).</param>
+/// <param name="Entity">
+/// The entity concerned by a write; null for a read (type-level check). For an insert, an update or a delete it is the
+/// content the client sent, not the stored row: a rule on who owns a row (<c>e.OwnerId == me</c>) does not protect the
+/// stored row of someone else. Keep users to their rows with a row filter (<c>RowLevelSecurity</c>), which checks the stored
+/// row and the new content. A patch, an update or a deletion of many rows presents the stored rows themselves.
+/// </param>
 public sealed record EntityAccessRequest(EntityOperation Operation, Type EntityType, object? Entity, ClaimsPrincipal? User);
 
 /// <summary>

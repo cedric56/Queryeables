@@ -277,7 +277,7 @@ internal static class Filters
     private static object? Evaluate(Expression expression)
         => CapturedValues.TryEvaluate(expression, out var value)
             ? value
-            : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile()();
+            : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile(preferInterpretation: true)();
 
     /// <summary>Reduces the value to a primitive type that any serializer carries (no custom type to register).</summary>
     private static object? Normalize(object? value) => value switch
@@ -325,6 +325,20 @@ internal static class Filters
     /// </summary>
     public const int MaxTotalValues = 2000;
 
+    /// <summary>At most <see cref="MaxValues"/> conditions and <see cref="MaxTotalValues"/> values in all (the items of lists counted).</summary>
+    internal static void CheckSize(IReadOnlyList<FilterCondition> conditions)
+    {
+        if (conditions.Count > MaxValues)
+            throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
+        var total = 0;
+        foreach (var condition in conditions)
+        {
+            total += Plain(condition?.Value) is IList list and not byte[] ? Math.Max(1, list.Count) : 1;
+            if (total > MaxTotalValues)
+                throw new ArgumentException($"A filter is limited to {MaxTotalValues} values in all.");
+        }
+    }
+
     /// <summary>Builds the predicate, rejecting any condition outside the whitelist.</summary>
     /// <param name="properties">
     /// The properties a client may filter on (see <see cref="RemoteMembers{T}.Queryable"/>); any other answers "unknown
@@ -333,6 +347,8 @@ internal static class Filters
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
         IReadOnlyList<FilterCondition> conditions, bool any, IReadOnlySet<string>? properties = null, IFilterScope? scope = null)
     {
+        // Both forms: the conditions, and the values of every list in them, before anything is built.
+        CheckSize(conditions);
         if (FilterLanguage.IsExtended(conditions))
         {
             if (scope is null || any)
@@ -340,12 +356,6 @@ internal static class Filters
             var root = Expression.Parameter(typeof(T), "e");
             return Expression.Lambda<Func<T, bool>>(FilterLanguage.Bind(conditions, scope, root), root);
         }
-
-        if (conditions.Count > MaxValues)
-            throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
-        var total = conditions.Sum(c => c?.Value is IList list and not byte[] ? Math.Max(1, list.Count) : 1);
-        if (total > MaxTotalValues)
-            throw new ArgumentException($"A filter is limited to {MaxTotalValues} values in all, not {total}.");
 
         var parameter = Expression.Parameter(typeof(T), "e");
         if (conditions.Any(c => c is { Operator: FilterOperator.And or FilterOperator.Or }))
@@ -492,7 +502,10 @@ internal static class Filters
     private static object? Plain(System.Text.Json.JsonElement json) => json.ValueKind switch
     {
         System.Text.Json.JsonValueKind.String => json.GetString(),
-        System.Text.Json.JsonValueKind.Number => json.TryGetInt64(out var integer) ? integer : json.GetDecimal(),
+        System.Text.Json.JsonValueKind.Number => json.TryGetInt64(out var integer) ? integer
+            : json.TryGetDecimal(out var number) ? number
+            : json.TryGetDouble(out var real) ? real
+            : throw new ArgumentException($"Invalid number: {json.GetRawText()}."),
         System.Text.Json.JsonValueKind.True => true,
         System.Text.Json.JsonValueKind.False => false,
         System.Text.Json.JsonValueKind.Array => json.EnumerateArray().Select(Plain).ToArray(),

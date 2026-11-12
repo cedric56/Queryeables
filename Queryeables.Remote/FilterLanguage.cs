@@ -327,8 +327,7 @@ internal static class FilterLanguage
     public static (Expression? Key, List<(AggregateFunction Function, Expression? Value)> Values) BindAggregation(
         IReadOnlyList<FilterCondition> conditions, IFilterScope scope, ParameterExpression parameter)
     {
-        if (conditions.Count > Filters.MaxValues)
-            throw new ArgumentException($"An aggregation is limited to {Filters.MaxValues} nodes.");
+        Filters.CheckSize(conditions);
         var stack = new Stack<Node>();
         Expression? key = null;
         var values = new List<(AggregateFunction, Expression?)>();

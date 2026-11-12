@@ -470,6 +470,20 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             : Expression.Call(ContainsKey, Expression.Constant(keys.ToArray()), key);
     }
 
+    /// <summary>
+    /// One column of the rows matching <paramref name="predicate"/>, read only when they are at most
+    /// <see cref="EntityRelations.MaxRows"/> (counted first, in the store): a relation filter never loads a table.
+    /// </summary>
+    private static async Task<IReadOnlyList<TValue>> ReadBoundedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TRow, TValue>(
+        IEntityStore store, Expression<Func<TRow, bool>> predicate, Expression<Func<TRow, TValue>> column, CancellationToken ct) where TRow : class
+    {
+        var count = await store.CountAsync(predicate, ct).ConfigureAwait(false);
+        if (count > EntityRelations.MaxRows)
+            throw new NotSupportedException(
+                $"The relation filter reads {count} {typeof(TRow).Name} rows, more than {EntityRelations.MaxRows} (EntityRelations.MaxRows): narrow it.");
+        return count == 0 ? [] : await store.SelectAsync(predicate, column, ct).ConfigureAwait(false);
+    }
+
     private static NotSupportedException TooManyKeys(int count)
         => new($"The relation filter matches {count} rows, more than {EntityRelations.MaxKeys} (EntityRelations.MaxKeys): narrow it.");
 
@@ -785,8 +799,8 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             ParameterExpression parent, CancellationToken ct)
         {
             var predicate = await RelationReadGuard.RestrictAsync(inner as Expression<Func<TChild, bool>> ?? All, ct).ConfigureAwait(false);
-            var groups = await store.AggregateAsync(predicate, Aggregation.Of<TChild>().GroupBy(_foreignKey).Count(), ct).ConfigureAwait(false);
-            var counted = groups.Where(g => g.Key is not null).Select(g => (Key: (TKey)g.Key!, g.Count)).ToList();
+            var foreignKeys = await ReadBoundedAsync(store, predicate, _foreignKey, ct).ConfigureAwait(false);
+            var counted = foreignKeys.Where(k => !IsDefault(k)).GroupBy(k => k).Select(g => (g.Key, Count: (long)g.Count())).ToList();
 
             // A parent without a related row counts 0: it is kept when 0 passes the test, so the test is written on those that fail.
             if (!Compare(0, op, value))
@@ -811,7 +825,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
         private async Task<IReadOnlyCollection<TKey>> ParentKeysAsync(IEntityStore store, Expression<Func<TChild, bool>> inner, CancellationToken ct)
         {
             var predicate = await RelationReadGuard.RestrictAsync(inner, ct).ConfigureAwait(false);
-            var keys = await store.SelectAsync(predicate, _foreignKey, ct).ConfigureAwait(false);
+            var keys = await ReadBoundedAsync(store, predicate, _foreignKey, ct).ConfigureAwait(false);
             return keys.Where(k => !IsDefault(k)).ToHashSet();
         }
 
@@ -971,7 +985,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             ParameterExpression parent, CancellationToken ct)
         {
             var links = await LinksAsync(store, inner as Expression<Func<TTarget, bool>>, ct).ConfigureAwait(false);
-            var counted = links.GroupBy(_getLinkForeignKey).Select(g => (g.Key, Count: (long)g.Count())).ToList();
+            var counted = links.GroupBy(k => k).Select(g => (g.Key, Count: (long)g.Count())).ToList();
             if (!Compare(0, op, value))
                 return _owner.KeyIn([.. counted.Where(g => Compare(g.Count, op, value)).Select(g => g.Key)], parent);
             return Expression.Not(_owner.KeyIn([.. counted.Where(g => !Compare(g.Count, op, value)).Select(g => g.Key)], parent));
@@ -984,15 +998,18 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             => throw new NotSupportedException($"{typeof(TParent).Name}.{Name} is a collection: test it with Any.");
 
         private async Task<IReadOnlyCollection<TKey>> ParentKeysAsync(IEntityStore store, Expression<Func<TTarget, bool>>? inner, CancellationToken ct)
-            => (await LinksAsync(store, inner, ct).ConfigureAwait(false)).Select(_getLinkForeignKey).ToHashSet();
+            => (await LinksAsync(store, inner, ct).ConfigureAwait(false)).ToHashSet();
 
-        /// <summary>The links (that the user may read) to the entities matching <paramref name="inner"/>; every link when null.</summary>
-        private async Task<IReadOnlyList<TLink>> LinksAsync(IEntityStore store, Expression<Func<TTarget, bool>>? inner, CancellationToken ct)
+        /// <summary>
+        /// The parent keys of the links (that the user may read) to the entities matching <paramref name="inner"/>; of every
+        /// link when null. Only the key columns are read, and at most <see cref="EntityRelations.MaxRows"/> rows.
+        /// </summary>
+        private async Task<IReadOnlyList<TKey>> LinksAsync(IEntityStore store, Expression<Func<TTarget, bool>>? inner, CancellationToken ct)
         {
             Expression<Func<TLink, bool>> links = _ => true;
             if (inner is not null)
             {
-                var targets = await store.SelectAsync(await RelationReadGuard.RestrictAsync(inner, ct).ConfigureAwait(false), _targetKey, ct)
+                var targets = await ReadBoundedAsync(store, await RelationReadGuard.RestrictAsync(inner, ct).ConfigureAwait(false), _targetKey, ct)
                     .ConfigureAwait(false);
                 var keys = targets.ToHashSet();
                 if (keys.Count > EntityRelations.MaxKeys)
@@ -1001,7 +1018,8 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
                     return [];
                 links = In(_linkTarget, keys);
             }
-            return await store.SelectAsync(await RelationReadGuard.RestrictAsync(links, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+            return await ReadBoundedAsync(store, await RelationReadGuard.RestrictAsync(links, ct).ConfigureAwait(false), _linkForeignKey, ct)
+                .ConfigureAwait(false);
         }
     }
 
@@ -1071,7 +1089,7 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
         {
             var target = Expression.Parameter(typeof(TTarget), "t");
             var predicate = await RelationReadGuard.RestrictAsync(Expression.Lambda<Func<TTarget, bool>>(body(target), target), ct).ConfigureAwait(false);
-            var keys = (await store.SelectAsync(predicate, _targetKey, ct).ConfigureAwait(false)).ToHashSet();
+            var keys = (await ReadBoundedAsync(store, predicate, _targetKey, ct).ConfigureAwait(false)).ToHashSet();
             if (keys.Count > EntityRelations.MaxKeys)
                 throw TooManyKeys(keys.Count);
             if (keys.Count == 0)

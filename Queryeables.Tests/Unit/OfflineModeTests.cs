@@ -856,6 +856,70 @@ public class OfflineModeTests
     }
 
     /// <summary>A transport whose network can be cut: every call then fails like a lost connection.</summary>
+    // ---------- Offline transactions (third audit) ----------
+
+    [Fact]
+    public async Task A_write_outside_an_offline_transaction_waits_for_it_and_survives_its_rollback()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using var inside = stores.Create();
+        await using var outside = stores.Create();
+
+        var transaction = await inside.BeginTransactionAsync();
+        await inside.InsertAsync(new TestClient { Name = "Inside" });
+        var write = outside.InsertAsync(new TestClient { Name = "Outside" });
+        await Task.Delay(50);
+        Assert.False(write.IsCompleted);                          // a write of another caller waits for the transaction
+
+        await transaction.RollbackAsync();
+        await write.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["Outside"], (await outside.GetAllAsync<TestClient>()).Select(c => c.Name));
+        Assert.Equal(1, mode.Status.PendingChanges);
+    }
+
+    [Fact]
+    public async Task A_commit_cancelled_while_waiting_leaves_the_transaction_to_its_disposal()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using (var store = stores.Create())
+        {
+            await using var transaction = await store.BeginTransactionAsync();
+            await store.InsertAsync(new TestClient { Name = "Dropped" });
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transaction.CommitAsync(new CancellationToken(canceled: true)));
+        }                                                                       // disposed: rolled back
+
+        await using var next = stores.Create();
+        await using (var transaction = await next.BeginTransactionAsync())      // not stuck in the cancelled one
+        {
+            await next.InsertAsync(new TestClient { Name = "Kept" });
+            Assert.True((await transaction.CommitAsync()).Successful);
+        }
+        Assert.Equal(["Kept"], (await next.GetAllAsync<TestClient>()).Select(c => c.Name));
+        Assert.Equal(1, mode.Status.PendingChanges);
+        Assert.True((await mode.GoOnlineAsync()).Completed);                   // the queue is not held by a lost transaction
+    }
+
+    [Fact]
+    public async Task Going_online_waits_for_an_open_offline_transaction()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using var store = stores.Create();
+        var transaction = await store.BeginTransactionAsync();
+        await store.InsertAsync(new TestClient { Name = "Half done" });
+
+        var online = mode.GoOnlineAsync();
+        await Task.Delay(50);
+        Assert.False(online.IsCompleted);                         // nothing half done is sent
+        await transaction.RollbackAsync();
+
+        Assert.True((await online.WaitAsync(TimeSpan.FromSeconds(5))).Completed);
+        Assert.Empty(_server.All<TestClient>());
+    }
+
     private sealed class NetworkRemote(IEntityTransport server) : IEntityTransport
     {
         public volatile bool Down;

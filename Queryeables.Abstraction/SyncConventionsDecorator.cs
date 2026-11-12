@@ -141,6 +141,8 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
 
     // ---------- Transactions ----------
 
+    public bool AggregatesInStore => _inner.AggregatesInStore;
+
     /// <summary>A read: the store's own aggregation.</summary>
     public Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class

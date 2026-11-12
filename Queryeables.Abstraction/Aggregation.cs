@@ -48,6 +48,38 @@ public sealed class Aggregation<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <summary>The key of the groups; null for one row over every matching row.</summary>
     public LambdaExpression? Key { get; private set; }
 
+    /// <summary>The type of the key (the value before its boxing, for a key returned as object); null without a group.</summary>
+    public Type? KeyType => Key is null ? null
+        : Key.Body is UnaryExpression { NodeType: ExpressionType.Convert } box && Key.ReturnType == typeof(object) ? box.Operand.Type : Key.ReturnType;
+
+    /// <summary>
+    /// <paramref name="value"/>, as a database returned it, in <paramref name="type"/>: a number of another width, a flag
+    /// stored as a number, a date stored as text...
+    /// </summary>
+    public static object? Coerce(object? value, Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        if (value is null or DBNull)
+            return null;
+        var core = Nullable.GetUnderlyingType(type) ?? type;
+        if (core.IsInstanceOfType(value) || core == typeof(object))
+            return value;
+        var invariant = CultureInfo.InvariantCulture;
+        if (core.IsEnum)
+            return value is string name ? Enum.Parse(core, name, ignoreCase: true) : Enum.ToObject(core, Convert.ToInt64(value, invariant));
+        if (core == typeof(Guid))
+            return value is byte[] bytes ? new Guid(bytes) : Guid.Parse(Convert.ToString(value, invariant)!);
+        if (core == typeof(DateTime) && value is string date)
+            return DateTime.Parse(date, invariant, DateTimeStyles.RoundtripKind);
+        if (core == typeof(DateTimeOffset))
+            return value is DateTime moment ? new DateTimeOffset(moment) : DateTimeOffset.Parse(Convert.ToString(value, invariant)!, invariant);
+        if (core == typeof(DateOnly))
+            return value is DateTime day ? DateOnly.FromDateTime(day) : DateOnly.Parse(Convert.ToString(value, invariant)!, invariant);
+        if (core == typeof(TimeSpan))
+            return value is string span ? TimeSpan.Parse(span, invariant) : TimeSpan.FromTicks(Convert.ToInt64(value, invariant));
+        return Convert.ChangeType(value, core, invariant);
+    }
+
     /// <summary>The values, in the order of <see cref="AggregateRow.Values"/>.</summary>
     public IReadOnlyList<AggregateValue> Values => _values;
 

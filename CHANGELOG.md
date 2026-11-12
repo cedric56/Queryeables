@@ -136,6 +136,27 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Third audit (commit 7ee8e22):
+  - A patch checked the access policy against the client's content only: the stored row is now checked too, before and
+    after the changes are applied. `EntityAccessRequest.Entity` documents what it holds (prefer `RowLevelSecurity`).
+  - The extended filter form escaped `MaxTotalValues` (the items of lists now count, in both forms); aggregates, bounded
+    by the read limit when a store computes them in memory (`IEntityStore.AggregatesInStore`), run in SQL with Dommel
+    (`GROUP BY`, one row per group); a relation filter counts the related rows before reading them, and reads only the
+    column it needs (`EntityRelations.MaxRows`, 100,000).
+  - Dommel: a comparison with a value computed as null (`c.Name == none`) wrote `= null` (never true): now `is null`.
+    The parts of a `DateTimeOffset` (`.Year`...) are refused rather than computed in the database's time zone.
+  - Offline transactions: a commit cancelled while waiting left the mode stuck in a transaction; a rollback erased the
+    writes other callers made meanwhile; a synchronization could send a transaction half done. A transaction is now
+    exclusive (see the offline mode guide).
+  - The offline queue merged an update into an earlier one across writes on other rows, which could send a row before
+    the row it refers to: only consecutive writes on a row are merged.
+  - Change notifications reached every subscriber whatever its row-level security: `ChangeHubOptions.Visibility` filters
+    them per subscriber.
+  - A graph saved by its service checked the stored row in another transaction than its save: both now run in one.
+  - Lower: a projection cleared the instances a store keeps (now copies); the row rule compiled per row in writes of many
+    rows; EF Core left the version incremented after a failed save; Dommel kept a finished transaction after its commit;
+    an empty operation in a batch threw instead of answering `InvalidRequest`; a number out of range in a filter threw a
+    `FormatException`; PostgreSQL trigger names over 63 bytes are shortened with a hash instead of cut.
 - Second audit (November 2026):
   - A remote update erased the columns the serializer leaves out (a password hash): they now keep their stored values,
     like `[ServerOwned]`.

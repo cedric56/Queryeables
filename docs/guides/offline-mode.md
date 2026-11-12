@@ -83,10 +83,14 @@ await offline.RefreshSnapshotAsync();                // a fresh copy, without ch
   (an order created offline for a customer created offline, a child inserted on its own) take the real key before they
   are sent: the foreign keys of the graphs, of `[EntityReference]`, and the properties named `{Type}Id` or `Id{Type}`.
 - Writes on the same row are **coalesced**: an insert then updates is sent as one insert, an insert then a delete is not
-  sent at all.
+  sent at all. Only consecutive writes are: a write on another row in between keeps the order (a row it refers to, a
+  value it frees), and both writes are sent.
 - A parent saved through its graph repository is saved with its children in the copy, and queued as **one** write: the
   server saves the children again when it receives it, as it does online.
-- Offline transactions work: a transaction not committed restores the copy and the queue.
+- Offline transactions work: a transaction not committed restores the copy and the queue. A transaction is exclusive:
+  while it is open, writes through other stores, a synchronization and the resolution of conflicts wait for its end, so
+  that its rollback never erases them and nothing half done is sent. Write through the transaction's own store: a write
+  through another store of the same flow waits for the transaction, which waits for it.
 - The caches follow the copy: each offline write notifies them, and each switch makes them synchronize.
 
 ## Conflicts

@@ -154,9 +154,21 @@ What a client sends a hub is not trusted:
 - The queue of changes is bounded (10,000). When clients cannot keep up, it is emptied and one "synchronize" is sent:
   each cache catches up from the database, and memory stays bounded.
 
-**Limit:** every subscriber of a type receives the keys of all its changed rows, whatever its row filter: no content, but
-a tenant can see that rows of another changed, and when. Where that matters, give each tenant its own server (or its own
-hub type), until notifications are filtered per tenant.
+By default, every subscriber of a type receives the keys of all its changed rows, whatever its row filter: no content,
+but a tenant can see that rows of another changed, and when. Where that matters, set `ChangeHubOptions.Visibility`: a
+change then reaches only the subscribers it accepts, usually by applying the type's row-level security to the row.
+
+```csharp
+services.AddSingleton(new ChangeHubOptions
+{
+    Visibility = async (change, ct) =>
+        change.User?.FindFirst("tenant")?.Value is { } tenant
+        && await tenants.OwnsAsync(tenant, change.EntityType, change.EntityKey, ct),   // a lookup by key: keep it fast
+});
+```
+
+A "synchronize everything" names no row and still reaches every subscriber. A user who could see a row before a change
+but not after is not told of that change, and keeps the row until its cache refreshes.
 
 ## TLS
 

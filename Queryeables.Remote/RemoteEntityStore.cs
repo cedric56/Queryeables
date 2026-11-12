@@ -155,6 +155,9 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         return supported ? _serializer.Deserialize<long>(data ?? []) : (await SelectAsync(predicate, ct)).Count;
     }
 
+    /// <summary>The server computes them, within its own limits.</summary>
+    public bool AggregatesInStore => true;
+
     /// <summary>Computed by the server: only the results travel.</summary>
     public async Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class

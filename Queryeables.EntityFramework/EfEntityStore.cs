@@ -140,7 +140,17 @@ public sealed class EfEntityStore : IEntityStore
         token.OriginalValue = ConcurrencyToken.Box(version, current);
         token.CurrentValue = ConcurrencyToken.Box(version, current + 1);
 
-        if (await SaveAndDetachAsync(entries, ct) > 0)
+        int saved;
+        try
+        {
+            saved = await SaveAndDetachAsync(entries, ct);
+        }
+        catch
+        {
+            ConcurrencyToken.Set(entity, version, current); // a failed save (constraint, network...) changes nothing either
+            throw;
+        }
+        if (saved > 0)
             return true;
 
         ConcurrencyToken.Set(entity, version, current); // the entity keeps the version it had

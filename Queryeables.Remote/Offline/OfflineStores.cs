@@ -35,6 +35,8 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => Watch(inner.SelectAsync(predicate, ct), ct);
 
+    public bool AggregatesInStore => inner.AggregatesInStore;
+
     public Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
         => Watch(inner.AggregateAsync(predicate, aggregation, ct), ct);
@@ -171,7 +173,7 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
 
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
-        if (_transaction is not null)
+        if (_transaction is OfflineMode.OfflineTransaction { IsOpen: true })
             throw new InvalidOperationException("A transaction is already in progress on this store.");
         return BeginAsync(ct);
     }
@@ -245,7 +247,12 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
         bool written;
         bool saved;
 
-        await mode.Gate.WaitAsync(ct);
+        // A write of this store's transaction goes in; any other waits until no transaction is open (isolation).
+        var inTransaction = _transaction is OfflineMode.OfflineTransaction { IsOpen: true };
+        if (inTransaction)
+            await mode.Gate.WaitAsync(ct);
+        else
+            await mode.EnterAsync(ct);
         try
         {
             var replica = new ReplicaStore(mode);
@@ -284,7 +291,10 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
         }
         finally
         {
-            mode.Gate.Release();
+            if (inTransaction)
+                mode.Gate.Release();
+            else
+                mode.Leave();
         }
 
         if (saved)
