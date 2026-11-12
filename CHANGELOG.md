@@ -120,6 +120,7 @@ First public version.
     SQLite they ignored case (now `instr`/`substr`, case-sensitive as elsewhere); `!=` on a nullable column left out
     the rows where it is null (now `(c <> @p or c is null)`, as in C#); a predicate always true (`c => true`) wrote
     `WHERE True`, refused by SQL Server (now no `WHERE`; one always false reads nothing).
+  - EF Core on SQLite: `StartsWith` and `EndsWith` ignored case (`LIKE`); they now compare `substr`, as C# does.
   - MongoDB: the key counter ran inside the transaction, so two concurrent inserts failed with a WriteConflict; it now
     runs outside, as a database sequence does (a rollback leaves a gap).
   - Offline mode: a stop between writing a queued write and the index of the queue could lose it; new entries are now

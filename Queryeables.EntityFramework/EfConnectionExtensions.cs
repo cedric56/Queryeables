@@ -68,7 +68,7 @@ public static class EfConnectionExtensions
     {
         await using var ctx = await CreateContextAsync<TEntity>(connection, transaction, cancellationToken);
         // Materialized before the context is closed.
-        return await ctx.Set<TEntity>().Where(predicate).ToListAsync(cancellationToken);
+        return await ctx.Set<TEntity>().Where(SqliteText.For(ctx, predicate)).ToListAsync(cancellationToken);
     }
 
     public static async Task<TEntity?> FirstOrDefaultAsync<TEntity>(this IDbConnection connection,
@@ -76,7 +76,7 @@ public static class EfConnectionExtensions
         CancellationToken cancellationToken = default) where TEntity : class
     {
         await using var ctx = await CreateContextAsync<TEntity>(connection, transaction, cancellationToken);
-        return await ctx.Set<TEntity>().FirstOrDefaultAsync(predicate, cancellationToken);
+        return await ctx.Set<TEntity>().FirstOrDefaultAsync(SqliteText.For(ctx, predicate), cancellationToken);
     }
 
     /// <param name="pageNumber">Starts at 1, like Dommel.</param>
@@ -88,7 +88,7 @@ public static class EfConnectionExtensions
         if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
         await using var ctx = await CreateContextAsync<TEntity>(connection, transaction, cancellationToken);
-        return await OrderByKey(ctx, ctx.Set<TEntity>().Where(predicate))
+        return await OrderByKey(ctx, ctx.Set<TEntity>().Where(SqliteText.For(ctx, predicate)))
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
