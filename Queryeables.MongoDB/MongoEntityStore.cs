@@ -1,4 +1,5 @@
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using Queryeables.Abstraction;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -59,6 +60,7 @@ public sealed class MongoEntityStore : IEntityStore
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         return await Find<TEntity>(predicate).ToListAsync(ct);
     }
 
@@ -66,6 +68,7 @@ public sealed class MongoEntityStore : IEntityStore
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         return await Find<TEntity>(predicate).Limit(1).FirstOrDefaultAsync(ct);
     }
 
@@ -74,6 +77,7 @@ public sealed class MongoEntityStore : IEntityStore
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         Paging.Validate(pageNumber, pageSize);
         return await Find<TEntity>(predicate)
             .Sort(Builders<TEntity>.Sort.Ascending("_id"))
@@ -88,6 +92,7 @@ public sealed class MongoEntityStore : IEntityStore
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         ArgumentNullException.ThrowIfNull(sort);
         Paging.Validate(pageNumber, pageSize);
         return await Find<TEntity>(predicate)
@@ -103,18 +108,37 @@ public sealed class MongoEntityStore : IEntityStore
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         ArgumentNullException.ThrowIfNull(selector);
         return await Find<TEntity>(predicate).Project(selector).ToListAsync(ct);
     }
 
-    public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+    /// <summary>
+    /// Computed by this process over the matching documents (read whole: the values of an aggregation are not projected by
+    /// the driver into an array).
+    /// </summary>
+    public async Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(aggregation);
+        if (aggregation.Projection() is not { } projection)
+        {
+            var count = await CountAsync(predicate, ct);
+            return [new AggregateRow(null, count, [.. aggregation.Values.Select(_ => (object?)count)])];
+        }
+        var read = projection.Compile();
+        return aggregation.Compute((await SelectAsync(predicate, ct)).Select(read));
+    }
+
+    public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(predicate);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters become queries
         FilterDefinition<TEntity> filter = predicate;
         return _session is null
-            ? Collection<TEntity>().CountDocumentsAsync(filter, cancellationToken: ct)
-            : Collection<TEntity>().CountDocumentsAsync(_session, filter, cancellationToken: ct);
+            ? await Collection<TEntity>().CountDocumentsAsync(filter, cancellationToken: ct)
+            : await Collection<TEntity>().CountDocumentsAsync(_session, filter, cancellationToken: ct);
     }
 
     // ---------- Write ----------
@@ -257,7 +281,19 @@ public sealed class MongoEntityStore : IEntityStore
 
     // ---------- Internals ----------
 
-    private IMongoCollection<TEntity> Collection<TEntity>() => _database.GetCollection<TEntity>(CollectionName<TEntity>());
+    private IMongoCollection<TEntity> Collection<TEntity>()
+    {
+        // A composite key (a link table): the parts stay fields of their own, the document gets an _id of its own.
+        if (Keys<TEntity>().Count > 1 && !BsonClassMap.IsClassMapRegistered(typeof(TEntity)))
+            BsonClassMap.TryRegisterClassMap<TEntity>(map =>
+            {
+                map.AutoMap();
+                map.SetIgnoreExtraElements(true);
+            });
+        return _database.GetCollection<TEntity>(CollectionName<TEntity>());
+    }
+
+    private static IReadOnlyList<PropertyInfo> Keys<TEntity>() => SyncMetadata.Keys(typeof(TEntity));
 
     private IFindFluent<TEntity, TEntity> Find<TEntity>(FilterDefinition<TEntity> filter)
         => _session is null ? Collection<TEntity>().Find(filter) : Collection<TEntity>().Find(_session, filter);
@@ -285,18 +321,26 @@ public sealed class MongoEntityStore : IEntityStore
 
     private static object? KeyOf<TEntity>(TEntity entity) => Key<TEntity>().GetValue(entity);
 
-    /// <summary><c>_id == entity.Key</c>, through the class map: the key property is stored as <c>_id</c>.</summary>
+    /// <summary>
+    /// <c>_id == entity.Key</c>, through the class map: the key property is stored as <c>_id</c>. Every part of a composite key
+    /// (a link table), each a field of its own.
+    /// </summary>
     private static FilterDefinition<TEntity> SameKey<TEntity>(TEntity entity)
     {
-        var key = Key<TEntity>();
+        var keys = Keys<TEntity>().Count > 1 ? Keys<TEntity>() : [Key<TEntity>()];
         var parameter = Expression.Parameter(typeof(TEntity), "e");
-        var body = Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(entity), key.PropertyType));
-        return Expression.Lambda<Func<TEntity, bool>>(body, parameter);
+        Expression? body = null;
+        foreach (var key in keys)
+        {
+            var equal = Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(entity), key.PropertyType));
+            body = body is null ? equal : Expression.AndAlso(body, equal);
+        }
+        return Expression.Lambda<Func<TEntity, bool>>(body!, parameter);
     }
 
     /// <summary>The field a property is stored in: <c>_id</c> for the key, its name otherwise.</summary>
     private static string FieldOf<TEntity>(string property)
-        => string.Equals(Key<TEntity>().Name, property, StringComparison.Ordinal) ? "_id" : property;
+        => Keys<TEntity>().Count == 1 && string.Equals(Key<TEntity>().Name, property, StringComparison.Ordinal) ? "_id" : property;
 
     private static SortDefinition<TEntity> SortOf<TEntity>(Sort<TEntity> sort) where TEntity : class
     {
@@ -316,6 +360,8 @@ public sealed class MongoEntityStore : IEntityStore
     /// <summary>A key left empty gets one: from a counter for numbers, a new Guid, or a new ObjectId for strings.</summary>
     private async Task AssignKeyAsync<TEntity>(TEntity entity, CancellationToken ct)
     {
+        if (Keys<TEntity>().Count > 1)
+            return;                 // a composite key is given by the application
         var key = Key<TEntity>();
         var value = key.GetValue(entity);
         var type = Nullable.GetUnderlyingType(key.PropertyType) ?? key.PropertyType;

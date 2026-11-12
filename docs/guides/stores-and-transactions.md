@@ -30,7 +30,11 @@ callers.
 | `SelectPagedAsync<T>(predicate, page, size, sort)` | In the given order: `Sort<T>.By(p => p.Name).ThenByDescending(p => p.Id)` |
 | `SelectAsync<T>(predicate, sort)` | Every matching row, in the given order |
 | `SelectAsync<T, TResult>(predicate, selector)` | A projection: `p => new PersonRow(p.Id, p.Name)` |
-| `CountAsync<T>(predicate)` | Counted in the database |
+| `CountAsync<T>(predicate)` | Counted in the database (by the server, remotely) |
+| `SumAsync`, `MinAsync`, `MaxAsync`, `AverageAsync` | `await store.SumAsync<Line, decimal>(l => l.Year == 2026, l => l.Price * l.Quantity)` |
+| `GroupAsync<T, TKey>(predicate, key, values)` | `await store.GroupAsync<Order, Status>(o => true, o => o.Status, a => a.Sum(o => o.Total))`: each group with its count and values |
+| `AggregateAsync<T>(predicate, aggregation)` | The general form: `Aggregation.Of<T>().GroupBy(...).Count().Sum(...).Max(...)` |
+| `SelectAfterAsync<T>(predicate, sort, after, size)` | The page after a row (keyset paging): as deep as wanted, unshifted by inserts; for infinite scrolling |
 | `SelectChangesAsync<T>(sinceUtc)` | Rows changed since a date, soft-deleted ones included (`[LastModified]`) |
 
 ### Composed queries
@@ -52,18 +56,26 @@ after a `Take` shortens it); a `Skip` that is not a multiple of `Take` reads the
 a base query can be shared. It is not an `IQueryable`: joins, grouping and subqueries do not compile, instead of failing
 at run time.
 
-Predicates stay simple so that every store understands them: comparisons, booleans, `ids.Contains(e.Id)`, and
-`StartsWith`, `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!`. A `!` is pushed down to the
-terms (`!(a && b)` is sent as `!a || !b`); it cannot negate a `Contains`, a text search, or an ordering on a nullable
-property. For joins or grouping, use the ORM directly.
+Predicates give the rows C# gives, in every store and remotely:
+
+- comparisons between a property and a value, between two properties, or of values computed from them: arithmetic
+  (`+ - * / %`), `??`, text (`ToLower`, `ToUpper`, `Trim`, `Length`, `Substring`, `+`, `string.Compare(a, b) > 0`), dates
+  (`Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`, `DayOfWeek`, `DayOfYear`, `Date`), `Math.Abs`, `Floor`, `Ceiling`;
+- `ids.Contains(e.Id)`, `StartsWith`, `EndsWith` and `Contains` on text (wildcards are text);
+- relations declared by the graph: `Any`, `All` and `Count` on a collection, a condition on a navigation
+  (see [entity graphs](entity-graphs.md#filters-through-the-relations));
+- combined with `&&`, `||` and `!`, nulls as C# treats them (`!(x > 1)` keeps the rows where x is null).
+
+Text compares as the database collation does (case-insensitive by default on SQL Server and MySQL); `Math.Round` is not
+translated (rounding differs between C# and SQL).
 
 Where sorting and projections run:
 
 | Store | Sorted pages | Projections |
 | --- | --- | --- |
 | EF Core | In the database, the key breaking ties | In the database: only the selected columns are read |
-| Remote | By the server, with its own store; only the page crosses the network | On the client, after reading the entities (no expression goes over the wire) |
-| Dommel | In the database (ORDER BY, then LIMIT or OFFSET/FETCH), the key breaking ties | In memory, after the read |
+| Remote | By the server, with its own store; only the page crosses the network | The server sends only the properties the selector reads; the selector runs on the client |
+| Dommel | In the database (ORDER BY, then LIMIT or OFFSET/FETCH), the key breaking ties | Only the columns the selector reads, then in memory |
 | Your own store | In memory, after the filtered read (`SortsInStore` is false): a server reads at most `maxReadSize` rows for it | In memory, after the read |
 
 A sort names properties of the entity, at most 8; a server checks them against the exposed type.
@@ -95,6 +107,30 @@ if (!result.Successful)
 - `.OrThrow()` on the task turns a failure into an `EntityStoreException`, for code that prefers exceptions.
 
 `InsertManyAsync`, `UpdateManyAsync` and `DeleteManyAsync` run in one transaction: if one row fails, none is written.
+
+### Many rows at once
+
+```csharp
+var archived = await store.UpdateWhereAsync<Invoice>(i => i.Year == 2024, set => set.Set(i => i.Archived, true));
+var purged = await store.DeleteWhereAsync<Draft>(d => d.Created < limit);
+```
+
+Each row is written as an update or a delete: versions, `[LastModified]`, soft delete, validation and the access rules of
+a server apply, and each row is notified. Remotely, the server does it in one call and one transaction (at most
+`maxReadSize` rows, as a read). Run it in a transaction locally to make it atomic.
+
+### A patch: only what changed
+
+```csharp
+var original = EntityValues.Copy(customer);        // as read
+customer.Phone = "...";                            // edited in a form
+await store.PatchAsync(original, customer);
+```
+
+Only the changed columns are written over the stored row: what others changed meanwhile in other columns is kept, and
+`customer` then holds the stored row. A column changed both here and by someone else is a `Conflict`. Remotely, only the
+changed values travel, and the server never takes from them the key, the version, `[ServerOwned]` properties or those the
+serializer leaves out.
 
 ## Sync conventions
 

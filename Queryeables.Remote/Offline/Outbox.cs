@@ -93,6 +93,16 @@ internal sealed class Outbox
         }
     }
 
+    /// <summary>Rewrites the content of the entries <paramref name="rewrite"/> gives a new content for (null: unchanged).</summary>
+    public void Rewrite(Func<OutboxEntry, byte[]?> rewrite)
+    {
+        for (var i = 0; i < _entries.Count; i++)
+        {
+            if (rewrite(_entries[i]) is { } payload)
+                Replace(i, _entries[i] with { Payload = payload });
+        }
+    }
+
     public void Remove(Guid id)
     {
         var index = _entries.FindIndex(e => e.Id == id);

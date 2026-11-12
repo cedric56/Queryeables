@@ -24,6 +24,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
 {
     private const string CacheAttribute = "Queryeables.Abstraction.EntityCacheAttribute";
     private const string GraphAttribute = "Queryeables.Abstraction.EntityGraphAttribute";
+    private const string ReferenceAttribute = "Queryeables.Abstraction.EntityReferenceAttribute";
     private const string Abstraction = "global::Queryeables.Abstraction";
     private const string Category = "Queryeables";
 
@@ -32,7 +33,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
         "QRY001", "Entity without key", "{0}", Category, DiagnosticSeverity.Error, isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor NotACollection = new(
-        "QRY002", "[EntityGraph] on a property that is not a writable collection of entities", "{0}", Category, DiagnosticSeverity.Error, isEnabledByDefault: true);
+        "QRY002", "[EntityGraph] on a property that is not a writable entity or collection of entities", "{0}", Category, DiagnosticSeverity.Error, isEnabledByDefault: true);
 
     private static readonly DiagnosticDescriptor ForeignKeyNotFound = new(
         "QRY003", "Foreign key not found", "{0}", Category, DiagnosticSeverity.Error, isEnabledByDefault: true);
@@ -82,6 +83,12 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 static (ctx, _) => ReadRelation(ctx))
             .Collect();
 
+        var references = context.SyntaxProvider.ForAttributeWithMetadataName(
+                ReferenceAttribute,
+                static (node, _) => node is PropertyDeclarationSyntax,
+                static (ctx, _) => ReadReference(ctx))
+            .Collect();
+
         // The registration needs Queryeables.Core (the "Queryeables" package); without it, only the classes are written.
         // Also: this assembly's module name, and the modules of the referenced assemblies.
         var assembly = context.CompilationProvider.Select(static (compilation, _) => new AssemblyModel(
@@ -95,9 +102,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 .OrderBy(module => module, StringComparer.Ordinal)
                 .ToArray())));
 
-        context.RegisterSourceOutput(caches.Combine(relations).Combine(assembly), static (spc, input) =>
+        context.RegisterSourceOutput(caches.Combine(relations).Combine(references).Combine(assembly), static (spc, input) =>
         {
-            var ((cacheResults, relationResults), target) = input;
+            var (((cacheResults, graphResults), referenceResults), target) = input;
+            var relationResults = graphResults.AddRange(referenceResults);
             var core = target.HasCore;
 
             foreach (var result in cacheResults)
@@ -119,8 +127,9 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 .Select(g => new GraphModel(g.First(), g.Select(r => r.Relation!).ToArray()))
                 .ToArray();
 
+            var byParent = graphs.ToDictionary(g => g.ParentTypeName, StringComparer.Ordinal);
             foreach (var graph in graphs)
-                spc.AddSource(HintName("Graph", graph.ParentTypeName), WriteGraph(graph));
+                spc.AddSource(HintName("Graph", graph.ParentTypeName), WriteGraph(graph, byParent));
 
             if (!core)
                 return;
@@ -179,21 +188,42 @@ public sealed class EntityGenerator : IIncrementalGenerator
             return Fail("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].");
 
         var compilation = context.SemanticModel.Compilation;
-        if (ElementType(property.Type) is not INamedTypeSymbol { TypeKind: TypeKind.Class } child
-            || property.SetMethod is null
-            || !AcceptsList(compilation, property.Type, child))
+        var attribute = context.Attributes.First();
+        if (NamedType(attribute, "Through") is INamedTypeSymbol link)
+            return ReadThrough(property, parent, parentKey, link, attribute, compilation, Result, Fail);
+
+        // A collection of children (one to many), or one child (one to one).
+        string kind;
+        INamedTypeSymbol child;
+        if (ElementType(property.Type) is INamedTypeSymbol { TypeKind: TypeKind.Class } element && AcceptsList(compilation, property.Type, element))
+        {
+            kind = "Many";
+            child = element;
+        }
+        else if (property.Type is INamedTypeSymbol { TypeKind: TypeKind.Class, SpecialType: SpecialType.None } one && ElementType(one) is null)
+        {
+            kind = "One";
+            child = one;
+        }
+        else
+        {
+            child = null!;
+            kind = string.Empty;
+        }
+        if (kind.Length == 0 || property.SetMethod is null)
         {
             return Fail("QRY002",
-                $"[EntityGraph] on {parent.Name}.{property.Name}: the property must be a collection of entities that accepts a " +
-                "List<T> (List<T>, IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>...) and has a setter. " +
-                "A reference to the parent takes no attribute: name it in ParentNavigation of the collection.");
+                $"[EntityGraph] on {parent.Name}.{property.Name}: the property must be an entity (one child) or a collection of entities " +
+                "that accepts a List<T> (List<T>, IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>...), with a setter. " +
+                "A reference to the parent takes no attribute: name it in ParentNavigation. A navigation held by a foreign key of " +
+                $"{parent.Name} takes [EntityReference].");
         }
 
-        var childKey = FindKey(child);
-        if (childKey is null)
+        var childKeys = FindKeys(child);
+        if (childKeys.Length == 0)
             return Fail("QRY001", $"{child.Name} has no key: add an Id property or mark the key with [Key].");
+        var childKey = childKeys[0];
 
-        var attribute = context.Attributes.First();
         var foreignKeyName = Named(attribute, "ForeignKey");
         var parentNavigation = Named(attribute, "ParentNavigation");
         var lookupNavigation = Named(attribute, "LookupNavigation");
@@ -274,16 +304,170 @@ public sealed class EntityGenerator : IIncrementalGenerator
             lookup = new CacheModel(TypeName(lookupType), lookupKey);
         }
 
+        var (keyModel, keyExpression) = KeyOf(childKeys, "c");
         var relation = new RelationModel(
+            kind,
             property.Name,
             TypeName(child),
-            childKey,
+            keyModel,
+            keyExpression,
             Property(foreignKey),
             parentNavigation,
             lookupNavigation,
             lookupForeignKey,
-            lookup);
+            lookup,
+            NullDeletes: kind == "One" && NamedBool(attribute, "NullDeletes"));
         return Result(parentKey, relation);
+    }
+
+    /// <summary>Many to many: the collection holds the linked entities, the links hold both keys.</summary>
+    private static RelationResult ReadThrough(IPropertySymbol property, INamedTypeSymbol parent, PropertyModel parentKey, INamedTypeSymbol link,
+        AttributeData attribute, Compilation compilation, Func<PropertyModel?, RelationModel?, RelationResult> result,
+        Func<string, string, RelationResult> fail)
+    {
+        if (ElementType(property.Type) is not INamedTypeSymbol { TypeKind: TypeKind.Class } target
+            || !AcceptsList(compilation, property.Type, target) || property.SetMethod is null)
+        {
+            return fail("QRY002", $"[EntityGraph(Through = typeof({link.Name}))] on {parent.Name}.{property.Name}: the property must be a " +
+                "collection of the linked entities that accepts a List<T>, with a setter.");
+        }
+        if (!link.InstanceConstructors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public))
+            return fail("QRY002", $"{link.Name} needs a public constructor without parameters: the links are created by the graph.");
+
+        var targetKey = FindKey(target);
+        if (targetKey is null)
+            return fail("QRY001", $"{target.Name} has no key: add an Id property or mark the key with [Key].");
+
+        var foreignKeyName = Named(attribute, "ThroughForeignKey");
+        var foreignKey = foreignKeyName is not null
+            ? FindProperty(link, foreignKeyName)
+            : FindProperty(link, parent.Name + "Id") ?? FindProperty(link, "Id" + parent.Name);
+        if (foreignKey is null)
+        {
+            return fail(foreignKeyName is null ? "QRY003" : "QRY004", foreignKeyName is null
+                ? $"The key of {parent.Name} in {link.Name} was not found (looked for {parent.Name}Id and Id{parent.Name}): set ThroughForeignKey."
+                : $"ThroughForeignKey = \"{foreignKeyName}\": {link.Name} has no writable property {foreignKeyName}.");
+        }
+        if (!SameKeyType(foreignKey.Type, parentKey.Type, parentKey.UnderlyingType))
+            return fail("QRY005", $"{link.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {parent.Name} is {parentKey.Type}.");
+
+        var targetKeyName = Named(attribute, "ThroughTargetKey");
+        var linkTarget = targetKeyName is not null
+            ? FindProperty(link, targetKeyName)
+            : FindProperty(link, target.Name + "Id") ?? FindProperty(link, "Id" + target.Name);
+        if (linkTarget is null)
+        {
+            return fail(targetKeyName is null ? "QRY003" : "QRY004", targetKeyName is null
+                ? $"The key of {target.Name} in {link.Name} was not found (looked for {target.Name}Id and Id{target.Name}): set ThroughTargetKey."
+                : $"ThroughTargetKey = \"{targetKeyName}\": {link.Name} has no writable property {targetKeyName}.");
+        }
+        if (!SameKeyType(linkTarget.Type, targetKey.Type, targetKey.UnderlyingType))
+            return fail("QRY005", $"{link.Name}.{linkTarget.Name} is {Display(linkTarget.Type)}, but the key of {target.Name} is {targetKey.Type}.");
+
+        return result(parentKey, new RelationModel("Through", property.Name, TypeName(target), targetKey, "t." + Escape(targetKey.Name),
+            Property(foreignKey), null, null, null, null, LinkType: TypeName(link), LinkTarget: Property(linkTarget)));
+    }
+
+    /// <summary>[EntityReference]: a navigation held by a foreign key of the entity.</summary>
+    private static RelationResult ReadReference(GeneratorAttributeSyntaxContext context)
+    {
+        var property = (IPropertySymbol)context.TargetSymbol;
+        var parent = property.ContainingType;
+        var location = context.Attributes.FirstOrDefault()?.ApplicationSyntaxReference?.GetSyntax().GetLocation()
+                       ?? context.TargetNode.GetLocation();
+        var diagnostics = new List<DiagnosticInfo>();
+
+        RelationResult Result(PropertyModel? parentKey, RelationModel? relation) => new(
+            TypeName(parent),
+            parent.Name,
+            parent.ContainingNamespace.IsGlobalNamespace ? null : parent.ContainingNamespace.ToDisplayString(),
+            parentKey,
+            relation,
+            new EquatableArray<DiagnosticInfo>(diagnostics.ToArray()));
+
+        RelationResult Fail(string id, string message)
+        {
+            diagnostics.Add(Diagnostic(id, message, location));
+            return Result(null, null);
+        }
+
+        var parentKey = FindKey(parent);
+        if (parentKey is null)
+            return Fail("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].");
+        if (property.Type is not INamedTypeSymbol { TypeKind: TypeKind.Class, SpecialType: SpecialType.None } target
+            || ElementType(target) is not null || property.SetMethod is null)
+            return Fail("QRY002", $"[EntityReference] on {parent.Name}.{property.Name}: the property must be an entity, with a setter.");
+        var targetKey = FindKey(target);
+        if (targetKey is null)
+            return Fail("QRY001", $"{target.Name} has no key: add an Id property or mark the key with [Key].");
+
+        var foreignKeyName = Named(context.Attributes.First(), "ForeignKey");
+        var foreignKey = foreignKeyName is not null
+            ? FindProperty(parent, foreignKeyName, writable: false)
+            : FindProperty(parent, property.Name + "Id", writable: false) ?? FindProperty(parent, "Id" + property.Name, writable: false);
+        if (foreignKey is null)
+        {
+            return Fail(foreignKeyName is null ? "QRY006" : "QRY004", foreignKeyName is null
+                ? $"The key of the navigation {parent.Name}.{property.Name} was not found (looked for {property.Name}Id and Id{property.Name}): " +
+                  "set ForeignKey on [EntityReference]."
+                : $"ForeignKey = \"{foreignKeyName}\": {parent.Name} has no property {foreignKeyName}.");
+        }
+        if (!SameKeyType(foreignKey.Type, targetKey.Type, targetKey.UnderlyingType))
+            return Fail("QRY007", $"{parent.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {target.Name} is {targetKey.Type}.");
+
+        return Result(parentKey, new RelationModel("Reference", property.Name, TypeName(target), targetKey, "t." + Escape(targetKey.Name),
+            Property(foreignKey), null, null, null, null));
+    }
+
+    /// <summary>Every [Key] property in declaration order (more than one: a composite key), otherwise the one named Id.</summary>
+    private static PropertyModel[] FindKeys(INamedTypeSymbol type)
+    {
+        var marked = new List<PropertyModel>();
+        var chain = new List<INamedTypeSymbol>();
+        for (var current = type; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+            chain.Insert(0, current);
+        foreach (var current in chain)
+        {
+            foreach (var property in current.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (!property.IsStatic && property.GetMethod is not null && property.DeclaredAccessibility == Accessibility.Public
+                    && property.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == "System.ComponentModel.DataAnnotations.KeyAttribute"))
+                    marked.Add(Property(property));
+            }
+        }
+        if (marked.Count > 0)
+            return marked.ToArray();
+        return FindKey(type) is { } key ? new[] { key } : new PropertyModel[0];
+    }
+
+    /// <summary>The key as a model and as an expression on <paramref name="variable"/>: a ValueTuple for a composite key.</summary>
+    private static (PropertyModel Model, string Expression) KeyOf(PropertyModel[] keys, string variable)
+    {
+        if (keys.Length == 1)
+            return (keys[0], variable + "." + Escape(keys[0].Name));
+        var type = "global::System.ValueTuple<" + string.Join(", ", keys.Select(k => k.Type)) + ">";
+        return (new PropertyModel(string.Join("_", keys.Select(k => k.Name)), type, false, null),
+            "new " + type + "(" + string.Join(", ", keys.Select(k => variable + "." + Escape(k.Name))) + ")");
+    }
+
+    private static ITypeSymbol? NamedType(AttributeData attribute, string name)
+    {
+        foreach (var argument in attribute.NamedArguments)
+        {
+            if (argument.Key == name && argument.Value.Value is ITypeSymbol type)
+                return type;
+        }
+        return null;
+    }
+
+    private static bool NamedBool(AttributeData attribute, string name)
+    {
+        foreach (var argument in attribute.NamedArguments)
+        {
+            if (argument.Key == name && argument.Value.Value is bool value)
+                return value;
+        }
+        return false;
     }
 
     private static PropertyModel? FindKey(INamedTypeSymbol type)
@@ -389,7 +573,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
         public string Qualified(string name) => Namespace is null ? "global::" + name : "global::" + Namespace + "." + name;
     }
 
-    private static string WriteGraph(GraphModel graph)
+    private static string WriteGraph(GraphModel graph, IReadOnlyDictionary<string, GraphModel> graphs)
     {
         var parent = graph.ParentTypeName;
         var key = graph.Key.Type;
@@ -408,7 +592,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
         sb.AppendLine("/// <summary>Sets the navigation properties of the children of a <see cref=\"" + Cref(parent) + "\"/> after loading.</summary>");
         sb.Append("public partial interface I").Append(graph.Graph).AppendLine();
         sb.AppendLine("{");
-        foreach (var relation in graph.Relations)
+        foreach (var relation in graph.Relations.Where(HasAttach))
         {
             sb.Append("    void Attach").Append(relation.Collection).Append('(').Append(parent)
               .Append(" parent, global::System.Collections.Generic.IEnumerable<").Append(relation.ChildType).AppendLine("> children);");
@@ -441,7 +625,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
         }
         sb.AppendLine("    }");
 
-        foreach (var relation in graph.Relations)
+        foreach (var relation in graph.Relations.Where(HasAttach))
         {
             sb.AppendLine();
             sb.Append("    public void Attach").Append(relation.Collection).Append('(').Append(parent)
@@ -475,30 +659,76 @@ public sealed class EntityGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine();
-        sb.AppendLine("    /// <summary>Describes the graph; <paramref name=\"graph\"/> sets the navigation properties after loading.</summary>");
-        sb.Append("    public static ").Append(entityGraph).Append(" Create(I").Append(graph.Graph).AppendLine("? graph = null)");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Describes the graph; <paramref name=\"graph\"/> sets the navigation properties after loading. The graphs of the child types");
+        sb.AppendLine("    /// come from <paramref name=\"services\"/> when it has them (with their navigation properties), otherwise they are described here.");
+        sb.AppendLine("    /// </summary>");
+        sb.Append("    public static ").Append(entityGraph).Append(" Create(I").Append(graph.Graph)
+          .AppendLine("? graph = null, global::System.IServiceProvider? services = null)");
         sb.AppendLine("    {");
-        sb.Append("        return ").Append(Abstraction).Append(".EntityGraph.For<").Append(parent).Append(", ").Append(key)
-          .Append(">(p => p.").Append(Escape(graph.Key.Name)).AppendLine(")");
+        sb.Append("        var created = ").Append(Abstraction).Append(".EntityGraph.For<").Append(parent).Append(", ").Append(key)
+          .Append(">(p => p.").Append(Escape(graph.Key.Name)).AppendLine(");");
         foreach (var relation in graph.Relations)
         {
-            var foreignKey = "c." + Escape(relation.ForeignKey.Name);
-            if (relation.ForeignKey.Type != key)
+            var foreignKey = (relation.Kind == "Through" ? "l." : "c.") + Escape(relation.ForeignKey.Name);
+            if (relation.Kind != "Reference" && relation.ForeignKey.Type != key)
                 foreignKey = "(" + key + ")" + foreignKey + "!";   // a nullable foreign key toward a non-nullable key
-
-            sb.Append("            .HasMany<").Append(relation.ChildType).Append(", ").Append(relation.ChildKey.Type).AppendLine(">(");
-            sb.Append("                p => p.").Append(Escape(relation.Collection)).AppendLine(",");
-            sb.Append("                c => ").Append(foreignKey).AppendLine(",");
-            sb.Append("                c => c.").Append(Escape(relation.ChildKey.Name)).AppendLine(",");
-            sb.Append("                graph is null ? null : new global::System.Action<").Append(parent)
-              .Append(", global::System.Collections.Generic.IReadOnlyList<").Append(relation.ChildType)
-              .Append(">>(graph.Attach").Append(relation.Collection).AppendLine("))");
+            switch (relation.Kind)
+            {
+                case "Many":
+                    sb.Append("        created.HasMany<").Append(relation.ChildType).Append(", ").Append(relation.ChildKey.Type).AppendLine(">(");
+                    sb.Append("            p => p.").Append(Escape(relation.Collection)).AppendLine(",");
+                    sb.Append("            c => ").Append(foreignKey).AppendLine(",");
+                    sb.Append("            c => ").Append(relation.ChildKeyExpression).AppendLine(",");
+                    sb.Append("            graph is null ? null : new global::System.Action<").Append(parent)
+                      .Append(", global::System.Collections.Generic.IReadOnlyList<").Append(relation.ChildType)
+                      .Append(">>(graph.Attach").Append(relation.Collection).AppendLine("),");
+                    sb.Append("            ").Append(Nested(graph, relation, graphs)).AppendLine(");");
+                    break;
+                case "One":
+                    sb.Append("        created.HasOne<").Append(relation.ChildType).Append(", ").Append(relation.ChildKey.Type).AppendLine(">(");
+                    sb.Append("            p => p.").Append(Escape(relation.Collection)).AppendLine(",");
+                    sb.Append("            c => ").Append(foreignKey).AppendLine(",");
+                    sb.Append("            c => ").Append(relation.ChildKeyExpression).AppendLine(",");
+                    sb.Append("            graph is null ? null : new global::System.Action<").Append(parent).Append(", ").Append(relation.ChildType)
+                      .Append("?>((p, c) => graph.Attach").Append(relation.Collection).Append("(p, c is null ? global::System.Array.Empty<")
+                      .Append(relation.ChildType).AppendLine(">() : new[] { c })),");
+                    sb.Append("            ").Append(Nested(graph, relation, graphs)).AppendLine(",");
+                    sb.Append("            nullDeletes: ").Append(relation.NullDeletes ? "true" : "false").AppendLine(");");
+                    break;
+                case "Through":
+                    var target = "l." + Escape(relation.LinkTarget!.Name);
+                    if (relation.LinkTarget.Type != relation.ChildKey.Type)
+                        target = "(" + relation.ChildKey.Type + ")" + target + "!";
+                    sb.Append("        created.HasManyThrough<").Append(relation.LinkType).Append(", ").Append(relation.ChildType).Append(", ")
+                      .Append(relation.ChildKey.Type).AppendLine(">(");
+                    sb.Append("            p => p.").Append(Escape(relation.Collection)).AppendLine(",");
+                    sb.Append("            l => ").Append(foreignKey).AppendLine(",");
+                    sb.Append("            l => ").Append(target).AppendLine(",");
+                    sb.Append("            t => ").Append(relation.ChildKeyExpression).AppendLine(");");
+                    break;
+                default:
+                    sb.Append("        created.References<").Append(relation.ChildType).Append(", ").Append(relation.ChildKey.Type)
+                      .Append(">(p => p.").Append(Escape(relation.Collection)).Append(", \"").Append(relation.ForeignKey.Name)
+                      .Append("\", t => ").Append(relation.ChildKeyExpression).AppendLine(");");
+                    break;
+            }
         }
-        // The chain ends with the last HasMany: put the semicolon at the end of its line.
-        sb.Length -= sb.Length > 1 && sb[sb.Length - 2] == '\r' ? 2 : 1;
-        sb.AppendLine(";");
+        sb.AppendLine("        return created;");
         sb.AppendLine("    }");
         sb.AppendLine("}");
+        sb.AppendLine();
+
+        // ---- The graph, known to every store: relation filters on the parent
+        sb.AppendLine("#pragma warning disable CA2255 // registered before any use of the type, without the application having to");
+        sb.AppendLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+        sb.Append("internal static class ").Append(graph.Graph).AppendLine("Registration");
+        sb.AppendLine("{");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.Append("    internal static void Register() => ").Append(Abstraction).Append(".EntityRelations.TryRegister<").Append(parent)
+          .Append(">(() => ").Append(graph.Graph).AppendLine(".Create());");
+        sb.AppendLine("}");
+        sb.AppendLine("#pragma warning restore CA2255");
         sb.AppendLine();
 
         // ---- I{Parent}Repository / {Parent}Repository
@@ -509,6 +739,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
         sb.AppendLine("    /// <summary>Reads the children of the entity into its collections.</summary>");
         sb.Append("    global::System.Threading.Tasks.Task LoadChildrenAsync(").Append(parent)
           .AppendLine(" entity, global::System.Threading.CancellationToken ct = default);");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Reads the children of every entity of the list: one query per relation and per level.</summary>");
+        sb.Append("    global::System.Threading.Tasks.Task LoadChildrenAsync(global::System.Collections.Generic.IReadOnlyList<").Append(parent)
+          .AppendLine("> entities, global::System.Threading.CancellationToken ct = default);");
         foreach (var relation in graph.Relations.Where(HasOwnLoadMethod))
         {
             sb.AppendLine();
@@ -619,7 +853,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
               .Append(graphInterface).Append(", ").Append(graph.Qualified(graph.Graph)).AppendLine(">(services);");
             sb.Append("        builder.AddGraph<").Append(parent).Append(", ").Append(key).Append(">(sp => ")
               .Append(graph.Qualified(graph.Graph)).Append(".Create(").Append(Di)
-              .Append(".ServiceProviderServiceExtensions.GetRequiredService<").Append(graphInterface).AppendLine(">(sp)));");
+              .Append(".ServiceProviderServiceExtensions.GetRequiredService<").Append(graphInterface).AppendLine(">(sp), sp));");
             sb.Append("        ").Append(Di).Append(".Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<")
               .Append(serviceInterface).Append(">(services, sp => new ").Append(graph.Qualified(graph.Repository)).AppendLine("(");
             sb.Append("            ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
@@ -670,6 +904,39 @@ public sealed class EntityGenerator : IIncrementalGenerator
     private static string Parameter(CacheModel cache) => Escape(ShortName(cache) + "Cache");
 
     private static string Field(CacheModel cache) => "_" + ShortName(cache) + "Cache";
+
+    /// <summary>The relations whose loaded children get an Attach method (parent and lookup navigations).</summary>
+    private static bool HasAttach(RelationModel relation) => relation.Kind is "Many" or "One";
+
+    /// <summary>
+    /// The graph of the child type, when it has one: itself for a tree (a task and its subtasks), from the services or
+    /// described here otherwise. None when the child type leads back to the parent (a cycle) or its graph has another key.
+    /// </summary>
+    private static string Nested(GraphModel graph, RelationModel relation, IReadOnlyDictionary<string, GraphModel> graphs)
+    {
+        if (!graphs.TryGetValue(relation.ChildType, out var child) || child.Key.Type != relation.ChildKey.Type)
+            return "null";
+        if (child.ParentTypeName == graph.ParentTypeName)
+            return "created";
+        if (Reaches(child, graph.ParentTypeName, graphs, new HashSet<string>(StringComparer.Ordinal)))
+            return "null";
+        var type = Abstraction + ".EntityGraph<" + child.ParentTypeName + ", " + child.Key.Type + ">";
+        return "services?.GetService(typeof(" + type + ")) as " + type + " ?? " + child.Qualified(child.Graph) + ".Create(null, services)";
+    }
+
+    private static bool Reaches(GraphModel from, string target, IReadOnlyDictionary<string, GraphModel> graphs, HashSet<string> seen)
+    {
+        if (!seen.Add(from.ParentTypeName))
+            return false;
+        foreach (var relation in from.Relations.Where(r => r.Kind is "Many" or "One"))
+        {
+            if (relation.ChildType == target)
+                return true;
+            if (graphs.TryGetValue(relation.ChildType, out var next) && Reaches(next, target, graphs, seen))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>A collection named Children already has LoadChildrenAsync, from GraphRepository.</summary>
     private static bool HasOwnLoadMethod(RelationModel relation) => relation.Collection != "Children";

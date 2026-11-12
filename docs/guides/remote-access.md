@@ -43,8 +43,12 @@ services.UseQueryeables(q => q
     .AddGeneratedEntities());
 ```
 
-- **Predicates** become conditions, with `&&`, `||`, parentheses and `!`; an unsupported one throws
-  `NotSupportedException` before any call.
+- **Predicates** become conditions: a property compared with a value in the simple form every server reads; the rest
+  (two properties compared, computations, relations) in the extended form, bound by the server to the properties the
+  client may filter on, of the types it exposes. An unsupported one throws `NotSupportedException` before any call.
+- **Done by the server**: counts, aggregates (`SumAsync`, `GroupAsync`...), projections (only the properties the selector
+  reads travel), patches, `UpdateWhereAsync` and `DeleteWhereAsync` (one call, one transaction), and the save of a graph
+  with the children left as loaded. Against a server of an earlier version, the store does the work itself.
 - **Transactions**: writes are queued and sent in one batch on commit, applied in one server transaction, parents with their children included. Until then,
   `UpdateAsync` and `DeleteAsync` return true, an inserted entity has no key yet, and reads do not see the pending writes.
 - **Results**: after a write, the keys, versions and dates set by the server are copied into your objects; navigation
@@ -62,7 +66,9 @@ Keep the entities in a library referenced by the client and the server: `AddGene
 ## Limits
 
 - Writes need the server, unless the [offline mode](offline-mode.md) queues them.
-- At most 1000 conditions per filter and 1000 values per `Contains`.
+- At most 1000 conditions per filter and 1000 values per `Contains`; a filter through a relation turns into at most
+  `EntityRelations.MaxKeys` keys (2000).
+- A patch, an update or a deletion of many rows is done by the server at once: not inside a remote transaction.
 - Reads and writes are authorized per type by a policy, and per row by a row filter (see [security](security.md#row-filters)).
 - Text search (`Contains`, `StartsWith`, `EndsWith`) is case-sensitive on SQLite, PostgreSQL and MongoDB; on SQL Server and
   MySQL, it follows the column's collation (case-insensitive by default).

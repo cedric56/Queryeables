@@ -45,6 +45,15 @@ internal abstract class OfflineEntityType
     /// <summary><paramref name="payload"/> with the key and the version of <paramref name="inserted"/> (the row the server inserted).</summary>
     public abstract byte[] Rebase(byte[] payload, byte[] inserted);
 
+    /// <summary>
+    /// The row of <paramref name="target"/> created under <paramref name="temporaryKey"/> got <paramref name="serverKey"/>: the
+    /// foreign keys of <paramref name="payload"/> (and of its children) that name it take the real key. Null when none does.
+    /// </summary>
+    public abstract byte[]? RebaseReferences(byte[] payload, Type target, string temporaryKey, string serverKey);
+
+    /// <summary>The foreign keys of <paramref name="entity"/> (and of its children) naming the temporary key take the real one.</summary>
+    public abstract bool RebaseReferences(object entity, Type target, string temporaryKey, string serverKey, int depth);
+
     /// <summary>Sends a refused write again, adapted to the server's current row (its version, or an insert when it is gone).</summary>
     public abstract Task<TransportResult> SendAgainAsync(IEntityTransport remote, OfflineConflict conflict, CancellationToken ct);
 
@@ -59,6 +68,9 @@ internal abstract class OfflineEntityType
 
     /// <summary>The formatted key of <paramref name="entity"/> (see <see cref="EntityKey"/>).</summary>
     public abstract string KeyTextOf(object entity);
+
+    /// <summary>The foreign keys of the graph of this type: its children's toward it, its links', its own toward its references.</summary>
+    public abstract IReadOnlyList<GraphForeignKey> GraphForeignKeys { get; }
 
     /// <summary>Forgets every row and the download state: the next copy is taken in full.</summary>
     public abstract void Clear();
@@ -374,6 +386,77 @@ internal sealed class OfflineEntityType<[DynamicallyAccessedMembers(EntityMember
             ConcurrencyToken.Set(entity, version, ConcurrencyToken.Get(server, version));
         return _mode.Serializer.Serialize(entity);
     }
+
+    public override byte[]? RebaseReferences(byte[] payload, Type target, string temporaryKey, string serverKey)
+    {
+        var entity = _mode.Serializer.Deserialize<TEntity>(payload)
+            ?? throw new InvalidDataException($"Empty {typeof(TEntity).Name} in the offline queue.");
+        return RebaseReferences(entity, target, temporaryKey, serverKey, 0) ? _mode.Serializer.Serialize(entity) : null;
+    }
+
+    public override bool RebaseReferences(object entity, Type target, string temporaryKey, string serverKey, int depth)
+    {
+        if (entity is not TEntity typed || depth > 4)
+            return false;
+        var changed = false;
+        foreach (var foreignKey in References.Where(r => r.Target == target).Select(r => r.ForeignKey))
+        {
+            if (foreignKey.GetValue(typed) is { } value && EntityKey.Format(value) == temporaryKey)
+            {
+                var type = Nullable.GetUnderlyingType(foreignKey.PropertyType) ?? foreignKey.PropertyType;
+                foreignKey.SetValue(typed, Convert.ChangeType(long.Parse(serverKey, CultureInfo.InvariantCulture), type, CultureInfo.InvariantCulture));
+                changed = true;
+            }
+        }
+        // The children saved with it (a graph): their own foreign keys.
+        foreach (var property in typeof(TEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length != 0 || EntityValues.IsSimple(property.PropertyType))
+                continue;
+            var value = property.GetValue(typed);
+            foreach (var child in value is IList list ? list.Cast<object?>() : [value])
+            {
+                if (child is not null && _mode.TypeOf(child.GetType()) is { } childType)
+                    changed |= childType.RebaseReferences(child, target, temporaryKey, serverKey, depth + 1);
+            }
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// The foreign keys of <typeparamref name="TEntity"/> toward the types of the offline copy: [EntityReference] navigations,
+    /// the foreign keys [EntityGraph] names toward a parent, and the properties named <c>{Type}Id</c> or <c>Id{Type}</c>.
+    /// </summary>
+    private IReadOnlyList<(PropertyInfo ForeignKey, Type Target)> References => _references ??= FindReferences();
+
+    private IReadOnlyList<(PropertyInfo ForeignKey, Type Target)>? _references;
+
+    private List<(PropertyInfo ForeignKey, Type Target)> FindReferences()
+    {
+        var properties = typeof(TEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        PropertyInfo? Named(string name) => properties.FirstOrDefault(p => p.Name == name && p.CanWrite && EntityValues.IsSimple(p.PropertyType));
+        var found = new List<(PropertyInfo, Type)>();
+        foreach (var navigation in properties.Where(p => p.GetCustomAttribute<EntityReferenceAttribute>() is not null))
+        {
+            var attribute = navigation.GetCustomAttribute<EntityReferenceAttribute>()!;
+            if ((attribute.ForeignKey is { } name ? Named(name) : Named(navigation.Name + "Id") ?? Named("Id" + navigation.Name)) is { } foreignKey)
+                found.Add((foreignKey, navigation.PropertyType));
+        }
+        foreach (var other in _mode.Types)
+        {
+            if ((Named(other.Type.Name + "Id") ?? Named("Id" + other.Type.Name)) is { } foreignKey)
+                found.Add((foreignKey, other.Type));
+            foreach (var key in other.GraphForeignKeys.Where(k => k.Owner == typeof(TEntity)))
+            {
+                if (Named(key.Property) is { } named)
+                    found.Add((named, key.Target));
+            }
+        }
+        return [.. found.Distinct()];
+    }
+
+    /// <summary>The foreign keys of the graph of this type (registered: generated, AddGraph, a graph repository).</summary>
+    public override IReadOnlyList<GraphForeignKey> GraphForeignKeys => EntityRelations.Find<TEntity>()?.ForeignKeys ?? [];
 
     public override void ResetIfTemporary(object entity)
     {

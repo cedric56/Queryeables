@@ -41,11 +41,11 @@ public sealed class EfEntityStore : IEntityStore
 
     public async Task<IReadOnlyList<TEntity>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
-        => await _context.Set<TEntity>().AsNoTracking().Where(SqliteText.For(_context, predicate)).ToListAsync(ct);
+        => await _context.Set<TEntity>().AsNoTracking().Where(await PrepareAsync(predicate, ct)).ToListAsync(ct);
 
-    public Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+    public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
-        => _context.Set<TEntity>().AsNoTracking().FirstOrDefaultAsync(SqliteText.For(_context, predicate), ct);
+        => await _context.Set<TEntity>().AsNoTracking().FirstOrDefaultAsync(await PrepareAsync(predicate, ct), ct);
 
     public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, int pageNumber, int pageSize,
@@ -53,7 +53,7 @@ public sealed class EfEntityStore : IEntityStore
     {
         Paging.Validate(pageNumber, pageSize);
 
-        var query = OrderByKey(_context.Set<TEntity>().AsNoTracking().Where(SqliteText.For(_context, predicate)));
+        var query = OrderByKey(_context.Set<TEntity>().AsNoTracking().Where(await PrepareAsync(predicate, ct)));
         return await query
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
@@ -68,7 +68,7 @@ public sealed class EfEntityStore : IEntityStore
         Paging.Validate(pageNumber, pageSize);
         ArgumentNullException.ThrowIfNull(sort);
 
-        IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking().Where(SqliteText.For(_context, predicate));
+        IQueryable<TEntity> query = _context.Set<TEntity>().AsNoTracking().Where(await PrepareAsync(predicate, ct));
         IOrderedQueryable<TEntity>? ordered = null;
         foreach (var key in sort.Keys)
             ordered = Order(query, ordered, key.Property, key.Descending);
@@ -90,7 +90,7 @@ public sealed class EfEntityStore : IEntityStore
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(selector);
-        return await _context.Set<TEntity>().AsNoTracking().Where(SqliteText.For(_context, predicate)).Select(selector).ToListAsync(ct);
+        return await _context.Set<TEntity>().AsNoTracking().Where(await PrepareAsync(predicate, ct)).Select(selector).ToListAsync(ct);
     }
 
     private static IOrderedQueryable<TEntity> Order<TEntity>(IQueryable<TEntity> query, IOrderedQueryable<TEntity>? ordered,
@@ -103,9 +103,17 @@ public sealed class EfEntityStore : IEntityStore
             (_, true) => ordered.ThenByDescending(e => EF.Property<object>(e, property)),
         };
 
-    public Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+    public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
-        => _context.Set<TEntity>().LongCountAsync(SqliteText.For(_context, predicate), ct);
+        => await _context.Set<TEntity>().LongCountAsync(await PrepareAsync(predicate, ct), ct);
+
+    /// <summary>
+    /// The predicate as the store runs it: the relation filters of a registered graph turned into queries (EF Core translates
+    /// the navigations of its model itself), text searched exactly on SQLite.
+    /// </summary>
+    private async Task<Expression<Func<TEntity, bool>>> PrepareAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct) where TEntity : class
+        => SqliteText.For(_context, await EntityRelations.ExpandAsync(this, predicate, ct, required: false));
 
     // ---------- Write ----------
 

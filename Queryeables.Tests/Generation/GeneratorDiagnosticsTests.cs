@@ -79,10 +79,57 @@ public sealed class GeneratorDiagnosticsTests
             """).Generator.Ids);
 
     [Fact]
-    public void A_property_that_is_not_a_collection_is_reported()
+    public void A_property_that_is_not_an_entity_is_reported()
         => Assert.Contains("QRY002", Run(Usings + """
-            public class Folder { public int Id { get; set; } [EntityGraph] public Note? Note { get; set; } }
+            public class Folder { public int Id { get; set; } [EntityGraph] public string Note { get; set; } = ""; }
+            """).Generator.Ids);
+
+    [Fact]
+    public void One_child_a_link_table_and_a_reference_are_described()
+    {
+        var run = Run(Usings + """
+            public class Folder
+            {
+                public int Id { get; set; }
+                public int? OwnerId { get; set; }
+                [EntityGraph] public Note? Note { get; set; }
+                [EntityGraph(Through = typeof(FolderTag))] public List<Tag>? Tags { get; set; }
+                [EntityReference] public Owner? Owner { get; set; }
+            }
             public class Note { public int Id { get; set; } public int FolderId { get; set; } }
+            public class Tag { public int Id { get; set; } }
+            public class FolderTag { [System.ComponentModel.DataAnnotations.Key] public int FolderId { get; set; } [System.ComponentModel.DataAnnotations.Key] public int TagId { get; set; } }
+            public class Owner { public int Id { get; set; } }
+            """);
+        Assert.Empty(run.Generator.Ids);
+        Assert.Empty(run.Compilation.Ids);
+        var graph = Assert.Single(run.Sources, s => s.Contains("class FolderGraph"));
+        Assert.Contains("created.HasOne<", graph);
+        Assert.Contains("created.HasManyThrough<global::FolderTag, global::Tag, int>", graph);
+        Assert.Contains("created.References<global::Owner, int>(p => p.Owner, \"OwnerId\"", graph);
+    }
+
+    [Fact]
+    public void A_tree_and_a_second_level_are_described()
+    {
+        var run = Run(Usings + """
+            public class Order { public int Id { get; set; } [EntityGraph] public List<Line>? Lines { get; set; } }
+            public class Line { public int Id { get; set; } public int OrderId { get; set; } [EntityGraph] public List<Allocation>? Allocations { get; set; } }
+            public class Allocation { public int Id { get; set; } public int LineId { get; set; } }
+            public class Task { public int Id { get; set; } public int? TaskId { get; set; } [EntityGraph(ForeignKey = nameof(TaskId))] public List<Task>? SubTasks { get; set; } }
+            """);
+        Assert.Empty(run.Generator.Ids);
+        Assert.Empty(run.Compilation.Ids);
+        Assert.Contains(run.Sources, s => s.Contains("class OrderGraph") && s.Contains("global::LineGraph.Create(null, services)"));
+        Assert.Contains(run.Sources, s => s.Contains("class TaskGraph") && s.Contains("created);"));
+    }
+
+    [Fact]
+    public void A_link_without_the_key_of_the_parent_is_reported()
+        => Assert.Contains("QRY003", Run(Usings + """
+            public class Folder { public int Id { get; set; } [EntityGraph(Through = typeof(FolderTag))] public List<Tag>? Tags { get; set; } }
+            public class Tag { public int Id { get; set; } }
+            public class FolderTag { public int Id { get; set; } public int TagId { get; set; } }
             """).Generator.Ids);
 
     [Fact]

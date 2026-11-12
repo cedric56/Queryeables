@@ -51,6 +51,17 @@ public abstract class EntityHandler
     /// <param name="requireEffect">When true, an update or delete with no effect is an error (NotFound).</param>
     public abstract Task<byte[]> WriteAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, bool requireEffect, CancellationToken ct = default);
+
+    /// <summary>Counts, aggregates, projections, patches, writes of many rows, graph saves (<see cref="RemoteRequestKind"/>).</summary>
+    public virtual Task<TransportResult> ExecuteAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context,
+        CancellationToken ct = default)
+        => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, $"{Type.Name} does not support this request."));
+
+    /// <summary>The properties of this type a filter may name, and its navigations toward other exposed types.</summary>
+    internal abstract IFilterScope FilterScope(IEntityHandlerRegistry? registry);
+
+    /// <summary>True when <paramref name="type"/> is a collection of this type (<c>List&lt;T&gt;</c>, <c>IEnumerable&lt;T&gt;</c>...).</summary>
+    internal abstract bool IsCollectionOf(Type type);
 }
 
 /// <example>
@@ -124,6 +135,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     public override Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default)
         => TransportResult.RunAsync(async () =>
         {
+            using var relations = RelationReadGuard.Begin(new HandlerRelationGuard(context));
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
             return SerializeMany(serializer, await ReadBoundedAsync(store, Restrict(All, context), ct));
@@ -135,7 +147,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             ? GetAllAsync(serializer, context, ct)
             : TransportResult.RunAsync(async () =>
             {
-                var predicate = Filters.ToPredicate<T>(conditions!, any, RemoteMembers<T>.Queryable);
+                using var relations = RelationReadGuard.Begin(new HandlerRelationGuard(context));
+                var predicate = Predicate(conditions!, any, context);
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
                 await using var store = _storeFactory();
                 return SerializeMany(serializer, await ReadBoundedAsync(store, Restrict(predicate, context), ct));
@@ -145,7 +158,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         EntityRequestContext context, CancellationToken ct = default)
         => TransportResult.RunAsync(async () =>
         {
-            var predicate = Filters.ToPredicate<T>(conditions ?? [], any, RemoteMembers<T>.Queryable);
+            using var relations = RelationReadGuard.Begin(new HandlerRelationGuard(context));
+            var predicate = Predicate(conditions ?? [], any, context);
             CheckPage(pageNumber, Math.Min(pageSize, _maxPageSize));
             await AuthorizeAsync(EntityOperation.Read, null, context, ct);
             await using var store = _storeFactory();
@@ -159,7 +173,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
             : TransportResult.RunAsync(async () =>
             {
-                var predicate = Filters.ToPredicate<T>(conditions ?? [], any, RemoteMembers<T>.Queryable);
+                using var relations = RelationReadGuard.Begin(new HandlerRelationGuard(context));
+                var predicate = Predicate(conditions ?? [], any, context);
                 var order = Sort<T>.FromKeys(sort, RemoteMembers<T>.Queryable);       // only queryable properties of T, at most Sort<T>.MaxKeys
                 CheckPage(pageNumber, Math.Min(pageSize, _maxPageSize));
                 await AuthorizeAsync(EntityOperation.Read, null, context, ct);
@@ -318,6 +333,263 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         return value;
     }
 
+    // ---------- Requests beyond rows (RemoteRequest) ----------
+
+    /// <summary>The most names a request may carry (projected properties, children left unchanged).</summary>
+    public const int MaxNames = 10_000;
+
+    public override Task<TransportResult> ExecuteAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context,
+        CancellationToken ct = default)
+        => TransportResult.RunAsync(async () =>
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Members.Length > MaxNames)
+                throw new ArgumentException($"A request names at most {MaxNames} members.");
+            using var relations = RelationReadGuard.Begin(new HandlerRelationGuard(context));
+            return request.Kind switch
+            {
+                RemoteRequestKind.Count => await CountAsync(serializer, request, context, ct),
+                RemoteRequestKind.Aggregate => await AggregateAsync(serializer, request, context, ct),
+                RemoteRequestKind.Project => await ProjectAsync(serializer, request, context, ct),
+                RemoteRequestKind.Patch => await PatchAsync(serializer, request, context, ct),
+                RemoteRequestKind.UpdateWhere or RemoteRequestKind.DeleteWhere => await WriteWhereAsync(serializer, request, context, ct),
+                RemoteRequestKind.SaveGraph => await SaveGraphAsync(serializer, request, context, ct),
+                _ => throw new ArgumentException($"Unknown request: {request.Kind}."),
+            };
+        });
+
+    private async Task<byte[]?> CountAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var predicate = Predicate(request.Filter ?? [], request.Any, context);
+        await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+        await using var store = _storeFactory();
+        return serializer.Serialize(await store.CountAsync(Restrict(predicate, context), ct));
+    }
+
+    private async Task<byte[]?> AggregateAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var predicate = Predicate(request.Filter ?? [], request.Any, context);
+        var parameter = Expression.Parameter(typeof(T), "e");
+        var (key, values) = FilterLanguage.BindAggregation(request.Values ?? [], FilterScope(context.Handlers), parameter);
+        var aggregation = Aggregation.Of<T>();
+        if (key is not null)
+            aggregation.GroupBy(Expression.Lambda<Func<T, object?>>(Expression.Convert(key, typeof(object)), parameter));
+        foreach (var (function, value) in values)
+        {
+            aggregation.Add(function, value is null ? null : Expression.Lambda<Func<T, object?>>(Expression.Convert(value, typeof(object)), parameter),
+                value?.Type);
+        }
+        await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+        await using var store = _storeFactory();
+        var rows = await store.AggregateAsync(Restrict(predicate, context), aggregation, ct);
+        if (rows.Count > _maxReadSize)
+            throw TooMany();
+        return serializer.Serialize(rows
+            .Select(r => new object?[] { FilterLanguage.Normalize(r.Key), r.Count }.Concat(r.Values.Select(FilterLanguage.Normalize)).ToArray())
+            .ToArray());
+    }
+
+    /// <summary>The matching rows with only the asked properties: the others are left at their default, and cost nothing to send.</summary>
+    private async Task<byte[]?> ProjectAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var kept = request.Members.ToHashSet(StringComparer.Ordinal);
+        var unknown = kept.Where(m => EntityValues.Columns<T>().All(c => c.Name != m)).ToList();
+        if (unknown.Count > 0)
+            throw new ArgumentException($"Unknown property '{unknown[0]}' on {typeof(T).Name}.");
+        var predicate = Predicate(request.Filter ?? [], request.Any, context);
+        await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+        await using var store = _storeFactory();
+        var rows = await ReadBoundedAsync(store, Restrict(predicate, context), ct);
+        var cleared = EntityValues.Columns<T>().Where(c => !kept.Contains(c.Name)).ToList();
+        foreach (var row in rows)
+        {
+            foreach (var column in cleared)
+                column.SetValue(row, column.PropertyType.IsValueType && Nullable.GetUnderlyingType(column.PropertyType) is null ? Defaults.Of(column.PropertyType) : null);
+        }
+        return SerializeMany(serializer, rows);
+    }
+
+    /// <summary>
+    /// The properties one client changed, written over the stored row: what the server owns, the key, the version and what the
+    /// serializer leaves out are never taken from it.
+    /// </summary>
+    private async Task<byte[]?> PatchAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var original = serializer.Deserialize<T>(request.Original ?? []) ?? throw new ArgumentException($"Empty {typeof(T).Name} original.");
+        var modified = serializer.Deserialize<T>(request.Entity ?? []) ?? throw new ArgumentException($"Empty {typeof(T).Name} entity.");
+        var columns = Patchable(serializer, request.Members);
+        await AuthorizeAsync(EntityOperation.Update, modified, context, ct);
+
+        await using var store = _storeFactory();
+        await using var transaction = await store.BeginTransactionAsync(ct);
+        var stored = await store.FirstOrDefaultAsync(Restrict(SyncMetadata.SameKey(modified), context), ct);
+        if (stored is null)
+            return [];
+        if (EntityPatch.Merge(stored, original, modified, columns))
+        {
+            Validate(stored);
+            CheckVisible(stored, context);
+            using (ChangeContext.Begin(context.ConnectionId))
+            {
+                if (!await store.UpdateAsync(stored, ct))
+                    return [];
+            }
+        }
+        (await transaction.CommitAsync(ct)).ThrowIfFailed();
+        return serializer.Serialize(stored);
+    }
+
+    /// <summary>Every matching row updated (the values of the request) or deleted, in one transaction, each checked as a write of its own.</summary>
+    private async Task<byte[]?> WriteWhereAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var delete = request.Kind == RemoteRequestKind.DeleteWhere;
+        var assignments = delete ? [] : Assignments(serializer, request.Values ?? []);
+        if (!delete && assignments.Count == 0)
+            throw new ArgumentException("Nothing to set.");
+        var predicate = Predicate(request.Filter ?? [], request.Any, context);
+        var operation = delete ? EntityOperation.Delete : EntityOperation.Update;
+        await AuthorizeAsync(operation, null, context, ct);
+
+        await using var store = _storeFactory();
+        await using var transaction = await store.BeginTransactionAsync(ct);
+        var rows = await ReadBoundedAsync(store, Restrict(predicate, context), ct);
+        var count = 0;
+        using (ChangeContext.Begin(context.ConnectionId))
+        {
+            foreach (var row in rows)
+            {
+                if (delete)
+                {
+                    await AuthorizeAsync(operation, row, context, ct);
+                    if (await store.DeleteAsync(row, ct))
+                        count++;
+                    continue;
+                }
+                foreach (var (property, value) in assignments)
+                    property.SetValue(row, value);
+                await AuthorizeAsync(operation, row, context, ct);
+                Validate(row);
+                CheckVisible(row, context);
+                if (!await store.UpdateAsync(row, ct))
+                    throw NotFound();
+                count++;
+            }
+        }
+        (await transaction.CommitAsync(ct)).ThrowIfFailed();
+        return serializer.Serialize(count);
+    }
+
+    /// <summary>An update of a graph, the children the client left as read named: their rows are left as they are.</summary>
+    private async Task<byte[]?> SaveGraphAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context, CancellationToken ct)
+    {
+        var entity = request.Entity ?? throw new ArgumentException($"Empty {typeof(T).Name} entity.");
+        using (GraphChanges.Begin(request.Members.ToHashSet(StringComparer.Ordinal)))
+            return (await WriteAsync(serializer, BatchOperationKind.Update, entity, context, ct)).GetDataOrThrow();
+    }
+
+    /// <summary>The columns a client may write in a patch or an update of many rows.</summary>
+    private static System.Reflection.PropertyInfo[] Patchable(IEntitySerializer serializer, IEnumerable<string> names)
+    {
+        var columns = new List<System.Reflection.PropertyInfo>();
+        foreach (var name in names.Distinct(StringComparer.Ordinal))
+        {
+            var column = EntityValues.Writable<T>().FirstOrDefault(c => c.Name == name)
+                ?? throw new ArgumentException($"Unknown property '{name}' on {typeof(T).Name}.");
+            if (RemoteMembers<T>.ServerOwned.Contains(column) || OmittedBy(serializer).Contains(column))
+                throw new EntityStoreException(EntityErrorCode.Forbidden, $"{typeof(T).Name}.{name} is not written by clients.");
+            columns.Add(column);
+        }
+        return [.. columns];
+    }
+
+    private static List<(System.Reflection.PropertyInfo Property, object? Value)> Assignments(IEntitySerializer serializer, IEnumerable<FilterCondition> values)
+    {
+        var assignments = new List<(System.Reflection.PropertyInfo, object?)>();
+        foreach (var value in values)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            var column = Patchable(serializer, [value.Property])[0];
+            assignments.Add((column, Filters.ConvertTo(value.Value, column.PropertyType, value.Property)));
+        }
+        return assignments;
+    }
+
+    private void Validate(T value)
+    {
+        if (!validate)
+            return;
+        var errors = EntityValidator.ValidateGraph(value).Select(e => e.ErrorMessage ?? "Invalid value.").ToList();
+        if (errors.Count > 0)
+            throw new EntityStoreException(EntityErrorCode.Validation, $"Invalid {typeof(T).Name}: {string.Join(" ", errors)}", errors);
+    }
+
+    /// <summary>A row written by a client must stay among the rows it may write.</summary>
+    private void CheckVisible(T value, EntityRequestContext context)
+    {
+        if (rows is not null && !rows.Rows(context.User).Compile(preferInterpretation: true)(value))
+            throw new EntityStoreException(EntityErrorCode.Forbidden, $"Access denied: this {typeof(T).Name} is outside the rows you may write.");
+    }
+
+    // ---------- Filters ----------
+
+    private Expression<Func<T, bool>> Predicate(FilterCondition[] conditions, bool any, EntityRequestContext context)
+        => Filters.ToPredicate<T>(conditions, any, RemoteMembers<T>.Queryable, FilterScope(context.Handlers));
+
+    internal override IFilterScope FilterScope(IEntityHandlerRegistry? registry) => new Scope(registry);
+
+    internal override bool IsCollectionOf(Type type) => typeof(IEnumerable<T>).IsAssignableFrom(type) && type != typeof(string);
+
+    /// <summary>The related rows a filter of another type reads: those of this type the user may read.</summary>
+    internal async Task<Expression<Func<T, bool>>> RestrictRelationAsync(Expression<Func<T, bool>> predicate, EntityRequestContext context,
+        CancellationToken ct)
+    {
+        await AuthorizeAsync(EntityOperation.Read, null, context, ct);
+        return Restrict(predicate, context);
+    }
+
+    /// <summary>What a filter on <typeparamref name="T"/> may name: its queryable columns, and navigations toward exposed types.</summary>
+    private sealed class Scope(IEntityHandlerRegistry? registry) : IFilterScope
+    {
+        private static readonly System.Reflection.MethodInfo AnyAll = new Func<IEnumerable<T>, bool>(Enumerable.Any).Method;
+        private static readonly System.Reflection.MethodInfo AnyWhere = new Func<IEnumerable<T>, Func<T, bool>, bool>(Enumerable.Any).Method;
+        private static readonly System.Reflection.MethodInfo AllWhere = new Func<IEnumerable<T>, Func<T, bool>, bool>(Enumerable.All).Method;
+        private static readonly System.Reflection.MethodInfo CountAll = new Func<IEnumerable<T>, int>(Enumerable.Count).Method;
+        private static readonly System.Reflection.MethodInfo CountWhere = new Func<IEnumerable<T>, Func<T, bool>, int>(Enumerable.Count).Method;
+
+        public Type Type => typeof(T);
+
+        public ParameterExpression NewParameter() => Expression.Parameter(typeof(T), typeof(T).Name[..1].ToLowerInvariant());
+
+        public System.Reflection.PropertyInfo? Column(string name)
+            => RemoteMembers<T>.Queryable.Contains(name) && typeof(T).GetProperty(name) is { } property && EntityValues.IsSimple(property.PropertyType)
+                ? property
+                : null;
+
+        public (System.Reflection.PropertyInfo Property, IFilterScope Scope, bool Collection)? Navigation(string name)
+        {
+            if (registry is null || !RemoteMembers<T>.Queryable.Contains(name) || typeof(T).GetProperty(name) is not { } property
+                || EntityValues.IsSimple(property.PropertyType))
+                return null;
+            var type = property.PropertyType;
+            var element = type.IsArray ? type.GetElementType() : type.IsGenericType && type.GenericTypeArguments.Length == 1 ? type.GenericTypeArguments[0] : null;
+            if (element is not null && registry.TryGet(EntityName.Of(element), out var items) && items.Type == element && items.IsCollectionOf(type))
+                return (property, items.FilterScope(registry), true);
+            if (registry.TryGet(EntityName.Of(type), out var target) && target.Type == type)
+                return (property, target.FilterScope(registry), false);
+            return null;
+        }
+
+        public LambdaExpression Lambda(Expression body, ParameterExpression parameter) => Expression.Lambda<Func<T, bool>>(body, parameter);
+
+        public Expression Any(Expression source, LambdaExpression? predicate)
+            => predicate is null ? Expression.Call(AnyAll, source) : Expression.Call(AnyWhere, source, predicate);
+
+        public Expression All(Expression source, LambdaExpression predicate) => Expression.Call(AllWhere, source, predicate);
+
+        public Expression Count(Expression source, LambdaExpression? predicate)
+            => predicate is null ? Expression.Call(CountAll, source) : Expression.Call(CountWhere, source, predicate);
+    }
+
     // ---------- Internals ----------
 
     /// <summary>
@@ -433,6 +705,27 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 /// The children of a graph sent by a remote client follow the rules of their own type: those of its exposed handler
 /// (access policy, row filter) when the type is exposed, and in any case the values the server keeps.
 /// </summary>
+/// <summary>
+/// The rows a relation filter reads, on a server: the related type must be exposed and readable by the user, and only its rows
+/// the user may read count. A filter cannot reveal through a relation what the user could not read directly.
+/// </summary>
+internal sealed class HandlerRelationGuard(EntityRequestContext context) : IRelationReadGuard
+{
+    public async Task<Expression<Func<TChild, bool>>> RestrictAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild>(
+        Expression<Func<TChild, bool>> predicate, CancellationToken ct) where TChild : class
+        => context.Handlers is { } handlers && handlers.TryGet(EntityName.Of<TChild>(), out var handler) && handler is EntityHandler<TChild> typed
+            ? await typed.RestrictRelationAsync(predicate, context, ct).ConfigureAwait(false)
+            : throw new EntityStoreException(EntityErrorCode.Forbidden, $"{typeof(TChild).Name} is not exposed: a filter cannot go through it.");
+}
+
+/// <summary>Default values of value types, without reflection on the type (a projection clears the properties not asked for).</summary>
+internal static class Defaults
+{
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "A value type of a column of an exposed entity: its boxed default exists.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "A value type of a column of an exposed entity.")]
+    public static object? Of(Type type) => System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(type);
+}
+
 internal sealed class HandlerGraphGuard(IEntitySerializer serializer, EntityRequestContext context) : IGraphWriteGuard
 {
     public async Task CheckAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild>(IEntityStore store, GraphWrite write, TChild child,

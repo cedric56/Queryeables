@@ -79,7 +79,9 @@ await offline.RefreshSnapshotAsync();                // a fresh copy, without ch
 ## Writes made offline
 
 - An insert with a default key gets a **temporary key**: negative for numbers, a new `Guid` otherwise. The server gives
-  the real key when the row is sent; the copy is then taken again from the server.
+  the real key when the row is sent; the copy is then taken again from the server. The writes waiting that refer to it
+  (an order created offline for a customer created offline, a child inserted on its own) take the real key before they
+  are sent: the foreign keys of the graphs, of `[EntityReference]`, and the properties named `{Type}Id` or `Id{Type}`.
 - Writes on the same row are **coalesced**: an insert then updates is sent as one insert, an insert then a delete is not
   sent at all.
 - A parent saved through its graph repository is saved with its children in the copy, and queued as **one** write: the
@@ -181,5 +183,5 @@ sides, the return of the server with what differs, a version conflict, and its r
 - Without `[LastModified]` and `[SoftDelete]` on the server, a type is downloaded in full at each copy: a hard delete
   cannot be seen in a list of changes.
 - A store keeps the mode it was created in: create a store per unit of work, as services and caches already do.
-- A child inserted on its own, under a parent created offline, is sent with the parent's temporary key: save
-  aggregates through their repository.
+- A patch, an update or a deletion of many rows made offline is queued as the updates or deletions of its rows: it is
+  replayed with their versions, not column by column.

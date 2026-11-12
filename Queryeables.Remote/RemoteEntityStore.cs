@@ -120,6 +120,16 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
             return true;
 
         var sent = _serializer.Serialize(entity);
+
+        // A graph whose children this user partly left as read: the server leaves their rows alone.
+        if (GraphChanges.Unchanged is { Count: > 0 } unchanged)
+        {
+            var request = new RemoteRequest { Kind = RemoteRequestKind.SaveGraph, Entity = sent, Members = [.. unchanged], ConnectionId = ConnectionId<TEntity>() };
+            var (supported, saved) = await ExecuteAsync<TEntity>(request, ct);
+            if (supported)
+                return ApplyResult(saved, sent, entity);
+        }
+
         var data = await CallAsync("update", Name<TEntity>(), () => _remote.UpdateAsync(Name<TEntity>(), sent, ConnectionId<TEntity>(), ct));
         return ApplyResult(data, sent, entity); // empty data: row not found
     }
@@ -133,6 +143,176 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         var data = await CallAsync("delete", Name<TEntity>(), () => _remote.DeleteAsync(Name<TEntity>(), _serializer.Serialize(entity), ConnectionId<TEntity>(), ct));
         return data is { Length: > 0 } && _serializer.Deserialize<bool>(data);
     }
+
+    // ---------- Done by the server (RemoteRequest); by this store against an older server ----------
+
+    /// <summary>Counted by the server.</summary>
+    public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+    {
+        var (conditions, any) = Filters.FromPredicate(predicate);
+        var (supported, data) = await ExecuteAsync<TEntity>(new RemoteRequest { Kind = RemoteRequestKind.Count, Filter = conditions, Any = any }, ct);
+        return supported ? _serializer.Deserialize<long>(data ?? []) : (await SelectAsync(predicate, ct)).Count;
+    }
+
+    /// <summary>Computed by the server: only the results travel.</summary>
+    public async Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(aggregation);
+        var values = new List<FilterCondition>();
+        if (aggregation.Key is { } key)
+        {
+            FilterLanguage.EncodeValue(key, values);
+            values.Add(new FilterCondition(string.Empty, FilterOperator.GroupKey, null));
+        }
+        foreach (var value in aggregation.Values)
+        {
+            if (value.Value is { } read)
+                FilterLanguage.EncodeValue(read, values);
+            values.Add(new FilterCondition(value.Function.ToString(), FilterOperator.Aggregate, null));
+        }
+
+        var (conditions, any) = Filters.FromPredicate(predicate);
+        var request = new RemoteRequest { Kind = RemoteRequestKind.Aggregate, Filter = conditions, Any = any, Values = [.. values] };
+        var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
+        if (!supported)
+        {
+            if (aggregation.Projection() is not { } projection)
+            {
+                var count = await CountAsync(predicate, ct);
+                return [new AggregateRow(null, count, [.. aggregation.Values.Select(_ => (object?)count)])];
+            }
+            return aggregation.Compute(await SelectAsync(predicate, projection, ct));
+        }
+
+        var rows = data is { Length: > 0 } ? _serializer.Deserialize<object?[][]>(data) ?? [] : [];
+        return [.. rows.Select(row => new AggregateRow(
+            aggregation.Key is { } groupKey ? Filters.ConvertTo(row[0], groupKey.ReturnType, "the key") : null,
+            Convert.ToInt64(Filters.Plain(row[1]), System.Globalization.CultureInfo.InvariantCulture),
+            [.. aggregation.Values.Select((v, i) => v.Function == AggregateFunction.Count
+                ? Convert.ToInt64(Filters.Plain(row[2 + i]), System.Globalization.CultureInfo.InvariantCulture)
+                : Filters.ConvertTo(row[2 + i], NullableOf(Aggregation<TEntity>.ResultType(v.Function, v.Type!)), v.Function.ToString()))]))];
+    }
+
+    /// <summary>The server sends only the properties the selector reads; the selector runs here.</summary>
+    public async Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TResult>> selector, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        var project = selector.Compile();
+        if (EntityValues.ColumnsReadBy<TEntity>(selector) is { } columns)
+        {
+            var (conditions, any) = Filters.FromPredicate(predicate);
+            var request = new RemoteRequest { Kind = RemoteRequestKind.Project, Filter = conditions, Any = any, Members = [.. columns.Select(c => c.Name)] };
+            var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
+            if (supported)
+                return [.. DeserializeMany<TEntity>(data).Select(project)];
+        }
+        return [.. (await SelectAsync(predicate, ct)).Select(project)];
+    }
+
+    /// <summary>Only the changed properties travel; the server writes them over the stored row.</summary>
+    public async Task<bool> PatchAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity original, TEntity modified,
+        CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(modified);
+        NotInTransaction("A patch");
+        var changed = EntityValues.Changed(original, modified);
+        var request = new RemoteRequest
+        {
+            Kind = RemoteRequestKind.Patch,
+            Original = _serializer.Serialize(original),
+            Entity = _serializer.Serialize(modified),
+            Members = [.. changed.Select(c => c.Name)],
+            ConnectionId = ConnectionId<TEntity>(),
+        };
+        var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
+        if (supported)
+        {
+            if (data is not { Length: > 0 } || _serializer.Deserialize<TEntity>(data) is not { } stored)
+                return false;
+            EntityPatch.CopyColumns(stored, modified);
+            return true;
+        }
+
+        // An older server: the patch is merged here, and written as an update (its version keeps it safe).
+        if (await FirstOrDefaultAsync(SyncMetadata.SameKey(modified), ct) is not { } row)
+            return false;
+        if (EntityPatch.Merge(row, original, modified, changed) && !await UpdateAsync(row, ct))
+            return false;
+        EntityPatch.CopyColumns(row, modified);
+        return true;
+    }
+
+    /// <summary>Done by the server, in one call and one transaction.</summary>
+    public async Task<int> UpdateWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
+        EntityUpdate<TEntity> update, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        NotInTransaction("An update of many rows");
+        var (conditions, any) = Filters.FromPredicate(predicate);
+        var request = new RemoteRequest
+        {
+            Kind = RemoteRequestKind.UpdateWhere,
+            Filter = conditions,
+            Any = any,
+            Values = [.. update.Values.Select(v => new FilterCondition(v.Property.Name, FilterOperator.Equal, FilterLanguage.Normalize(v.Value)))],
+            ConnectionId = ConnectionId<TEntity>(),
+        };
+        var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
+        if (supported)
+            return _serializer.Deserialize<int>(data ?? []);
+
+        var rows = await SelectAsync(predicate, ct);
+        var result = await this.UpdateManyAsync(rows.Select(r =>
+        {
+            update.Apply(r);
+            return r;
+        }), ct);
+        result.ThrowIfFailed();
+        return rows.Count;
+    }
+
+    /// <summary>Done by the server, in one call and one transaction.</summary>
+    public async Task<int> DeleteWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
+        CancellationToken ct = default) where TEntity : class
+    {
+        NotInTransaction("A deletion of many rows");
+        var (conditions, any) = Filters.FromPredicate(predicate);
+        var request = new RemoteRequest { Kind = RemoteRequestKind.DeleteWhere, Filter = conditions, Any = any, ConnectionId = ConnectionId<TEntity>() };
+        var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
+        if (supported)
+            return _serializer.Deserialize<int>(data ?? []);
+
+        var rows = await SelectAsync(predicate, ct);
+        (await this.DeleteManyAsync(rows, ct)).ThrowIfFailed();
+        return rows.Count;
+    }
+
+    /// <summary>The answer of the server; not supported by an older server (or transport): the store does the work itself.</summary>
+    private async Task<(bool Supported, byte[]? Data)> ExecuteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        RemoteRequest request, CancellationToken ct) where TEntity : class
+    {
+        var result = await RemoteDiagnostics.ClientAsync("execute_" + request.Kind.ToString().ToLowerInvariant(), Name<TEntity>(),
+            () => _remote.ExecuteAsync(Name<TEntity>(), request, ct));
+        return result is { Successful: false, ErrorCode: EntityErrorCode.NotSupported } ? (false, null) : (true, result.GetDataOrThrow());
+    }
+
+    private void NotInTransaction(string what)
+    {
+        if (_transaction is not null)
+            throw new NotSupportedException($"{what} is done by the server at once: it cannot be part of a remote transaction.");
+    }
+
+    private static Type NullableOf(Type type) => type.IsValueType && Nullable.GetUnderlyingType(type) is null
+        ? type == typeof(long) ? typeof(long?) : type == typeof(decimal) ? typeof(decimal?) : type == typeof(double) ? typeof(double?)
+          : type == typeof(int) ? typeof(int?) : type == typeof(DateTime) ? typeof(DateTime?) : type == typeof(DateTimeOffset) ? typeof(DateTimeOffset?)
+          : type == typeof(float) ? typeof(float?) : type == typeof(short) ? typeof(short?) : type == typeof(byte) ? typeof(byte?)
+          : type == typeof(Guid) ? typeof(Guid?) : type == typeof(TimeSpan) ? typeof(TimeSpan?) : type == typeof(DateOnly) ? typeof(DateOnly?)
+          : type == typeof(bool) ? typeof(bool?) : typeof(object)
+        : type;
 
     // ---------- Transactions ----------
 
@@ -322,6 +502,11 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
             {
                 if (!SameValue(value, property.GetValue(received)))
                     property.SetValue(target, value);
+            }
+            else if (depth < MaxDepth && value is not null and not IList && property.GetValue(received) is { } receivedOne
+                && property.GetValue(target) is { } targetOne && value.GetType() == targetOne.GetType())
+            {
+                CopyChanges(targetOne.GetType(), value, receivedOne, targetOne, depth + 1);      // one child: its key and version
             }
             else if (depth < MaxDepth
                 && value is IList returnedItems

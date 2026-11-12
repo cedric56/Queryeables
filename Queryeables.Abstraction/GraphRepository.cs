@@ -38,6 +38,7 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
         _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
         Graph = graph ?? throw new ArgumentNullException(nameof(graph));
         _childrenSavedByServer = childrenSavedByServer;
+        EntityRelations.Register<TParent>(graph);      // the stores turn the relation filters on TParent into queries with it
     }
 
     public EntityGraph<TParent, TKey> Graph { get; }
@@ -49,10 +50,24 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
 
+        EntityResult result;
         if (_childrenSavedByServer)
-            return await EntityResult.RunAsync(() => store.SaveAsync(entity, Graph.IsNew, ct));
+        {
+            // The children this user left as read go with the save: the server leaves their rows alone.
+            var unchanged = new HashSet<string>(StringComparer.Ordinal);
+            Graph.CollectUnchanged(entity, unchanged);
+            using (GraphChanges.Begin(unchanged))
+                result = await EntityResult.RunAsync(() => store.SaveAsync(entity, Graph.IsNew, ct));
+        }
+        else
+        {
+            result = await store.RunInTransactionAsync(s => Graph.SaveAsync(s, entity, ct), ct);
+        }
 
-        return await store.RunInTransactionAsync(s => Graph.SaveAsync(s, entity, ct), ct);
+        // What is stored now is what the next save compares with.
+        if (result.Successful)
+            Graph.Remember(entity);
+        return result;
     }
 
     public virtual async Task<EntityResult> RemoveAsync(TParent entity, CancellationToken ct = default)
@@ -76,6 +91,14 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
         ArgumentNullException.ThrowIfNull(entity);
         await using var store = _storeFactory();
         await Graph.LoadAsync(store, entity, ct);
+    }
+
+    /// <summary>Reads the relations of every entity of <paramref name="entities"/>: one query per relation and per level.</summary>
+    public virtual async Task LoadChildrenAsync(IReadOnlyList<TParent> entities, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        await using var store = _storeFactory();
+        await Graph.LoadAsync(store, entities, ct);
     }
 
     /// <summary>Reads one child collection of <paramref name="entity"/>, for example <c>nameof(Person.Contacts)</c>.</summary>

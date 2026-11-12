@@ -56,4 +56,7 @@ public interface IMagicOnionLayer : IService<IMagicOnionLayer>
     /// (offline synchronization).
     /// </summary>
     UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId);
+
+    /// <summary>Counts, aggregates, projections, patches, writes of many rows, graph saves (<see cref="RemoteRequestKind"/>).</summary>
+    UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request);
 }

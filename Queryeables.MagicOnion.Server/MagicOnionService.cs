@@ -71,6 +71,9 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
     public UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId)
         => Reply(dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller(connectionId), Aborted));
 
+    public UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request)
+        => Reply(dispatcher.ExecuteAsync(type, request.ToRequest(), Caller(), Aborted));
+
     private static UnaryResult<EntityResultMessage> Reply(Task<TransportResult> call) => new(ToMessageAsync(call));
 
     private static async Task<EntityResultMessage> ToMessageAsync(Task<TransportResult> call) => EntityResultMessage.From(await call);

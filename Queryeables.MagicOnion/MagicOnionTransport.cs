@@ -57,6 +57,20 @@ public sealed class MagicOnionTransport(IMagicOnionLayer layer) : IEntityTranspo
     public async Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).ExecuteBatchOnceAsync(operationId, BatchOperationMessage.From(operations))).ToTransportResult();
 
+    /// <summary>A server of an earlier version has no such method: NotSupported, and the store does the work itself.</summary>
+    public async Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            return (await _layer.WithCancellationToken(ct).ExecuteAsync(type, RemoteRequestMessage.From(request))).ToTransportResult();
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unimplemented)
+        {
+            return TransportResult.Failure(EntityErrorCode.NotSupported, "The server does not carry this request.");
+        }
+    }
+
     public async Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
         CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).WriteOnceAsync(operationId, kind, type, entity, connectionId)).ToTransportResult();

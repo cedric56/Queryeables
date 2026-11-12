@@ -8,6 +8,9 @@ may change the API.
 First public version.
 
 ### Changed
+- `IMagicOnionLayer` has a method more (`ExecuteAsync`), `FilterOperator` values more (the extended form, appended), and
+  `IEntityStore`, `IEntityTransport` and `IEntityGraph` members more, with default implementations. A generated
+  `{Parent}Graph.Create` takes an optional `IServiceProvider` (the graphs of the child types).
 - Names aligned on known concepts, one vocabulary per idea:
 
   | Before | After |
@@ -30,6 +33,31 @@ First public version.
   a name identifier nor a name) cannot send idempotent writes.
 
 ### Added
+- Every relation of an application of management, from the attributes:
+  - graphs of any depth (a child type with `[EntityGraph]` children of its own is saved, removed and loaded with them;
+    a tree of one type too), one to one (`[EntityGraph]` on an entity, `NullDeletes`), many to many
+    (`[EntityGraph(Through = typeof(Link))]`, the links written, never the linked entities), references
+    (`[EntityReference]`), composite keys (several `[Key]`: link tables);
+  - fluent equivalents: `HasOne`, `HasManyThrough`, `References`, and the `graph` argument of `HasMany`/`HasOne`.
+- A list of parents loaded with one query per relation and per level (`LoadChildrenAsync(list)`), instead of one per parent.
+- Saving a graph writes only the children that changed, and leaves alone those the user did not touch even when their
+  row changed meanwhile (`EntityOriginals`): two users editing different lines of one order no longer conflict.
+- Filters through relations, in every store and remotely: `Any`, `All`, `Count(...) > n` on a collection, a condition on
+  a navigation (`o => o.Customer!.City == "Paris"`), the related rows read with their own access rules on a server
+  (`EntityRelations`, `IRelationReadGuard`).
+- Richer filters, with C#'s results in every store and remotely: two properties compared, arithmetic, `??`, text functions
+  (`ToLower`, `ToUpper`, `Trim`, `Length`, `Substring`, concatenation, `string.Compare`), date parts, `Math.Abs/Floor/Ceiling`,
+  `!` on anything with C#'s nulls. Dommel gets a SQL translation of its own for them (SQLite, PostgreSQL, SQL Server, MySQL).
+- Aggregates computed by the store or the server: `AggregateAsync`, `SumAsync`, `MinAsync`, `MaxAsync`, `AverageAsync`,
+  `GroupAsync`; `CountAsync` counted by the server.
+- Projections that read only the columns used (Dommel) and send only the properties used (remote).
+- `SelectAfterAsync`: pages after a row (keyset), for deep pages and infinite scrolling.
+- `UpdateWhereAsync` and `DeleteWhereAsync`: many rows at once, by the server in one call and one transaction.
+- `PatchAsync(original, modified)`: only the changed columns written; a conflict only when one of them changed meanwhile.
+- Offline: the writes waiting that refer to a row created offline (another type, a child inserted on its own) take its
+  real key before they are sent.
+- One extensible remote call, `IEntityTransport.ExecuteAsync(RemoteRequest)` (MagicOnion: `IMagicOnionLayer.ExecuteAsync`);
+  a client falls back to doing the work itself against a server of an earlier version.
 - `Queryeables.Replication`: `EntityReplicationStore`, the log, merged documents and replicas of a Routeables Remote
   Protocol server (`Routeables.Remote`) in any Queryeables store, one transaction per decision; `ReplicationProjection<T>`
   writes the merged documents to the application's entities. Tested on memory, EF Core (SQLite) and MongoDB.

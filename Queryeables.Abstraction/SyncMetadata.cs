@@ -37,7 +37,7 @@ public static class SyncMetadata
     public static DateTime Before(DateTime since, TimeSpan overlap)
         => since - DateTime.MinValue > overlap ? DateTime.SpecifyKind(since - overlap, DateTimeKind.Utc) : DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
 
-    private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete, PropertyInfo? Key);
+    private sealed record Properties(PropertyInfo? LastModified, PropertyInfo? SoftDelete, PropertyInfo? Key, IReadOnlyList<PropertyInfo> Keys);
 
     private static readonly ConcurrentDictionary<Type, Properties> _cache = new();
 
@@ -76,6 +76,30 @@ public static class SyncMetadata
 
     /// <summary>The key of the type: the property marked [Key], otherwise the one named Id; null when there is none.</summary>
     public static PropertyInfo? Key([DynamicallyAccessedMembers(EntityMembers.Required)] Type type) => For(type).Key;
+
+    /// <summary>
+    /// Every property of the key: those marked [Key] in their declaration order (two or more make a composite key, for a
+    /// link table), otherwise the one named Id. Empty when there is none.
+    /// </summary>
+    public static IReadOnlyList<PropertyInfo> Keys([DynamicallyAccessedMembers(EntityMembers.Required)] Type type) => For(type).Keys;
+
+    /// <summary><c>e =&gt; e.Key == entity.Key</c> (every property of a composite key): the stored row of <paramref name="entity"/>.</summary>
+    /// <exception cref="NotSupportedException">The type has no key.</exception>
+    public static Expression<Func<T, bool>> SameKey<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        var keys = For(typeof(T)).Keys;
+        if (keys.Count == 0)
+            throw new NotSupportedException($"{typeof(T).Name} has no key: mark it with [Key] or name it Id.");
+        var parameter = Expression.Parameter(typeof(T), "e");
+        Expression? body = null;
+        foreach (var key in keys)
+        {
+            var equal = Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(entity), key.PropertyType));
+            body = body is null ? equal : Expression.AndAlso(body, equal);
+        }
+        return Expression.Lambda<Func<T, bool>>(body!, parameter);
+    }
 
     /// <summary>
     /// <c>e => e.Key == entity.Key &amp;&amp; e.Deleted == false</c>: the stored row <paramref name="entity"/> targets, when it
@@ -164,10 +188,13 @@ public static class SyncMetadata
             throw new NotSupportedException($"{type.Name}.{softDelete.Name}: [SoftDelete] expects a bool.");
 
         // The key, as the generator and Dommel find it: [Key], otherwise a property named Id.
-        var key = all.FirstOrDefault(p => p.GetCustomAttribute<System.ComponentModel.DataAnnotations.KeyAttribute>() is not null)
+        var marked = all.Where(p => p.GetCustomAttribute<System.ComponentModel.DataAnnotations.KeyAttribute>() is not null)
+            .OrderBy(p => p.MetadataToken).ToArray();
+        var key = marked.FirstOrDefault()
             ?? all.FirstOrDefault(p => string.Equals(p.Name, "Id", StringComparison.OrdinalIgnoreCase));
+        IReadOnlyList<PropertyInfo> keys = marked.Length > 0 ? marked : key is null ? [] : [key];
 
-        var properties = new Properties(lastModified, softDelete, key);
+        var properties = new Properties(lastModified, softDelete, key, keys);
         _cache.TryAdd(type, properties);
         return properties;
     }

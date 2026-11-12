@@ -305,6 +305,9 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
         public UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId)
             => Reply(dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller.WithConnection(connectionId)));
 
+        public UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request)
+            => Reply(dispatcher.ExecuteAsync(type, RoundTrip(request).ToRequest(), Caller));
+
         private static UnaryResult<EntityResultMessage> Reply(Task<TransportResult> call) => new(ReplyAsync(call));
 
         private static async Task<EntityResultMessage> ReplyAsync(Task<TransportResult> call) => RoundTrip(EntityResultMessage.From(await call));

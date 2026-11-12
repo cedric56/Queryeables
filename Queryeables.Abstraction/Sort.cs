@@ -76,6 +76,75 @@ public sealed class Sort<[DynamicallyAccessedMembers(EntityMembers.Required)] TE
         return ordered ?? rows;
     }
 
+    /// <summary>This sort, then the key of the entity (every part of a composite key) where it is not sorted on yet: an order with no tie.</summary>
+    public Sort<TEntity> WithKey()
+    {
+        var keys = SyncMetadata.Keys(typeof(TEntity));
+        if (keys.Count == 0)
+            throw new NotSupportedException($"{typeof(TEntity).Name} has no key: mark it with [Key] or name it Id.");
+        var missing = keys.Where(k => Keys.All(s => s.Property != k.Name)).Select(k => new SortKey(k.Name)).ToList();
+        return missing.Count == 0 ? this : new Sort<TEntity>([.. Keys, .. missing]);
+    }
+
+    /// <summary>
+    /// The rows that come after <paramref name="row"/> in this order: <c>k1 &gt; v1 || (k1 == v1 &amp;&amp; k2 &gt; v2) ...</c>
+    /// (&lt; for a descending key). Text compares with <c>string.Compare</c>, as the database collation does.
+    /// </summary>
+    /// <exception cref="ArgumentException">A sort key of <paramref name="row"/> is null.</exception>
+    public Expression<Func<TEntity, bool>> After(TEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var parameter = Expression.Parameter(typeof(TEntity), "e");
+        Expression? result = null;
+        Expression? equalBefore = null;
+        foreach (var key in Keys)
+        {
+            var property = Property(key.Property)!;
+            var value = property.GetValue(row)
+                ?? throw new ArgumentException($"{typeof(TEntity).Name}.{key.Property} is null: a page cannot start after it.", nameof(row));
+            var member = Expression.Property(parameter, property);
+            var constant = Expression.Constant(value, property.PropertyType);
+            var beyond = Beyond(member, constant, key.Descending);
+            var term = equalBefore is null ? beyond : Expression.AndAlso(equalBefore, beyond);
+            result = result is null ? term : Expression.OrElse(result, term);
+            var equal = Expression.Equal(member, constant);
+            equalBefore = equalBefore is null ? equal : Expression.AndAlso(equalBefore, equal);
+        }
+        return Expression.Lambda<Func<TEntity, bool>>(result ?? Expression.Constant(true), parameter);
+    }
+
+    private static readonly MethodInfo StringCompare = typeof(string).GetMethod(nameof(string.Compare), [typeof(string), typeof(string)])!;
+
+    private static Expression Beyond(Expression member, Expression value, bool descending)
+    {
+        if (member.Type == typeof(string))
+        {
+            var compare = Expression.Call(StringCompare, member, value);
+            return descending ? Expression.LessThan(compare, Expression.Constant(0)) : Expression.GreaterThan(compare, Expression.Constant(0));
+        }
+        var core = Nullable.GetUnderlyingType(member.Type) ?? member.Type;
+        if (core.IsEnum)
+        {
+            var numeric = Enum.GetUnderlyingType(core);
+            var type = core == member.Type ? numeric : NullableOf(numeric);
+            member = Expression.Convert(member, type);
+            value = Expression.Convert(value, type);
+        }
+        return descending ? Expression.LessThan(member, value) : Expression.GreaterThan(member, value);
+    }
+
+    private static Type NullableOf(Type numeric) => Type.GetTypeCode(numeric) switch
+    {
+        TypeCode.Int32 => typeof(int?),
+        TypeCode.Int64 => typeof(long?),
+        TypeCode.Int16 => typeof(short?),
+        TypeCode.Byte => typeof(byte?),
+        TypeCode.SByte => typeof(sbyte?),
+        TypeCode.UInt32 => typeof(uint?),
+        TypeCode.UInt64 => typeof(ulong?),
+        _ => typeof(ushort?),
+    };
+
     public override string ToString() => string.Join(", ", Keys.Select(k => k.Descending ? $"{k.Property} desc" : k.Property));
 
     private Sort<TEntity> Append(SortKey key)

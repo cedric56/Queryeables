@@ -1,3 +1,4 @@
+using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Linq.Expressions;
 
@@ -34,11 +35,14 @@ public class FiltersTests
             c.Value is object?[] list ? list.Select(Shrink).ToArray() : Shrink(c.Value))).ToArray();
     }
 
+    /// <summary>What the server binds the names of a filter to: the queryable properties of Row.</summary>
+    private static readonly IFilterScope Scope = new EntityHandler<Row>(new EntityStoreFactory(() => null!), EntityAccessPolicies.AllowAll).FilterScope(null);
+
     /// <summary>The translated, carried then rebuilt predicate must select the same rows.</summary>
     private static void AssertRoundTrip(Expression<Func<Row, bool>> predicate)
     {
         var (conditions, any) = Filters.FromPredicate(predicate);
-        var rebuilt = Filters.ToPredicate<Row>(OverTheWire(conditions), any).Compile();
+        var rebuilt = Filters.ToPredicate<Row>(OverTheWire(conditions), any, RemoteMembers<Row>.Queryable, Scope).Compile();
 
         Assert.Equal(Rows.Where(predicate.Compile()).Select(r => r.Id), Rows.Where(rebuilt).Select(r => r.Id));
     }
@@ -119,43 +123,68 @@ public class FiltersTests
 
     // ---------- Client-side rejection ----------
 
+    // ---------- The extended form: what the simple form could not say, with the rows C# gives ----------
+
     [Fact]
-    public void Negating_a_list_or_a_text_search_is_rejected()
+    public void Negating_a_list_or_a_text_search_keeps_the_rows_of_CSharp()
     {
         long[] ids = [1, 2];
-        Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !ids.Contains(c.Id)));
-        Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !c.Name.StartsWith("A")));
+        AssertRoundTrip(c => !ids.Contains(c.Id));
+        AssertRoundTrip(c => !c.Name.StartsWith("A"));
     }
 
     [Fact]
-    public void Negating_an_ordering_on_a_nullable_is_rejected()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !(c.SponsorId > 0)));
+    public void Negating_an_ordering_on_a_nullable_keeps_the_nulls_as_CSharp_does()
+        => AssertRoundTrip(c => !(c.SponsorId > 0));
 
     [Fact]
-    public void Negating_a_nullable_flag_is_rejected_and_its_explicit_form_kept()
+    public void Negating_a_nullable_flag_keeps_the_nulls_as_CSharp_does()
     {
-        // !(Verified == true) is true for a null in C# (the offline copy), Verified == false is not (the server).
-        var error = Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => !(c.Verified == true)));
-        Assert.Contains("!= true", error.Message);
+        AssertRoundTrip(c => !(c.Verified == true));
         AssertRoundTrip(c => c.Verified != true);
-        AssertRoundTrip(c => !c.Active);                        // a flag that cannot be null: as before
+        AssertRoundTrip(c => !c.Active);
     }
 
     [Fact]
-    public void Comparing_two_properties_is_rejected()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => c.Id > c.SponsorId));
+    public void Two_properties_are_compared() => AssertRoundTrip(c => c.Id > c.SponsorId);
+
+    [Fact]
+    public void Text_functions_compute_on_the_server()
+    {
+        AssertRoundTrip(c => c.Name.ToUpper() == "ANA");
+        AssertRoundTrip(c => c.Name.Length > 2 && c.Name.ToLower().StartsWith("b"));
+        AssertRoundTrip(c => c.Name.Substring(1) == "na" || c.Name + "!" == "Bob!");
+        AssertRoundTrip(c => string.Compare(c.Name, "B") >= 0);
+    }
+
+    [Fact]
+    public void Dates_and_arithmetic_compute_on_the_server()
+    {
+        AssertRoundTrip(c => c.Creation.Year == 2026 && c.Creation.Month > 3);
+        AssertRoundTrip(c => c.Id * 2 + (c.SponsorId ?? 0) > 3);
+        AssertRoundTrip(c => c.Id % 2 == 0);
+    }
+
+    [Fact]
+    public void A_text_value_containing_a_property_is_a_text_search() => AssertRoundTrip(c => "Ana Bob".Contains(c.Name));
 
     [Fact]
     public void Other_method_calls_are_rejected()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => c.Name.ToUpper() == "ANA"));
+        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => c.Name.GetHashCode() == 1));
 
     [Fact]
-    public void Nested_member_is_rejected()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => c.Name.Length > 3));
+    public void A_function_the_server_does_not_know_is_rejected()
+        => Assert.Throws<ArgumentException>(() => Filters.ToPredicate<Row>(
+            [new FilterCondition("Name", FilterOperator.Member, null), new FilterCondition("reverse", FilterOperator.Function, 1),
+             new FilterCondition("", FilterOperator.Value, "x"), new FilterCondition("", FilterOperator.Equal, null)],
+            false, RemoteMembers<Row>.Queryable, Scope));
 
     [Fact]
-    public void Text_value_containing_a_property_is_not_a_list()
-        => Assert.Throws<NotSupportedException>(() => Filters.FromPredicate<Row>(c => "Ana Bob".Contains(c.Name)));
+    public void A_navigation_toward_a_type_the_server_does_not_expose_is_unknown()
+        => Assert.Throws<ArgumentException>(() => Filters.ToPredicate<Row>(
+            [new FilterCondition("Owner.Name", FilterOperator.Member, null), new FilterCondition("", FilterOperator.Value, "x"),
+             new FilterCondition("", FilterOperator.Equal, null)],
+            false, RemoteMembers<Row>.Queryable, Scope));
 
     // ---------- Server-side rejection (forged request) ----------
 

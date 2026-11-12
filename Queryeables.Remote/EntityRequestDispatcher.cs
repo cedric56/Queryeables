@@ -28,22 +28,36 @@ public sealed class EntityRequestDispatcher(
     }
 
     public Task<TransportResult> GetAllAsync(string type, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "get_all", h => h.GetAllAsync(_serializer, context, ct));
+        => Dispatch(type, "get_all", h => h.GetAllAsync(_serializer, Reading(context), ct));
 
     public Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any,
         EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "select", h => h.SelectAsync(_serializer, conditions ?? [], any, context, ct));
+        => Dispatch(type, "select", h => h.SelectAsync(_serializer, conditions ?? [], any, Reading(context), ct));
 
     public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, context, ct));
+        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, Reading(context), ct));
 
     public Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
         SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, sort ?? [], context, ct));
+        => Dispatch(type, "select_paged", h => h.SelectPagedAsync(_serializer, conditions ?? [], any, pageNumber, pageSize, sort ?? [], Reading(context), ct));
 
     public Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, EntityRequestContext context, CancellationToken ct = default)
-        => Dispatch(type, "get_changes", h => h.GetChangesAsync(_serializer, sinceUtc, context, ct));
+        => Dispatch(type, "get_changes", h => h.GetChangesAsync(_serializer, sinceUtc, Reading(context), ct));
+
+    /// <summary>A count, an aggregate, a projection, a patch, a write of many rows, a graph save (<see cref="RemoteRequestKind"/>).</summary>
+    public Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, EntityRequestContext context, CancellationToken ct = default)
+        => request is null
+            ? Task.FromResult(TransportResult.Failure(EntityErrorCode.InvalidRequest, "Empty request."))
+            : Dispatch(type, "execute_" + request.Kind.ToString().ToLowerInvariant(),
+                h => h.ExecuteAsync(_serializer, request, Verified(context.WithConnection(request.ConnectionId)), ct));
+
+    /// <summary>A read: the handlers go with it, for the filters that go through a relation toward another exposed type.</summary>
+    private EntityRequestContext Reading(EntityRequestContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return context with { Handlers = _registry };
+    }
 
     public Task<TransportResult> InsertAsync(string type, byte[] entity, EntityRequestContext context, CancellationToken ct = default)
         => Dispatch(type, "insert", h => h.WriteAsync(_serializer, BatchOperationKind.Insert, entity, Verified(context), ct));
@@ -251,6 +265,9 @@ public sealed class EntityRequestDispatcher(
 
         public Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
             => dispatcher.ExecuteBatchAsync(operations, caller, ct);
+
+        public Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, CancellationToken ct = default)
+            => dispatcher.ExecuteAsync(type, request, caller, ct);
 
         public Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
             => dispatcher.ExecuteBatchOnceAsync(operationId, operations, caller, ct);

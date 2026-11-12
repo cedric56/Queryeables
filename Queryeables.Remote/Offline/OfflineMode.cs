@@ -551,7 +551,16 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
             || type.KeyTextOfData(inserted) is not { } serverKey || serverKey == entry.Key)
             return;
         _outbox.Rekey(entry.Type, entry.Key, serverKey, payload => type.Rebase(payload, inserted));
+
+        // The other writes waiting that refer to that row (an order created offline for a customer created offline) name it
+        // by its real key now: sent with the temporary one, they would be refused.
+        if (long.TryParse(serverKey, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _))
+            _outbox.Rewrite(queued => _types.Values.FirstOrDefault(t => t.Name == queued.Type)
+                ?.RebaseReferences(queued.Payload, type.Type, entry.Key, serverKey));
     }
+
+    /// <summary>The offline types.</summary>
+    internal IEnumerable<OfflineEntityType> Types => _types.Values;
 
     private async Task<TransportResult> SendAsync(OutboxEntry entry, CancellationToken ct)
     {

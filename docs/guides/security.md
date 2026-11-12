@@ -13,6 +13,9 @@ whole filter, and 32 levels of AND/OR; a page starts at most 1,000,000 rows in; 
 What a client cannot read, it cannot search or sort on either: otherwise it would guess a hidden value one comparison at
 a time ("the secret starts with a", "with ab"...). A property left out by the serializer (`[JsonIgnore]`,
 `[IgnoreMember]`, `[IgnoreDataMember]`) or marked `[NotQueryable]` answers "unknown property" in a filter or a sort.
+The same at every step of a filter through a relation (`o.Customer.Secret`): the related type must be exposed, the user
+must be allowed to read it, and only its rows the user may read count (its row filter applies). A patch or an update of
+many rows never writes a key, a version, a `[ServerOwned]` property or one the serializer leaves out (`Forbidden`).
 
 A `[ServerOwned]` property never takes its value from a client: on an insert it is reset to its default, on an update
 the stored value is kept, whatever was sent. For a creator, an approval flag, a role, a balance: set them in the

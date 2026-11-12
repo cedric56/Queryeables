@@ -76,7 +76,7 @@ public sealed class DommelEntityStore : IEntityStore
         if (await EqualityQueries.SelectAsync(_connection, _transaction, predicate, ct) is { } rows)
             return rows;
 
-        var filter = Translate(predicate, out var none);
+        var (filter, none) = await TranslateAsync(predicate, ct);
         if (none)
             return [];
         var result = filter is null
@@ -89,11 +89,14 @@ public sealed class DommelEntityStore : IEntityStore
     /// The predicate as Dommel translates it with C#'s results (<see cref="CSharpSqlExpression{TEntity}"/>), its captured
     /// values inlined and its constant parts removed: null keeps every row (SQL Server has no <c>WHERE True</c>).
     /// </summary>
-    private static Expression<Func<TEntity, bool>>? Translate<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
-        Expression<Func<TEntity, bool>> predicate, out bool none) where TEntity : class
+    /// <remarks>A filter that goes through a relation is first turned into conditions on columns (<see cref="EntityRelations"/>).</remarks>
+    private async Task<(Expression<Func<TEntity, bool>>? Filter, bool None)> TranslateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct) where TEntity : class
     {
         CSharpSql.Use<TEntity>();
-        return ConstantPredicates.Simplify(CapturedValues.Inline(predicate), out none);
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);
+        var filter = ConstantPredicates.Simplify(CapturedValues.Inline(predicate), out var none);
+        return (filter, none);
     }
 
     public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -103,7 +106,7 @@ public sealed class DommelEntityStore : IEntityStore
         var (handled, row) = await EqualityQueries.FirstOrDefaultAsync(_connection, _transaction, predicate, ct);
         if (handled)
             return row;
-        var filter = Translate(predicate, out var none);
+        var (filter, none) = await TranslateAsync(predicate, ct);
         if (none)
             return null;
         return filter is null
@@ -117,7 +120,7 @@ public sealed class DommelEntityStore : IEntityStore
     {
         Paging.Validate(pageNumber, pageSize);
         await EnsureOpenAsync(ct);
-        var filter = Translate(predicate, out var none);
+        var (filter, none) = await TranslateAsync(predicate, ct);
         if (none)
             return [];
         var result = filter is null
@@ -146,7 +149,7 @@ public sealed class DommelEntityStore : IEntityStore
         await EnsureOpenAsync(ct);
         // Dommel's FromAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
-        var filter = Translate(predicate, out var none);
+        var (filter, none) = await TranslateAsync(predicate, ct);
         if (none)
             return [];
         var result = await _connection.FromAsync<TEntity>(sql =>
@@ -166,13 +169,38 @@ public sealed class DommelEntityStore : IEntityStore
         return result.AsList();
     }
 
+    /// <summary>Reads only the columns the selector uses, then projects in memory (a selector reading navigations reads whole rows).</summary>
+    public async Task<IReadOnlyList<TResult>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TResult>(
+        Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TResult>> selector, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        var project = selector.Compile();
+        if (EntityValues.ColumnsReadBy<TEntity>(selector) is not { } columns)
+            return (await SelectAsync(predicate, ct)).Select(project).ToList();
+
+        await EnsureOpenAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        var (filter, none) = await TranslateAsync(predicate, ct);
+        if (none)
+            return [];
+        var builder = DommelMapper.GetSqlBuilder(_connection);
+        var list = string.Join(", ", columns.Select(c => Resolvers.Column(c, builder, false)));
+        var rows = await _connection.FromAsync<TEntity>(sql =>
+        {
+            sql.Select(list);
+            if (filter is not null)
+                sql.Where(filter);
+        }, _transaction);
+        return rows.Select(project).ToList();
+    }
+
     public async Task<long> CountAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         await EnsureOpenAsync(ct);
         // Dommel's CountAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
-        var filter = Translate(predicate, out var none);
+        var (filter, none) = await TranslateAsync(predicate, ct);
         if (none)
             return 0;
         return filter is null

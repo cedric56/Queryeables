@@ -22,17 +22,27 @@ internal sealed record PropertyModel(string Name, string Type, bool IsNullableVa
 /// <summary>A class marked [EntityCache], or the target of a lookup navigation.</summary>
 internal sealed record CacheModel(string TypeName, PropertyModel Key);
 
+/// <summary>
+/// One relation of a parent. <c>Kind</c>: <c>Many</c> (a collection of children), <c>One</c> (one child), <c>Through</c>
+/// (entities linked through <c>LinkType</c>: <c>ChildType</c> is the linked type, <c>ForeignKey</c> and <c>LinkTarget</c> are
+/// properties of the link), <c>Reference</c> (a navigation of the parent: <c>ForeignKey</c> is a property of the parent).
+/// </summary>
 internal sealed record RelationModel(
+    string Kind,
     string Collection,
     string ChildType,
     PropertyModel ChildKey,
+    string ChildKeyExpression,
     PropertyModel ForeignKey,
     string? ParentNavigation,
     string? LookupNavigation,
     PropertyModel? LookupForeignKey,
-    CacheModel? Lookup);
+    CacheModel? Lookup,
+    bool NullDeletes = false,
+    string? LinkType = null,
+    PropertyModel? LinkTarget = null);
 
-/// <summary>One [EntityGraph] collection, with the parent it belongs to.</summary>
+/// <summary>One [EntityGraph] or [EntityReference] relation, with the parent it belongs to.</summary>
 internal sealed record RelationResult(
     string ParentTypeName,
     string ParentName,

@@ -57,6 +57,59 @@ public sealed class BatchOperationMessage
 }
 
 /// <summary>MessagePack form of a <see cref="Queryeables.Abstraction.SortKey"/>.</summary>
+/// <summary>A <see cref="RemoteRequest"/> on the wire.</summary>
+[MessagePackObject]
+public sealed class RemoteRequestMessage
+{
+    [Key(0)]
+    public RemoteRequestKind Kind { get; set; }
+
+    [Key(1)]
+    public FilterConditionMessage[] Filter { get; set; } = [];
+
+    [Key(2)]
+    public bool Any { get; set; }
+
+    [Key(3)]
+    public FilterConditionMessage[] Values { get; set; } = [];
+
+    [Key(4)]
+    public string[] Members { get; set; } = [];
+
+    [Key(5)]
+    public byte[]? Original { get; set; }
+
+    [Key(6)]
+    public byte[]? Entity { get; set; }
+
+    [Key(7)]
+    public string? ConnectionId { get; set; }
+
+    public static RemoteRequestMessage From(RemoteRequest request) => new()
+    {
+        Kind = request.Kind,
+        Filter = FilterConditionMessage.From(request.Filter),
+        Any = request.Any,
+        Values = FilterConditionMessage.From(request.Values),
+        Members = request.Members ?? [],
+        Original = request.Original,
+        Entity = request.Entity,
+        ConnectionId = request.ConnectionId,
+    };
+
+    public RemoteRequest ToRequest() => new()
+    {
+        Kind = Kind,
+        Filter = FilterConditionMessage.ToConditions(Filter),
+        Any = Any,
+        Values = FilterConditionMessage.ToConditions(Values),
+        Members = Members ?? [],
+        Original = Original,
+        Entity = Entity,
+        ConnectionId = ConnectionId,
+    };
+}
+
 [MessagePackObject]
 public sealed class SortKeyMessage
 {

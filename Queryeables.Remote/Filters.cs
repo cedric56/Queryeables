@@ -46,7 +46,15 @@ internal static class Filters
         predicate = simplified;
 
         var output = new List<FilterCondition>();
-        Emit(predicate.Body, parameter, negate: false, output);
+        try
+        {
+            Emit(predicate.Body, parameter, negate: false, output);
+        }
+        catch (NotSupportedException)
+        {
+            // Beyond "a property compared with a value": the extended form (servers of this version and later).
+            return (FilterLanguage.Encode(predicate), false);
+        }
 
         // Flat form when it suffices: what every server understands.
         var logical = output.Where(IsLogical).ToList();
@@ -190,7 +198,7 @@ internal static class Filters
 
         // list.Contains(e.Id): Enumerable.Contains(list, e.Id), MemoryExtensions.Contains(span, e.Id)
         // (form produced by C# 14 for an array) or an instance method of a collection.
-        var (source, item) = call.Object is null && call.Arguments.Count == 2
+        var (source, item) = call.Object is null && (call.Arguments.Count == 2 || call.Arguments.Count == 3 && call.Arguments[2] is ConstantExpression { Value: null })
             ? (call.Arguments[0], call.Arguments[1])
             : (call.Object, call.Arguments.Count == 1 ? call.Arguments[0] : null);
 
@@ -323,8 +331,16 @@ internal static class Filters
     /// property". Every public property when null.
     /// </param>
     public static Expression<Func<T, bool>> ToPredicate<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
-        IReadOnlyList<FilterCondition> conditions, bool any, IReadOnlySet<string>? properties = null)
+        IReadOnlyList<FilterCondition> conditions, bool any, IReadOnlySet<string>? properties = null, IFilterScope? scope = null)
     {
+        if (FilterLanguage.IsExtended(conditions))
+        {
+            if (scope is null || any)
+                throw new ArgumentException("This filter needs the server's scopes.");
+            var root = Expression.Parameter(typeof(T), "e");
+            return Expression.Lambda<Func<T, bool>>(FilterLanguage.Bind(conditions, scope, root), root);
+        }
+
         if (conditions.Count > MaxValues)
             throw new ArgumentException($"A filter is limited to {MaxValues} conditions.");
         var total = conditions.Sum(c => c?.Value is IList list and not byte[] ? Math.Max(1, list.Count) : 1);
@@ -416,7 +432,7 @@ internal static class Filters
         return Build(Expression.Property(parameter, property), condition);
     }
 
-    private static Expression Build(MemberExpression member, FilterCondition condition)
+    internal static Expression Build(Expression member, FilterCondition condition)
     {
         var type = member.Type;
         var name = condition.Property;
@@ -431,16 +447,7 @@ internal static class Filters
                 return Compare(member, Constant(condition.Value, type, name), condition.Operator, name);
 
             case FilterOperator.In:
-                if (condition.Value is not IList values || condition.Value is byte[])
-                    throw new ArgumentException($"'{name}': the In operator expects a list of values.");
-                if (values.Count == 0)
-                    return Expression.Constant(false); // no value: no row
-                if (values.Count > MaxValues)
-                    throw new ArgumentException($"'{name}': the In operator is limited to {MaxValues} values.");
-                var equals = new List<Expression>(values.Count);
-                foreach (var value in values)
-                    equals.Add(Compare(member, Constant(value, type, name), FilterOperator.Equal, name));
-                return Balanced(equals, Expression.OrElse);
+                return In(member, condition.Value, name);
 
             case FilterOperator.StartsWith or FilterOperator.EndsWith or FilterOperator.Contains:
                 if (type != typeof(string))
@@ -463,8 +470,38 @@ internal static class Filters
     private static ConstantExpression Constant(object? value, Type type, string name)
         => Expression.Constant(ConvertTo(value, type, name), type);
 
+    /// <summary><c>member == v1 || member == v2 ...</c>: the values of a list (In).</summary>
+    internal static Expression In(Expression member, object? list, string name)
+    {
+        list = Plain(list);
+        if (list is not IList values || list is byte[])
+            throw new ArgumentException($"'{name}': the In operator expects a list of values.");
+        if (values.Count == 0)
+            return Expression.Constant(false); // no value: no row
+        if (values.Count > MaxValues)
+            throw new ArgumentException($"'{name}': the In operator is limited to {MaxValues} values.");
+        var equals = new List<Expression>(values.Count);
+        foreach (var value in values)
+            equals.Add(Compare(member, Constant(value, member.Type, name), FilterOperator.Equal, name));
+        return Balanced(equals, Expression.OrElse);
+    }
+
+    /// <summary>A value as a transport delivers it, made plain: a JSON element becomes its text, number, bool, null or list.</summary>
+    internal static object? Plain(object? value) => value is System.Text.Json.JsonElement json ? Plain(json) : value;
+
+    private static object? Plain(System.Text.Json.JsonElement json) => json.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.String => json.GetString(),
+        System.Text.Json.JsonValueKind.Number => json.TryGetInt64(out var integer) ? integer : json.GetDecimal(),
+        System.Text.Json.JsonValueKind.True => true,
+        System.Text.Json.JsonValueKind.False => false,
+        System.Text.Json.JsonValueKind.Array => json.EnumerateArray().Select(Plain).ToArray(),
+        System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined => null,
+        _ => json.GetRawText(),
+    };
+
     /// <summary>Comparison, including for enums, which expression trees do not compare directly.</summary>
-    private static Expression Compare(Expression left, Expression right, FilterOperator op, string name)
+    internal static Expression Compare(Expression left, Expression right, FilterOperator op, string name)
     {
         var underlying = Nullable.GetUnderlyingType(left.Type);
         var core = underlying ?? left.Type;
@@ -519,6 +556,7 @@ internal static class Filters
     /// </summary>
     public static object? ConvertTo(object? value, Type type, string name)
     {
+        value = Plain(value);
         var target = Nullable.GetUnderlyingType(type) ?? type;
 
         if (value is null)
@@ -552,6 +590,15 @@ internal static class Filters
 
             if (target == typeof(TimeSpan))
                 return TimeSpan.Parse(Convert.ToString(value, invariant)!, invariant);
+
+            if (target == typeof(DateOnly))
+                return value is DateTime day ? DateOnly.FromDateTime(day) : DateOnly.Parse(Convert.ToString(value, invariant)!, invariant);
+
+            if (target == typeof(TimeOnly))
+                return value is TimeSpan time ? TimeOnly.FromTimeSpan(time) : TimeOnly.Parse(Convert.ToString(value, invariant)!, invariant);
+
+            if (target == typeof(object))
+                return value;
 
             return Convert.ChangeType(value, target, invariant);
         }

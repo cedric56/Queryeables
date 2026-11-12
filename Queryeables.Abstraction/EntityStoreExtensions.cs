@@ -173,6 +173,115 @@ public static class EntityStoreExtensions
         return sort.Apply(await store.SelectAsync(predicate, ct)).ToList();
     }
 
+    /// <inheritdoc cref="IEntityStore.AggregateAsync{TEntity}"/>
+    public static Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default)
+        where TEntity : class
+        => store.AggregateAsync(predicate, aggregation, ct);
+
+    /// <inheritdoc cref="IEntityStore.PatchAsync{TEntity}"/>
+    public static Task<bool> PatchAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        TEntity original, TEntity modified, CancellationToken ct = default) where TEntity : class
+        => store.PatchAsync(original, modified, ct);
+
+    /// <inheritdoc cref="IEntityStore.UpdateWhereAsync{TEntity}"/>
+    /// <example><code>await store.UpdateWhereAsync&lt;Invoice&gt;(i =&gt; i.Year == 2024, set =&gt; set.Set(i =&gt; i.Archived, true));</code></example>
+    public static Task<int> UpdateWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        Expression<Func<TEntity, bool>> predicate, Action<EntityUpdate<TEntity>> set, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(set);
+        var update = new EntityUpdate<TEntity>();
+        set(update);
+        if (update.Values.Count == 0)
+            throw new ArgumentException("Nothing to set.", nameof(set));
+        return store.UpdateWhereAsync(predicate, update, ct);
+    }
+
+    /// <inheritdoc cref="IEntityStore.DeleteWhereAsync{TEntity}"/>
+    public static Task<int> DeleteWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
+        => store.DeleteWhereAsync(predicate, ct);
+
+    /// <summary>The sum of <paramref name="value"/> over the matching rows (0 without rows).</summary>
+    public static async Task<decimal> SumAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TValue>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TValue>> value, CancellationToken ct = default)
+        where TEntity : class
+        => await One(store, predicate, Aggregation.Of<TEntity>().Sum(value), ct).ConfigureAwait(false) is { } sum
+            ? Convert.ToDecimal(sum, System.Globalization.CultureInfo.InvariantCulture)
+            : 0m;
+
+    /// <summary>The smallest value of <paramref name="value"/> over the matching rows; default without rows.</summary>
+    public static async Task<TValue?> MinAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TValue>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TValue>> value, CancellationToken ct = default)
+        where TEntity : class
+        => To<TValue>(await One(store, predicate, Aggregation.Of<TEntity>().Min(value), ct).ConfigureAwait(false));
+
+    /// <summary>The largest value of <paramref name="value"/> over the matching rows; default without rows.</summary>
+    public static async Task<TValue?> MaxAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TValue>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TValue>> value, CancellationToken ct = default)
+        where TEntity : class
+        => To<TValue>(await One(store, predicate, Aggregation.Of<TEntity>().Max(value), ct).ConfigureAwait(false));
+
+    /// <summary>The average of <paramref name="value"/> over the matching rows; null without rows.</summary>
+    public static async Task<double?> AverageAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TValue>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TValue>> value, CancellationToken ct = default)
+        where TEntity : class
+        => await One(store, predicate, Aggregation.Of<TEntity>().Average(value), ct).ConfigureAwait(false) is { } average
+            ? Convert.ToDouble(average, System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
+    /// <summary>
+    /// The matching rows grouped by <paramref name="key"/>: each group with its number of rows, and the values of
+    /// <paramref name="values"/> (optional) in order.
+    /// </summary>
+    /// <example><code>var perStatus = await store.GroupAsync&lt;Order, Status&gt;(o =&gt; true, o =&gt; o.Status, a =&gt; a.Sum(o =&gt; o.Total));</code></example>
+    public static async Task<IReadOnlyList<Group<TKey>>> GroupAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Expression<Func<TEntity, TKey>> key,
+        Action<Aggregation<TEntity>>? values = null, CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        var aggregation = Aggregation.Of<TEntity>().GroupBy(key);
+        values?.Invoke(aggregation);
+        var rows = await store.AggregateAsync(predicate, aggregation, ct).ConfigureAwait(false);
+        return [.. rows.Select(r => new Group<TKey>(To<TKey>(r.Key)!, r.Count, r.Values))];
+    }
+
+    /// <summary>
+    /// The page after <paramref name="after"/> (the last row of the previous page; null for the first page), in the order of
+    /// <paramref name="sort"/>, the key breaking ties: paging by position (keyset), as deep as wanted, at the cost of the
+    /// first page. Rows inserted or deleted meanwhile do not shift the pages. The sort keys of the rows must not be null.
+    /// </summary>
+    public static Task<IReadOnlyList<TEntity>> SelectAfterAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        this IEntityStore store, Expression<Func<TEntity, bool>> predicate, Sort<TEntity> sort, TEntity? after, int pageSize,
+        CancellationToken ct = default) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentNullException.ThrowIfNull(sort);
+        var full = sort.WithKey();
+        var filter = after is null ? predicate : SyncMetadata.And(predicate, full.After(after));
+        return store.SelectPagedAsync(filter, 1, pageSize, full, ct);
+    }
+
+    private static async Task<object?> One<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IEntityStore store,
+        Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct) where TEntity : class
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        var rows = await store.AggregateAsync(predicate, aggregation, ct).ConfigureAwait(false);
+        return rows.Count == 0 ? null : rows[0].Values[0];
+    }
+
+    private static T? To<T>(object? value)
+    {
+        if (value is null)
+            return default;
+        if (value is T typed)
+            return typed;
+        var target = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+        return (T)(target.IsEnum ? Enum.ToObject(target, value) : Convert.ChangeType(value, target, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     // ---------- Strict read and bulk operations (ideas from ABP repositories, see CREDITS.md) ----------
 
     /// <summary>

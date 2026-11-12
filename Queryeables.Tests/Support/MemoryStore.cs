@@ -17,11 +17,13 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     public Task<IReadOnlyList<T>> GetAllAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(CancellationToken ct = default) where T : class
         => SelectAsync<T>(_ => true, ct);
 
-    public Task<IReadOnlyList<T>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // as every store: relation filters become queries
         IReadOnlyList<T> rows = Matching(predicate).ToList();
         _database.RowsRead += rows.Count;
-        return Task.FromResult(rows);
+        _database.Queries++;
+        return rows;
     }
 
     private IEnumerable<T> Matching<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate) where T : class
@@ -33,20 +35,30 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     public async Task<T?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
         => (await SelectAsync(predicate, ct)).FirstOrDefault();
 
-    public Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
+    public async Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
     {
+        predicate = await EntityRelations.ExpandAsync(this, predicate, ct);
         IReadOnlyList<T> page = Matching(predicate).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();     // as a database pages
         _database.RowsRead += page.Count;
-        return Task.FromResult(page);
+        _database.Queries++;
+        return page;
     }
 
     public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
     {
         var rows = _database.Rows<T>();
-        var id = IdProperty<T>();
-        id.SetValue(entity, rows.Count == 0 ? 1L : rows.Max(r => (long)id.GetValue(r)!) + 1);
+        var keys = SyncMetadata.Keys(typeof(T));
+        if (keys.Count == 1 && keys[0].PropertyType == typeof(long))
+        {
+            var id = keys[0];
+            id.SetValue(entity, rows.Count == 0 ? 1L : rows.Max(r => (long)id.GetValue(r)!) + 1);
+        }
+        else if (IndexOf(rows, entity) >= 0)
+        {
+            throw new InvalidOperationException($"Duplicate key for {typeof(T).Name}.");     // as a primary key would refuse it
+        }
         rows.Add(Copy(entity));
-        _database.Log.Add($"INSERT {typeof(T).Name} {id.GetValue(entity)}");
+        _database.Log.Add($"INSERT {typeof(T).Name} {KeyText(entity)}");
         return Task.CompletedTask;
     }
 
@@ -54,7 +66,7 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     {
         var rows = _database.Rows<T>();
         var index = IndexOf(rows, entity);
-        _database.Log.Add($"UPDATE {typeof(T).Name} {IdProperty<T>().GetValue(entity)}");
+        _database.Log.Add($"UPDATE {typeof(T).Name} {KeyText(entity)}");
         if (index < 0)
             return Task.FromResult(false);
         CheckVersion((T)rows[index], entity, increment: true);
@@ -66,7 +78,7 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     {
         var rows = _database.Rows<T>();
         var index = IndexOf(rows, entity);
-        _database.Log.Add($"DELETE {typeof(T).Name} {IdProperty<T>().GetValue(entity)}");
+        _database.Log.Add($"DELETE {typeof(T).Name} {KeyText(entity)}");
         if (index < 0)
             return Task.FromResult(false);
         CheckVersion((T)rows[index], entity, increment: false);
@@ -98,13 +110,15 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
 
     private static int IndexOf<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(List<object> rows, T entity)
     {
-        var id = IdProperty<T>();
-        var key = id.GetValue(entity);
-        return rows.FindIndex(r => Equals(id.GetValue(r), key));
+        var keys = KeyProperties<T>();
+        return rows.FindIndex(r => keys.All(k => Equals(k.GetValue(r), k.GetValue(entity))));
     }
 
-    private static PropertyInfo IdProperty<[DynamicallyAccessedMembers(EntityMembers.Required)] T>()
-        => typeof(T).GetProperty("Id") ?? throw new InvalidOperationException($"{typeof(T).Name} has no Id property.");
+    private static IReadOnlyList<PropertyInfo> KeyProperties<[DynamicallyAccessedMembers(EntityMembers.Required)] T>()
+        => SyncMetadata.Keys(typeof(T)) is { Count: > 0 } keys ? keys : throw new InvalidOperationException($"{typeof(T).Name} has no key.");
+
+    private static string KeyText<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
+        => string.Join(",", KeyProperties<T>().Select(k => k.GetValue(entity)));
 
     /// <summary>Shallow copy of the scalar properties: collections are not stored, like in a table.</summary>
     private static T Copy<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T source) where T : class
@@ -164,6 +178,9 @@ public sealed class MemoryDatabase
 
     /// <summary>Rows the store's queries matched: what a database would have read and sent.</summary>
     public int RowsRead { get; set; }
+
+    /// <summary>The queries run: a list of N parents loaded with their children costs one per relation, not N.</summary>
+    public int Queries { get; set; }
 
     public List<object> Rows<T>()
     {

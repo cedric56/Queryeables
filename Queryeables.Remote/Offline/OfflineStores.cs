@@ -35,6 +35,22 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => Watch(inner.SelectAsync(predicate, ct), ct);
 
+    public Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
+        => Watch(inner.AggregateAsync(predicate, aggregation, ct), ct);
+
+    public Task<bool> PatchAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(TEntity original, TEntity modified,
+        CancellationToken ct = default) where TEntity : class
+        => Watch(inner.PatchAsync(original, modified, ct), ct);
+
+    public Task<int> UpdateWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
+        EntityUpdate<TEntity> update, CancellationToken ct = default) where TEntity : class
+        => Watch(inner.UpdateWhereAsync(predicate, update, ct), ct);
+
+    public Task<int> DeleteWhereAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(Expression<Func<TEntity, bool>> predicate,
+        CancellationToken ct = default) where TEntity : class
+        => Watch(inner.DeleteWhereAsync(predicate, ct), ct);
+
     public Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
         => Watch(inner.FirstOrDefaultAsync(predicate, ct), ct);
@@ -205,6 +221,8 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
         Expression<Func<TEntity, bool>>? predicate, CancellationToken ct) where TEntity : class
     {
         var type = mode.Require(typeof(TEntity));
+        if (predicate is not null)
+            predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // relation filters, on the copy
         var match = predicate?.Compile();
         await mode.Gate.WaitAsync(ct);
         try

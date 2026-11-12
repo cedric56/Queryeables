@@ -441,4 +441,111 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         await using var check = CreateStore();
         Assert.Equal(2, (await check.GetAllAsync<TestClient>()).Count);
     }
+
+    // ---------- Computations, aggregates, patches, writes of many rows, pages after a row: the rows C# gives ----------
+
+    private async Task<List<TestClient>> SeedComputationsAsync()
+    {
+        foreach (var (name, active, sponsor) in new (string, bool, int?)[]
+                 { ("Ana", true, null), (" bob ", false, 1), ("Carl", true, 5), ("dora", false, null), ("Eve", true, 2) })
+            await InsertAsync(name, active, sponsor);
+        await using var store = CreateStore();
+        return [.. await store.GetAllAsync<TestClient>()];
+    }
+
+    private async Task AssertSameAsCSharpAsync(List<TestClient> rows, System.Linq.Expressions.Expression<Func<TestClient, bool>> predicate)
+    {
+        await using var store = CreateStore();
+        var expected = rows.Where(predicate.Compile()).Select(r => r.Id).Order().ToList();
+        var actual = (await store.SelectAsync(predicate)).Select(r => r.Id).Order().ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    [ServerFact]
+    public async Task Columns_compared_and_computed_give_the_rows_of_CSharp()
+    {
+        var rows = await SeedComputationsAsync();
+        long[] ids = [rows[0].Id, rows[2].Id];
+        int?[] sponsors = [1, 2];
+
+        await AssertSameAsCSharpAsync(rows, c => c.SponsorId > c.Id - rows[0].Id);
+        await AssertSameAsCSharpAsync(rows, c => (c.Id - rows[0].Id) * 2 + (c.SponsorId ?? 0) > 5);
+        await AssertSameAsCSharpAsync(rows, c => (c.Id - rows[0].Id) % 2 == 0);
+        await AssertSameAsCSharpAsync(rows, c => c.Name.ToUpper() == "ANA" || c.Name.Trim() == "bob");
+        await AssertSameAsCSharpAsync(rows, c => c.Name.Length > 3);
+        await AssertSameAsCSharpAsync(rows, c => c.Name.ToLower().StartsWith("d"));
+        await AssertSameAsCSharpAsync(rows, c => string.Compare(c.Name, "Carl") > 0 && c.Name != " bob ");
+        await AssertSameAsCSharpAsync(rows, c => ids.Contains(c.Id));
+        await AssertSameAsCSharpAsync(rows, c => !sponsors.Contains(c.SponsorId));
+        await AssertSameAsCSharpAsync(rows, c => c.LastModified.Year == rows[0].LastModified.Year);
+    }
+
+    [ServerFact]
+    public async Task Aggregates_and_projections_are_computed_by_the_store()
+    {
+        var rows = await SeedComputationsAsync();
+        await using var store = CreateStore();
+
+        Assert.Equal(3L, await store.CountAsync<TestClient>(c => c.Active));
+        Assert.Equal(8m, await store.SumAsync<TestClient, int?>(c => true, c => c.SponsorId));
+        Assert.Equal(5, await store.MaxAsync<TestClient, int?>(c => true, c => c.SponsorId));
+        Assert.Equal(rows.Min(r => r.Id), await store.MinAsync<TestClient, long>(c => true, c => c.Id));
+        var groups = await store.GroupAsync<TestClient, bool>(c => true, c => c.Active, a => a.Sum(c => c.SponsorId));
+        Assert.Equal((3L, 7L), (groups.Single(g => g.Key).Count, Convert.ToInt64(groups.Single(g => g.Key).Values[0])));
+        Assert.Equal(2L, groups.Single(g => !g.Key).Count);
+
+        var names = await store.SelectAsync<TestClient, string>(c => c.Active, c => c.Name.ToUpperInvariant());
+        Assert.Equal(["ANA", "CARL", "EVE"], names.Order(StringComparer.Ordinal));
+    }
+
+    [ServerFact]
+    public async Task A_patch_writes_only_its_columns_and_a_column_changed_meanwhile_is_a_conflict()
+    {
+        var read = await InsertAsync("Ana", sponsorId: 1);
+        await using var store = CreateStore();
+        var renamed = read.Copy();
+        renamed.Name = "Anna";
+        var moved = read.Copy();
+        moved.SponsorId = 2;
+
+        Assert.True(await store.PatchAsync(read, renamed));
+        Assert.True(await store.PatchAsync(read, moved));           // the version moved, but SponsorId did not change meanwhile
+        var stored = (await store.SelectAsync<TestClient>(c => c.Id == read.Id)).Single();
+        Assert.Equal(("Anna", 2), (stored.Name, stored.SponsorId));
+
+        var late = read.Copy();
+        late.Name = "Annie";
+        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.PatchAsync(read, late));
+        Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
+    }
+
+    [ServerFact]
+    public async Task Many_rows_are_updated_and_deleted_at_once()
+    {
+        await SeedComputationsAsync();
+        await using var store = CreateStore();
+
+        Assert.Equal(2, await store.UpdateWhereAsync<TestClient>(c => !c.Active, set => set.Set(c => c.SponsorId, 9)));
+        Assert.Equal(2L, await store.CountAsync<TestClient>(c => c.SponsorId == 9));
+        Assert.Equal(2, await store.DeleteWhereAsync<TestClient>(c => c.SponsorId == 9));
+        Assert.Equal(3L, await store.CountAsync<TestClient>(c => true));
+    }
+
+    [ServerFact]
+    public async Task Pages_after_a_row_keep_their_order_and_skip_nothing()
+    {
+        foreach (var name in new[] { "d", "a", "c", "b", "e", "b", "a" })
+            await InsertAsync(name);
+        await using var store = CreateStore();
+        var sort = Sort<TestClient>.ByDescending(c => c.Name);
+
+        var seen = new List<string>();
+        TestClient? last = null;
+        while ((await store.SelectAfterAsync(c => true, sort, last, 3)) is { Count: > 0 } page)
+        {
+            seen.AddRange(page.Select(c => c.Name));
+            last = page[^1];
+        }
+        Assert.Equal(["e", "d", "c", "b", "b", "a", "a"], seen);
+    }
 }

@@ -67,6 +67,13 @@ public interface IEntityTransport
         => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not carry operation ids for batches."));
 
     /// <summary>
+    /// Counts, aggregates, projections, patches, writes of many rows and graph saves (<see cref="RemoteRequestKind"/>): done
+    /// by the server in one call. A transport without it answers NotSupported, and the store does the work itself.
+    /// </summary>
+    Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, CancellationToken ct = default)
+        => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not carry this request."));
+
+    /// <summary>
     /// A write that the server applies once, however many times it is sent with the same <paramref name="operationId"/>:
     /// a retry after a lost answer gets the first result back (see <see cref="IIdempotencyStore"/>). Used by the offline
     /// synchronization. A transport that cannot carry the id falls back to a plain write, without that guarantee.

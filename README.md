@@ -215,7 +215,9 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 - **Never expose `EntityAccessPolicies.AllowAll` on a public network.** Configure ASP.NET Core authentication and use
   `Authenticated`, `ReadOnly`, or `EntityAccessPolicies.From(request => ...)`.
 - Keep connection strings and certificate passwords out of the source code.
-- No SQL and no expression goes over the wire: only "property, operator, value" conditions on exposed types.
+- No SQL and no code goes over the wire: a filter is a list of conditions and computations from a fixed set, whose names
+  the server binds to the queryable properties of the types it exposes; a filter through a relation reads the related
+  type with its own access rules.
 - Keep each user to its own rows with a row filter: `Expose<Order>(policy, rows: RowLevelSecurity.For<Order, long>(o => o.Id,
   user => o => o.TenantId == TenantOf(user)))`. Reads that are not paged stop at `maxReadSize` (10,000 by default).
 
