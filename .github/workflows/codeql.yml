@@ -18,9 +18,9 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The Routeables Remote Protocol, for Queryeables.Replication (see ci.yml).
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cedric56/Routeables.SignalR
           ref: 2244cac9de74e0ef369ad1dc0f6dad407f87cd5b   # the same as ROUTEABLES_SIGNALR_REF in ci.yml
