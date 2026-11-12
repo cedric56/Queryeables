@@ -13,6 +13,10 @@ dotnet run --project Samples/Queryeables.Sample
 dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 ```
 
+`Queryeables.Replication` builds against `src/Routeables.Remote` of [Routeables.SignalR](https://github.com/cedric56/Routeables.SignalR),
+cloned next to this repository (`../Routeables.SignalR`, or `-p:RouteablesRemoteRoot=<folder>/`). Without it, that project
+and its tests are left out with a warning; the CI clones the commit set in `ROUTEABLES_SIGNALR_REF` (`.github/workflows/ci.yml`).
+
 A new `IEntityStore` must pass the contract tests (`Queryeables.Tests/Contract`): add it to `StoreImplementations.cs`.
 
 `ConvergenceTests` run several clients against one server, online and offline, with networks coming and going and

@@ -347,16 +347,18 @@ public sealed class MongoEntityStore : IEntityStore
         key.SetValue(entity, Convert.ChangeType(next, type, System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    /// <summary>The next number of <paramref name="collection"/>: an atomic increment, one document per collection.</summary>
+    /// <summary>
+    /// The next number of <paramref name="collection"/>: an atomic increment, one document per collection. Always outside
+    /// the transaction, as a database sequence is: two transactions that insert at once would otherwise both write the
+    /// counter and one would fail with a WriteConflict. A transaction rolled back leaves a gap in the numbers, never a duplicate.
+    /// </summary>
     private async Task<long> NextValueAsync(string collection, CancellationToken ct)
     {
         var counters = _database.GetCollection<BsonDocument>(CountersCollection);
         var filter = Builders<BsonDocument>.Filter.Eq("_id", collection);
         var update = Builders<BsonDocument>.Update.Inc("value", 1L);
         var options = new FindOneAndUpdateOptions<BsonDocument> { IsUpsert = true, ReturnDocument = ReturnDocument.After };
-        var counter = _session is null
-            ? await counters.FindOneAndUpdateAsync(filter, update, options, ct)
-            : await counters.FindOneAndUpdateAsync(_session, filter, update, options, ct);
+        var counter = await counters.FindOneAndUpdateAsync(filter, update, options, ct);
         return counter["value"].ToInt64();
     }
 

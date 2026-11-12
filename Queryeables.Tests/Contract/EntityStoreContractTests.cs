@@ -53,6 +53,53 @@ public abstract class EntityStoreContractTests : IAsyncLifetime
         Assert.Equal(new[] { "Ana", "Bob" }, all.Select(c => c.Name).OrderBy(n => n));
     }
 
+    // ---------- The same rows as C#, whatever the store (second audit of November 11) ----------
+
+    [ServerFact]
+    public async Task Text_search_takes_wildcards_as_text_and_compares_case_as_CSharp_does()
+    {
+        foreach (var name in new[] { "50% off", "500 off", "A_1", "AB1", "ana", "Ana", "x[y]" })
+            await InsertAsync(name);
+        await using var store = CreateStore();
+
+        async Task<string[]> Names(System.Linq.Expressions.Expression<Func<TestClient, bool>> predicate)
+            => [.. (await store.SelectAsync(predicate)).Select(c => c.Name).Order(StringComparer.Ordinal)];
+
+        Assert.Equal(["50% off"], await Names(c => c.Name.Contains("50%")));
+        Assert.Equal(["A_1"], await Names(c => c.Name.StartsWith("A_")));
+        Assert.Equal(["50% off"], await Names(c => c.Name.EndsWith("% off")));
+        Assert.Equal(["x[y]"], await Names(c => c.Name.Contains("[y]")));
+        Assert.Equal(["ana"], await Names(c => c.Name.StartsWith("an")));
+        Assert.Equal(["Ana"], await Names(c => c.Name.Contains("An")));
+    }
+
+    [ServerFact]
+    public async Task Not_equal_keeps_the_rows_whose_value_is_null()
+    {
+        await InsertAsync("Five", sponsorId: 5);
+        await InsertAsync("Six", sponsorId: 6);
+        await InsertAsync("None");
+        await using var store = CreateStore();
+
+        Assert.Equal(["None", "Six"], (await store.SelectAsync<TestClient>(c => c.SponsorId != 5)).Select(c => c.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["None", "Six"], (await store.SelectAsync<TestClient>(c => !(c.SponsorId == 5))).Select(c => c.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["Five", "Six"], (await store.SelectAsync<TestClient>(c => c.SponsorId != null)).Select(c => c.Name).Order(StringComparer.Ordinal));
+    }
+
+    [ServerFact]
+    public async Task A_predicate_that_keeps_every_row_reads_every_row()
+    {
+        await InsertAsync("Ana");
+        await InsertAsync("Bob");
+        await using var store = CreateStore();
+
+        Assert.Equal(2, (await store.SelectAsync<TestClient>(c => true)).Count);
+        Assert.Equal(2, await store.CountAsync<TestClient>(c => true));
+        Assert.Single(await store.SelectPagedAsync<TestClient>(c => true, 2, 1));
+        Assert.Equal("Bob", (await store.FirstOrDefaultAsync<TestClient>(c => true && c.Name == "Bob"))?.Name);
+        Assert.Empty(await store.SelectAsync<TestClient>(c => false || c.Name == "Nobody"));
+    }
+
     [ServerFact]
     public async Task Select_filters_with_equalities()
     {

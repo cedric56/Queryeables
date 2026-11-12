@@ -4,8 +4,8 @@ using Queryeables.Abstraction;
 namespace Queryeables.SignalR.Server;
 
 /// <summary>
-/// SignalR hub that broadcasts the changes of one entity type. Map it with <c>.RequireAuthorization()</c> when the data is
-/// not public: the hub otherwise accepts any connection.
+/// SignalR hub that broadcasts the changes of one entity type. Closed to anonymous users by default: authenticate its
+/// endpoint (<c>.RequireAuthorization()</c>), or set <see cref="ChangeHubOptions.AllowAnonymous"/> for public data.
 /// </summary>
 /// <example>
 /// <code>
@@ -18,6 +18,8 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
 {
     public override Task OnConnectedAsync()
     {
+        if (!tracker.Admits(Context.User))
+            throw new HubException("Authentication required.");      // the connection is refused
         tracker.Add(Context.ConnectionId, Context.User);
         return base.OnConnectedAsync();
     }

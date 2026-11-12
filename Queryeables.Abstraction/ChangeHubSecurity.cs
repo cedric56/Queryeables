@@ -7,6 +7,13 @@ namespace Queryeables.Abstraction;
 public sealed class ChangeHubOptions
 {
     /// <summary>
+    /// Accept connections of anonymous users. Off by default: a change names its row (its key, often its content), so an
+    /// open hub would tell anyone what moves in the database. Turn it on for public data only; otherwise authenticate the
+    /// hub's endpoint, and an anonymous connection is refused.
+    /// </summary>
+    public bool AllowAnonymous { get; init; }
+
+    /// <summary>
     /// Relay the changes that clients report (a client with a database of its own, shared with others). Off by default:
     /// the changes then come only from the server's database, and a client cannot make up one (a "delete" that empties
     /// the other caches, a "reload" sent in a loop to every client).

@@ -1,4 +1,6 @@
+using System.Reflection;
 using MessagePack;
+using Queryeables.Abstraction;
 using Queryeables.Remote;
 
 namespace Queryeables.MagicOnion;
@@ -26,6 +28,11 @@ public sealed class MessagePackEntitySerializer(MessagePackSerializerOptions? op
     public byte[] Serialize<T>(T value) => MessagePackSerializer.Serialize(value, options);
 
     public T? Deserialize<T>(byte[] data) => MessagePackSerializer.Deserialize<T>(data, ReadingOptions());
+
+    /// <summary>MessagePack leaves out <c>[IgnoreMember]</c> and <c>[IgnoreDataMember]</c>, never <c>[JsonIgnore]</c>.</summary>
+    public bool Omits(PropertyInfo property)
+        => property.IsDefined(typeof(IgnoreMemberAttribute), inherit: true)
+           || RemoteMembers.Has(property, "IgnoreDataMemberAttribute");
 
     private MessagePackSerializerOptions? ReadingOptions()
     {

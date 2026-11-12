@@ -356,6 +356,57 @@ public class OfflineModeTests
         }
     }
 
+    /// <summary>A storage on a device that stops (power, crash) when it is about to write a given key.</summary>
+    private sealed class StoppingStorage(MemoryOfflineStorage inner) : IOfflineStorage
+    {
+        public string? StopBefore { get; set; }
+
+        public ValueTask<byte[]?> ReadAsync(string key, CancellationToken ct = default) => inner.ReadAsync(key, ct);
+
+        public ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
+        {
+            if (StopBefore is not null && key.Contains(StopBefore, StringComparison.Ordinal))
+                throw new IOException("The device stopped.");
+            return inner.WriteAsync(key, value, ct);
+        }
+
+        public ValueTask DeleteAsync(string key, CancellationToken ct = default) => inner.DeleteAsync(key, ct);
+    }
+
+    [Fact]
+    public Task A_write_survives_a_stop_after_its_entry_and_before_the_index() => SurvivesAStopAsync("outbox/index");
+
+    [Fact]
+    public Task A_write_survives_a_stop_after_the_queue_and_before_the_local_copy() => SurvivesAStopAsync("/row/");
+
+    private async Task SurvivesAStopAsync(string stopBefore)
+    {
+        Seed("Ana");
+        var storage = new StoppingStorage(new MemoryOfflineStorage());
+        var (first, stores, _) = Client(storage: storage);
+        await first.GoOfflineAsync();
+        storage.StopBefore = stopBefore;
+        await using (var store = stores.Create())
+        {
+            try
+            {
+                await store.InsertAsync(new TestClient { Name = "Offline" });
+            }
+            catch (Exception)
+            {
+                // the device stopped in the middle of the save
+            }
+        }
+        storage.StopBefore = null;
+
+        var (second, _, _) = Client(storage: storage);
+        await second.InitializeAsync();
+        Assert.Equal(1, second.Status.PendingChanges);
+        await second.GoOnlineAsync();
+        Assert.Contains(_server.All<TestClient>(), c => c.Name == "Offline");
+        Assert.Equal(0, second.Status.PendingChanges);
+    }
+
     [Fact]
     public async Task A_write_saves_its_own_row_only()
     {
@@ -372,7 +423,8 @@ public class OfflineModeTests
 
         Assert.Equal([$"queryeables-offline/{EntityName.Of<TestClient>()}/row/{one.Id}"], storage.Written.Where(k => k.Contains("/row/")));
         Assert.DoesNotContain($"queryeables-offline/{EntityName.Of<TestClient>()}/index", storage.Written);   // same rows: no new list
-        Assert.Single(storage.Written, k => k.StartsWith("queryeables-offline/outbox/", StringComparison.Ordinal) && !k.EndsWith("index", StringComparison.Ordinal));
+        Assert.Single(storage.Written, k => k.StartsWith("queryeables-offline/outbox/", StringComparison.Ordinal)
+                                            && !k.EndsWith("index", StringComparison.Ordinal) && !k.EndsWith("staged", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -76,8 +76,24 @@ public sealed class DommelEntityStore : IEntityStore
         if (await EqualityQueries.SelectAsync(_connection, _transaction, predicate, ct) is { } rows)
             return rows;
 
-        var result = await _connection.SelectAsync(CapturedValues.Inline(predicate), _transaction, ct);
+        var filter = Translate(predicate, out var none);
+        if (none)
+            return [];
+        var result = filter is null
+            ? await _connection.GetAllAsync<TEntity>(_transaction, ct)
+            : await _connection.SelectAsync(filter, _transaction, ct);
         return result.AsList();
+    }
+
+    /// <summary>
+    /// The predicate as Dommel translates it with C#'s results (<see cref="CSharpSqlExpression{TEntity}"/>), its captured
+    /// values inlined and its constant parts removed: null keeps every row (SQL Server has no <c>WHERE True</c>).
+    /// </summary>
+    private static Expression<Func<TEntity, bool>>? Translate<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
+        Expression<Func<TEntity, bool>> predicate, out bool none) where TEntity : class
+    {
+        CSharpSql.Use<TEntity>();
+        return ConstantPredicates.Simplify(CapturedValues.Inline(predicate), out none);
     }
 
     public async Task<TEntity?> FirstOrDefaultAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -85,7 +101,14 @@ public sealed class DommelEntityStore : IEntityStore
     {
         await EnsureOpenAsync(ct);
         var (handled, row) = await EqualityQueries.FirstOrDefaultAsync(_connection, _transaction, predicate, ct);
-        return handled ? row : await _connection.FirstOrDefaultAsync(CapturedValues.Inline(predicate), _transaction, ct);
+        if (handled)
+            return row;
+        var filter = Translate(predicate, out var none);
+        if (none)
+            return null;
+        return filter is null
+            ? (await _connection.GetPagedAsync<TEntity>(1, 1, _transaction, ct)).FirstOrDefault()
+            : await _connection.FirstOrDefaultAsync(filter, _transaction, ct);
     }
 
     public async Task<IReadOnlyList<TEntity>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
@@ -94,7 +117,12 @@ public sealed class DommelEntityStore : IEntityStore
     {
         Paging.Validate(pageNumber, pageSize);
         await EnsureOpenAsync(ct);
-        var result = await _connection.SelectPagedAsync(CapturedValues.Inline(predicate), pageNumber, pageSize, _transaction, ct);
+        var filter = Translate(predicate, out var none);
+        if (none)
+            return [];
+        var result = filter is null
+            ? await _connection.GetPagedAsync<TEntity>(pageNumber, pageSize, _transaction, ct)
+            : await _connection.SelectPagedAsync(filter, pageNumber, pageSize, _transaction, ct);
         return result.AsList();
     }
 
@@ -118,10 +146,14 @@ public sealed class DommelEntityStore : IEntityStore
         await EnsureOpenAsync(ct);
         // Dommel's FromAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
-        var filter = CapturedValues.Inline(predicate);
+        var filter = Translate(predicate, out var none);
+        if (none)
+            return [];
         var result = await _connection.FromAsync<TEntity>(sql =>
         {
-            sql.Select().Where(filter);
+            sql.Select();
+            if (filter is not null)
+                sql.Where(filter);
             foreach (var (property, descending) in columns)
             {
                 if (descending)
@@ -140,7 +172,12 @@ public sealed class DommelEntityStore : IEntityStore
         await EnsureOpenAsync(ct);
         // Dommel's CountAsync takes no cancellation token: cancellation is only possible before the call.
         ct.ThrowIfCancellationRequested();
-        return await _connection.CountAsync(CapturedValues.Inline(predicate), _transaction);
+        var filter = Translate(predicate, out var none);
+        if (none)
+            return 0;
+        return filter is null
+            ? await _connection.CountAsync<TEntity>(_transaction)
+            : await _connection.CountAsync(filter, _transaction);
     }
 
     // ---------- Write ----------

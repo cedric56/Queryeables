@@ -18,5 +18,7 @@ app.MapHub<SignalRHub<Person>>("/hubs/person");
 
 One hub per entity type. `ConnectionTracker<T>` listens to the change feed of `T` (registered by `AddGeneratedEntities()` for
 cached types, or by `q.AddChangeFeed<T>()`) and sends every change to the connected clients, except the one that made it.
-Broadcasts go through a queue: order is kept, and the database never waits for the network. Require authentication with
-`.RequireAuthorization()` on `MapHub` when the data is not public.
+Broadcasts go through a queue: order is kept, and the database never waits for the network.
+
+The hub refuses anonymous connections: authenticate its endpoint (`.RequireAuthorization()` on `MapHub`). For public data
+only, register `new ChangeHubOptions { AllowAnonymous = true }` as a singleton.

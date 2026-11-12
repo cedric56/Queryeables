@@ -189,6 +189,20 @@ public class SecurityHardeningTests
     }
 
     [Fact]
+    public void A_hub_admits_anonymous_connections_only_when_told_to()
+    {
+        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
+        var known = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ana")], "test"));
+        using var closed = new Recorder();
+        using var open = new Recorder(new ChangeHubOptions { AllowAnonymous = true });
+
+        Assert.False(closed.Admits(null));
+        Assert.False(closed.Admits(anonymous));
+        Assert.True(closed.Admits(known));
+        Assert.True(open.Admits(anonymous));
+    }
+
+    [Fact]
     public void Changes_reported_by_clients_are_not_relayed_by_default()
     {
         var broadcaster = new Recorder();

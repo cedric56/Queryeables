@@ -96,4 +96,9 @@ internal sealed class JsonEntitySerializer : IEntitySerializer
     public byte[] Serialize<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value);
 
     public T? Deserialize<T>(byte[] data) => JsonSerializer.Deserialize<T>(data);
+
+    /// <summary>System.Text.Json leaves out <c>[JsonIgnore]</c>: an update keeps the stored value of such a property.</summary>
+    public bool Omits(System.Reflection.PropertyInfo property)
+        => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>(property)
+            is { Condition: System.Text.Json.Serialization.JsonIgnoreCondition.Always };
 }

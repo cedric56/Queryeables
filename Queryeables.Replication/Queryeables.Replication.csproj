@@ -16,8 +16,20 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
-    <ProjectReference Include="$(RouteablesRemoteRoot)src\Routeables.Remote\Routeables.Remote.csproj" />
+    <ProjectReference Include="$(RouteablesRemoteRoot)src\Routeables.Remote\Routeables.Remote.csproj" Condition="$(HasRouteablesRemote)" />
   </ItemGroup>
+
+  <!-- Routeables.SignalR not cloned: an empty assembly, never packed, so that the rest of the solution builds. -->
+  <PropertyGroup Condition="!$(HasRouteablesRemote)">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="!$(HasRouteablesRemote)">
+    <Compile Remove="**/*.cs" />
+  </ItemGroup>
+  <Target Name="RouteablesRemoteMissing" BeforeTargets="Build" Condition="!$(HasRouteablesRemote)">
+    <Error Condition="'$(ContinuousIntegrationBuild)' == 'true'" Text="Routeables.SignalR is not at $(RouteablesRemoteRoot): Queryeables.Replication cannot be built." />
+    <Warning Text="Queryeables.Replication left out: clone Routeables.SignalR at $(RouteablesRemoteRoot) (or set RouteablesRemoteRoot) to build it." />
+  </Target>
   <!--<ItemGroup>
     <PackageReference Include="Routeables.Remote" VersionOverride="$(RouteablesRemoteVersion)" />
   </ItemGroup>-->

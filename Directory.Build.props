@@ -32,6 +32,9 @@
   <PropertyGroup>
     <RouteablesRemoteRoot Condition="'$(RouteablesRemoteRoot)' == ''">$(MSBuildThisFileDirectory)../Routeables.SignalR/</RouteablesRemoteRoot>
     <RouteablesRemoteRoot>$([MSBuild]::NormalizeDirectory('$(RouteablesRemoteRoot)'))</RouteablesRemoteRoot>
+    <!-- Without it, Queryeables.Replication and its tests are left out of the build (a warning says so); never in the CI. -->
+    <HasRouteablesRemote>false</HasRouteablesRemote>
+    <HasRouteablesRemote Condition="Exists('$(RouteablesRemoteRoot)src/Routeables.Remote/Routeables.Remote.csproj')">true</HasRouteablesRemote>
   </PropertyGroup>
 
   <!-- Every library builds without warnings (nullability, trimming, AOT): one place, so that no project escapes it. Tests,

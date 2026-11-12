@@ -34,7 +34,8 @@ When a client writes, its notification session travels with the request, so the 
 author. Broadcasts go through a queue: order is kept and the database never waits for the network.
 
 Changes reported by clients are not relayed by default: the server's database is the source. See
-[security](security.md#notification-hubs) for `ChangeHubOptions`, and put `[Authorize]` on the hubs.
+[security](security.md#notification-hubs) for `ChangeHubOptions`. The hubs refuse anonymous connections unless
+`ChangeHubOptions.AllowAnonymous` is set: authenticate them (`[Authorize]`, `.RequireAuthorization()`).
 
 ## Reconnection
 

@@ -83,6 +83,7 @@ public sealed class EntityRequestDispatcher(
     private EntityRequestContext Verified(EntityRequestContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        context = context with { Handlers = _registry };
         return Connections is null || context.ConnectionId is null
             ? context
             : context.WithConnection(Connections.Verify(context.ConnectionId, context.User));
@@ -155,6 +156,8 @@ public sealed class EntityRequestDispatcher(
         {
             if (!_registry.TryGet(operations[i].Type, out handlers[i]))
                 return Task.FromResult(UnknownType(operations[i].Type));
+            if (SerializerProblem(handlers[i]) is { } problem)
+                return Task.FromResult(problem);
         }
 
         return RemoteDiagnostics.ServerAsync("batch", "batch", async () => Hide(await TransportResult.RunAsync(async () =>
@@ -185,8 +188,22 @@ public sealed class EntityRequestDispatcher(
 
     private Task<TransportResult> Dispatch(string type, string operation, Func<EntityHandler, Task<TransportResult>> call)
         => !string.IsNullOrWhiteSpace(type) && _registry.TryGet(type, out var handler)
-            ? RemoteDiagnostics.ServerAsync(operation, type, async () => Hide(await call(handler)))
+            ? SerializerProblem(handler) is { } problem
+                ? Task.FromResult(problem)
+                : RemoteDiagnostics.ServerAsync(operation, type, async () => Hide(await call(handler)))
             : Task.FromResult(UnknownType(type));
+
+    // Checked once per type: a property hidden by an attribute this serializer ignores would reach every client.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<EntityHandler, string?> _serializerProblems = new();
+
+    private TransportResult? SerializerProblem(EntityHandler handler)
+    {
+        var problem = _serializerProblems.GetOrAdd(handler, h => h.CheckSerializer(_serializer));
+        if (problem is null)
+            return null;
+        UnexpectedError?.Invoke(new InvalidOperationException(problem), "configuration");
+        return TransportResult.Failure(EntityErrorCode.NotSupported, $"{handler.Type.Name} cannot be served: the server is misconfigured.");
+    }
 
     /// <summary>An unexpected error leaves the server as a reference; the exception goes to <see cref="UnexpectedError"/>.</summary>
     private TransportResult Hide(TransportResult result)

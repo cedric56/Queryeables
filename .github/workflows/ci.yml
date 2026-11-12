@@ -16,7 +16,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   # The revision of Routeables.SignalR whose src/Routeables.Remote Queryeables.Replication is built against (until it uses the
   # published package). Pin it to a commit, in its own change: a change there never breaks this build by surprise.
-  ROUTEABLES_SIGNALR_REF: master
+  ROUTEABLES_SIGNALR_REF: 2244cac9de74e0ef369ad1dc0f6dad407f87cd5b   # "Correction essentials"
 
 jobs:
   build:

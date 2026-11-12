@@ -683,12 +683,14 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 
     private string Key(string name) => $"{StoragePrefix}/{name}";
 
+    // The queue first: a stop after it and before the local copy loses nothing (the write is still sent, and the copy is
+    // read again from the server); the other way round, the copy would show a write the queue no longer holds.
     private async Task PersistAsync(CancellationToken ct)
     {
+        await _outbox.SaveAsync(_storage, StoragePrefix, ct);
         foreach (var type in _dirty)
             await type.SaveAsync(_storage, StoragePrefix, ct);
         _dirty.Clear();
-        await _outbox.SaveAsync(_storage, StoragePrefix, ct);
         if (_conflictsChanged)
         {
             await _storage.WriteAsync(Key("conflicts"), OfflineCodec.Write(_conflicts), ct);

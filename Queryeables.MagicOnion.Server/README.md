@@ -51,8 +51,9 @@ builder.Services.AddSingleton<ChangeHubConnections<Person>>();
 ```
 
 `ChangeHubConnections<T>` listens to the change feed of `T` (registered by `AddGeneratedEntities()` for cached types, or by
-`q.AddChangeFeed<T>()`) and broadcasts every change to the subscribed clients, except the one that made it. Put `[Authorize]`
-on the hub class when the server requires authentication.
+`q.AddChangeFeed<T>()`) and broadcasts every change to the subscribed clients, except the one that made it. The hub refuses
+anonymous subscriptions: put `[Authorize]` on the hub class and authenticate the server. For public data only, register
+`new ChangeHubOptions { AllowAnonymous = true }` as a singleton.
 
 ## Security
 

@@ -21,6 +21,7 @@ internal sealed class Outbox
     private readonly HashSet<Guid> _changed = [];
     private HashSet<Guid> _stored = [];
     private bool _indexChanged;
+    private bool _stagedLeft;
 
     public IReadOnlyList<OutboxEntry> Entries => _entries;
 
@@ -120,27 +121,48 @@ internal sealed class Outbox
         _entries.Clear();
         _changed.Clear();
         _indexChanged = false;
-        var ids = OfflineCodec.ReadStrings(await storage.ReadAsync($"{prefix}/outbox/index", ct));
+        var ids = OfflineCodec.ReadStrings(await storage.ReadAsync($"{prefix}/outbox/index", ct)).ToList();
+        // Entries written before a stop that came before the index: still in the queue, after the others, in their order.
+        foreach (var staged in OfflineCodec.ReadStrings(await storage.ReadAsync(StagedKey(prefix), ct)))
+        {
+            if (!ids.Contains(staged))
+                ids.Add(staged);
+        }
         foreach (var id in ids)
         {
             if (OfflineCodec.ReadEntries(await storage.ReadAsync(EntryKey(prefix, id), ct)) is [var entry])
                 _entries.Add(entry);
         }
         _stored = _entries.Select(e => e.Id).ToHashSet();
+        // What was recovered from the staged list belongs to the index from now on: the next save writes it, then clears it.
+        _stagedLeft = await storage.ReadAsync(StagedKey(prefix), ct) is not null;
+        _indexChanged = _stagedLeft;
     }
 
+    /// <summary>
+    /// Writes what changed, so that a stop between any two writes loses nothing: the ids of the new entries first (the
+    /// staged list), then the entries, then the index, then the removals, and the staged list last. A load reads the index
+    /// and the staged list: an entry written but not yet indexed is still found.
+    /// </summary>
     public async Task SaveAsync(IOfflineStorage storage, string prefix, CancellationToken ct)
     {
         var current = _entries.ToDictionary(e => e.Id);
+        var added = _entries.Where(e => !_stored.Contains(e.Id)).Select(e => e.Id.ToString("N")).ToList();
+        if (added.Count > 0)
+            await storage.WriteAsync(StagedKey(prefix), OfflineCodec.WriteStrings(added), ct);
         foreach (var id in _changed)
         {
             if (current.TryGetValue(id, out var entry))
                 await storage.WriteAsync(EntryKey(prefix, id.ToString("N")), OfflineCodec.Write([entry]), ct);
         }
-        foreach (var id in _stored.Where(id => !current.ContainsKey(id)).ToList())
-            await storage.DeleteAsync(EntryKey(prefix, id.ToString("N")), ct);
         if (_indexChanged)
             await storage.WriteAsync($"{prefix}/outbox/index", OfflineCodec.WriteStrings(_entries.Select(e => e.Id.ToString("N"))), ct);
+        // Removed after the index no longer names them: an index never names a missing entry.
+        foreach (var id in _stored.Where(id => !current.ContainsKey(id)).ToList())
+            await storage.DeleteAsync(EntryKey(prefix, id.ToString("N")), ct);
+        if (added.Count > 0 || _stagedLeft)
+            await storage.DeleteAsync(StagedKey(prefix), ct);
+        _stagedLeft = false;
 
         _stored = [.. current.Keys];
         _changed.Clear();
@@ -148,6 +170,8 @@ internal sealed class Outbox
     }
 
     private static string EntryKey(string prefix, string id) => $"{prefix}/outbox/{id}";
+
+    private static string StagedKey(string prefix) => $"{prefix}/outbox/staged";
 
     private void Append(BatchOperationKind kind, string type, string key, byte[] payload)
     {

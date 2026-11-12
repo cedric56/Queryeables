@@ -199,6 +199,22 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             foreach (var child in current)
                 _setForeignKey(child, key);
 
+            // Sent by a remote client: each child follows the rules of its own type before anything is written.
+            if (GraphWriteGuard.Current is { } guard)
+            {
+                var stored = before.ToDictionary(_childKey);
+                foreach (var child in current)
+                {
+                    if (IsDefault(_childKey(child)))
+                        await guard.CheckAsync(store, GraphWrite.Insert, child, null, ct);
+                    else
+                        await guard.CheckAsync(store, GraphWrite.Update, child, stored.GetValueOrDefault(_childKey(child)), ct);
+                }
+                var kept = current.Where(c => !IsDefault(_childKey(c))).Select(_childKey).ToHashSet();
+                foreach (var removed in before.Where(b => !kept.Contains(_childKey(b))))
+                    await guard.CheckAsync(store, GraphWrite.Delete, removed, removed, ct);
+            }
+
             await store.SyncChildrenAsync(before, current,
                 child => IsDefault(_childKey(child)),
                 (a, b) => EqualityComparer<TChildKey>.Default.Equals(_childKey(a), _childKey(b)),
@@ -207,7 +223,13 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         public async Task RemoveAsync(IEntityStore store, TKey key, CancellationToken ct)
         {
-            foreach (var child in await store.SelectAsync(ForeignKeyEquals(key), ct))
+            var children = await store.SelectAsync(ForeignKeyEquals(key), ct);
+            if (GraphWriteGuard.Current is { } guard)
+            {
+                foreach (var child in children)
+                    await guard.CheckAsync(store, GraphWrite.Delete, child, child, ct);
+            }
+            foreach (var child in children)
                 await store.DeleteAsync(child, ct);
         }
 

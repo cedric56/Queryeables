@@ -53,13 +53,16 @@ services.UseQueryeables(q => q
 
 ## Entities on the wire
 
-MagicOnion uses MessagePack: `[MessagePackObject]` on each entity, `[Key(n)]` on each carried property (inherited ones
-included), `[IgnoreMember]` on navigation properties. Keep the entities in a library referenced by the client and the
-server: `AddGeneratedEntities()` registers them on both sides.
+MagicOnion uses MessagePack: `[MessagePackObject(keyAsPropertyName: true)]` on each entity (the template's choice: every
+public property is carried under its name, inherited ones included), or `[MessagePackObject]` with `[Key(n)]` on each
+carried property (smaller messages; never reuse a number). `[IgnoreMember]` on navigation properties, and on what must
+never leave the server: MessagePack ignores `[JsonIgnore]` (see [security](security.md#a-value-that-never-leaves-the-server)).
+Keep the entities in a library referenced by the client and the server: `AddGeneratedEntities()` registers them on both sides.
 
 ## Limits
 
-- No offline mode: writes need the server.
+- Writes need the server, unless the [offline mode](offline-mode.md) queues them.
 - At most 1000 conditions per filter and 1000 values per `Contains`.
-- Reads are authorized per type, not per row: expose a type only to users who may read all of it, or write a dedicated
-  server method.
+- Reads and writes are authorized per type by a policy, and per row by a row filter (see [security](security.md#row-filters)).
+- Text search (`Contains`, `StartsWith`, `EndsWith`) is case-sensitive on SQLite, PostgreSQL and MongoDB; on SQL Server and
+  MySQL, it follows the column's collation (case-insensitive by default).

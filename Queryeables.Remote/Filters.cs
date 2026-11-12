@@ -40,8 +40,10 @@ internal static class Filters
         ArgumentNullException.ThrowIfNull(predicate);
         var parameter = predicate.Parameters[0];
 
-        if (predicate.Body is ConstantExpression { Value: true })
+        // "true && x" (a row filter added to "every row"), "false || x": the constant parts say nothing.
+        if (ConstantPredicates.Simplify(predicate, out _) is not { } simplified)
             return ([], false);
+        predicate = simplified;
 
         var output = new List<FilterCondition>();
         Emit(predicate.Body, parameter, negate: false, output);

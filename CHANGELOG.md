@@ -108,6 +108,28 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Second audit (November 2026):
+  - A remote update erased the columns the serializer leaves out (a password hash): they now keep their stored values,
+    like `[ServerOwned]`.
+  - A property hidden with an attribute the serializer ignores (`[JsonIgnore]` under MessagePack) was sent to clients: the
+    server now refuses to serve such a type and logs why. `IEntitySerializer.Omits(PropertyInfo)` says what a serializer
+    leaves out.
+  - The children of a graph sent by a client bypassed `[ServerOwned]` and the policy and row filter of their own type:
+    each child is now checked as its type (`IGraphWriteGuard`), and removing a parent checks the deletion of each child.
+  - Dommel: `%`, `_` and `[` in `Contains`, `StartsWith`, `EndsWith` were wildcards (now literal, `escape '!'`); on
+    SQLite they ignored case (now `instr`/`substr`, case-sensitive as elsewhere); `!=` on a nullable column left out
+    the rows where it is null (now `(c <> @p or c is null)`, as in C#); a predicate always true (`c => true`) wrote
+    `WHERE True`, refused by SQL Server (now no `WHERE`; one always false reads nothing).
+  - MongoDB: the key counter ran inside the transaction, so two concurrent inserts failed with a WriteConflict; it now
+    runs outside, as a database sequence does (a rollback leaves a gap).
+  - Offline mode: a stop between writing a queued write and the index of the queue could lose it; new entries are now
+    recorded before the index (a write-ahead list), and the queue is saved before the local copy.
+  - A numeric key sent by a client with an insert is reset: the database numbers the row
+    (`[DatabaseGenerated(DatabaseGeneratedOption.None)]` keeps a key the application assigns).
+  - The change hubs (MagicOnion, SignalR) refuse anonymous connections unless `ChangeHubOptions.AllowAnonymous` is set.
+  - The row filter of a write is interpreted, not compiled, on every call.
+  - The CI builds a pinned commit of Routeables.SignalR; without that repository next to this one, `Queryeables.Replication`
+    and its tests are left out of a local build (a warning; an error in the CI).
 - The build: `Queryeables.Replication` references `Routeables.Remote` in the Routeables.SignalR repository next to this one
   (`RouteablesRemoteRoot`), the path the CI provides too; the solution lists that project, as Visual Studio needs.
 - A remote client could make the server read a whole table with a sorted page on Dommel (SQLite, PostgreSQL, SQL Server):

@@ -1,4 +1,5 @@
 using Grpc.Core;
+using MagicOnion;
 using MagicOnion.Server.Hubs;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
@@ -7,8 +8,8 @@ namespace Queryeables.MagicOnion.Server;
 
 /// <summary>
 /// MagicOnion hub that broadcasts the changes of one entity type to subscribed clients,
-/// through the shared <see cref="ChangeHubConnections{TObject}"/>. Put <c>[Authorize]</c> on the class deriving from it
-/// when the data is not public: the hub otherwise accepts any connection.
+/// through the shared <see cref="ChangeHubConnections{TObject}"/>. Closed to anonymous users by default: put
+/// <c>[Authorize]</c> on the class deriving from it, or set <see cref="ChangeHubOptions.AllowAnonymous"/> for public data.
 /// </summary>
 public class ChangeHub<TObject>(ChangeHubConnections<TObject> repository) :
     StreamingHubBase<IChangeHub<TObject>, IChangeHubReceiver<TObject>>,
@@ -22,8 +23,11 @@ public class ChangeHub<TObject>(ChangeHubConnections<TObject> repository) :
     /// <summary>Subscribes the connection to notifications and returns its id, to keep as the client-side session.</summary>
     public async Task<Guid> AddReceiverAsync()
     {
+        var user = Context.CallContext.GetHttpContext().User;
+        if (!repository.Admits(user))
+            throw new ReturnStatusException(StatusCode.Unauthenticated, "Authentication required.");
         _group ??= await Group.AddAsync(GroupName);
-        repository.RegisterGroup(_group, Context.ContextId, Context.CallContext.GetHttpContext().User);
+        repository.RegisterGroup(_group, Context.ContextId, user);
         return Context.ContextId;
     }
 

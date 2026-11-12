@@ -17,6 +17,12 @@ public abstract class EntityHandler
 
     public abstract Type Type { get; }
 
+    /// <summary>
+    /// Why <paramref name="serializer"/> cannot carry this type safely (a property marked to be left out by an attribute the
+    /// serializer does not honor: its value would reach every client), or null.
+    /// </summary>
+    public virtual string? CheckSerializer(IEntitySerializer serializer) => null;
+
     public abstract Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default);
 
     public abstract Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
@@ -96,6 +102,23 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     public override Type Type => typeof(T);
 
+    public override string? CheckSerializer(IEntitySerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(serializer);
+        var leaking = RemoteMembers<T>.MarkedHidden.Where(p => !serializer.Omits(p)).Select(p => p.Name).ToList();
+        return leaking.Count == 0
+            ? null
+            : $"{typeof(T).Name}.{string.Join(", ", leaking)} is marked to be left out of serialization by an attribute that "
+              + $"{serializer.GetType().Name} does not honor: every client would read it. Use the attribute of this serializer "
+              + "([IgnoreMember] for MessagePack, [JsonIgnore] for System.Text.Json).";
+    }
+
+    // The properties the serializer leaves out, per serializer: a client never sends them, an update keeps their stored value.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, System.Reflection.PropertyInfo[]> Omitted = new();
+
+    private static System.Reflection.PropertyInfo[] OmittedBy(IEntitySerializer serializer)
+        => Omitted.GetOrAdd(serializer.GetType(), _ => [.. RemoteMembers<T>.MarkedHidden.Where(serializer.Omits)]);
+
     // ---------- Read ----------
 
     public override Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default)
@@ -173,7 +196,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                 return await WriteThroughAggregateAsync(serializer, aggregate, kind, entity, context, ct);
 
             await using var store = _storeFactory();
-            if (rows is null && RemoteMembers<T>.ServerOwned.Count == 0)
+            if (rows is null && RemoteMembers<T>.ServerOwned.Count == 0 && OmittedBy(serializer).Length == 0)
                 return await WriteAsync(serializer, store, kind, entity, context, requireEffect: false, ct);
 
             // What is checked or kept from the stored row (its owner, its [ServerOwned] values) and the write itself, in one
@@ -194,12 +217,13 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
         await CheckRowsAsync(store, kind, value, context, ct);
-        await KeepServerOwnedAsync(store, kind, value, ct);
+        await KeepStoredAsync(serializer, store, kind, value, ct);
 
         // A graph: the parent and its children, in the batch's transaction.
         if (aggregate is IGraphRepository<T> { Graph: var graph })
         {
             using (ChangeContext.Begin(context.ConnectionId))
+            using (GraphWriteGuard.Begin(new HandlerGraphGuard(serializer, context)))
             {
                 if (kind == BatchOperationKind.Delete)
                 {
@@ -239,14 +263,16 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         EntityRequestContext context, CancellationToken ct)
     {
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
-        if (rows is not null || RemoteMembers<T>.ServerOwned.Count > 0)
+        if (rows is not null || RemoteMembers<T>.ServerOwned.Count > 0 || OmittedBy(serializer).Length > 0)
         {
             await using var store = _storeFactory();
             await CheckRowsAsync(store, kind, value, context, ct);
-            await KeepServerOwnedAsync(store, kind, value, ct);
+            await KeepStoredAsync(serializer, store, kind, value, ct);
         }
 
+        // A graph repository saves the children too: each follows the rules of its own type (no effect on another service).
         using (ChangeContext.Begin(context.ConnectionId))
+        using (GraphWriteGuard.Begin(new HandlerGraphGuard(serializer, context)))
         {
             if (kind == BatchOperationKind.Delete)
             {
@@ -266,7 +292,10 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
         // What the server owns never comes from the client: discarded on insert, taken from the stored row on update.
         if (kind == BatchOperationKind.Insert)
+        {
             RemoteMembers<T>.DiscardClientValues(value);
+            RemoteMembers<T>.DiscardClientKey(value);
+        }
 
         var operation = kind switch
         {
@@ -291,20 +320,29 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     // ---------- Internals ----------
 
-    /// <summary>On an update, the [ServerOwned] properties take the stored row's values, whatever the client sent.</summary>
-    private static async Task KeepServerOwnedAsync(IEntityStore store, BatchOperationKind kind, T value, CancellationToken ct)
+    /// <summary>
+    /// On an update, what the client does not decide takes the stored row's values: the [ServerOwned] properties, whatever
+    /// the client sent, and the properties the serializer leaves out (a password hash), which the client never had. Every
+    /// store writes the whole row: without this, an update would erase them.
+    /// </summary>
+    private static async Task KeepStoredAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, T value, CancellationToken ct)
     {
-        if (kind != BatchOperationKind.Update || RemoteMembers<T>.ServerOwned.Count == 0)
+        var omitted = OmittedBy(serializer);
+        if (kind != BatchOperationKind.Update || RemoteMembers<T>.ServerOwned.Count == 0 && omitted.Length == 0)
             return;
         if (SyncMetadata.Key(typeof(T)) is not { } key)
             throw new EntityStoreException(EntityErrorCode.NotSupported,
-                $"{typeof(T).Name} has [ServerOwned] properties but no key ([Key] or Id) to read its stored row with.");
+                $"{typeof(T).Name} has properties the server keeps ([ServerOwned], or left out by the serializer) but no key "
+                + "([Key] or Id) to read its stored row with.");
 
         var parameter = Expression.Parameter(typeof(T), "e");
         var sameKey = Expression.Lambda<Func<T, bool>>(
             Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(value), key.PropertyType)), parameter);
         if (await store.FirstOrDefaultAsync(sameKey, ct) is { } stored)
+        {
             RemoteMembers<T>.KeepServerValues(value, stored);
+            RemoteMembers<T>.KeepValues(value, stored, omitted);
+        }
     }
 
     /// <summary>Deepest page a client may ask for, in rows skipped: beyond, the database would read them all to skip them.</summary>
@@ -333,6 +371,31 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             $"More than {_maxReadSize} {typeof(T).Name} rows match: read them by page, or narrow the filter.");
 
     /// <summary>
+    /// A child of a graph sent by a client, checked as if it were written on its own: what the server owns or the
+    /// serializer leaves out comes from the stored row (reset on an insert), the access policy of the child's type, and its
+    /// row filter (the stored row and the new content must both be the user's).
+    /// </summary>
+    internal async Task GuardChildAsync(GraphWrite write, T child, T? stored, IEntitySerializer serializer, EntityRequestContext context,
+        CancellationToken ct)
+    {
+        HandlerGraphGuard.KeepServerValues(write, child, stored, serializer);
+        await AuthorizeAsync(write switch
+        {
+            GraphWrite.Insert => EntityOperation.Insert,
+            GraphWrite.Update => EntityOperation.Update,
+            _ => EntityOperation.Delete,
+        }, child, context, ct);
+        if (rows is null)
+            return;
+        var visible = rows.Rows(context.User).Compile(preferInterpretation: true);
+        if (write != GraphWrite.Insert && (stored is null || !visible(stored)))
+            throw NotFound();
+        if (write != GraphWrite.Delete && !visible(child))
+            throw new EntityStoreException(EntityErrorCode.Forbidden,
+                $"Access denied: this {typeof(T).Name} is outside the rows you may write.");
+    }
+
+    /// <summary>
     /// With a row filter: the written entity must be one of the user's rows, and so must the stored row an update or a
     /// delete targets. A row of someone else answers NotFound, as if it did not exist.
     /// </summary>
@@ -347,7 +410,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
             && await store.FirstOrDefaultAsync(RowLevelSecurity<T>.And(rows.SameKey(value), visible), ct) is null)
             throw NotFound();
 
-        if (kind != BatchOperationKind.Delete && !visible.Compile()(value))
+        // One evaluation: interpreting the expression costs less than compiling it (and Native AOT interprets anyway).
+        if (kind != BatchOperationKind.Delete && !visible.Compile(preferInterpretation: true)(value))
             throw new EntityStoreException(EntityErrorCode.Forbidden,
                 $"Access denied: this {typeof(T).Name} is outside the rows you may write.");
     }
@@ -363,4 +427,35 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     private static byte[] SerializeMany(IEntitySerializer serializer, IReadOnlyList<T> entities)
         => serializer.Serialize(entities.ToArray());
+}
+
+/// <summary>
+/// The children of a graph sent by a remote client follow the rules of their own type: those of its exposed handler
+/// (access policy, row filter) when the type is exposed, and in any case the values the server keeps.
+/// </summary>
+internal sealed class HandlerGraphGuard(IEntitySerializer serializer, EntityRequestContext context) : IGraphWriteGuard
+{
+    public async Task CheckAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild>(IEntityStore store, GraphWrite write, TChild child,
+        TChild? stored, CancellationToken ct) where TChild : class
+    {
+        if (context.Handlers is { } handlers && handlers.TryGet(EntityName.Of<TChild>(), out var handler) && handler is EntityHandler<TChild> typed)
+            await typed.GuardChildAsync(write, child, stored, serializer, context, ct);
+        else
+            KeepServerValues(write, child, stored, serializer);
+    }
+
+    /// <summary>[ServerOwned] reset on an insert; on an update, it and what the serializer leaves out come from the stored row.</summary>
+    internal static void KeepServerValues<[DynamicallyAccessedMembers(EntityMembers.Required)] TChild>(GraphWrite write, TChild child, TChild? stored,
+        IEntitySerializer serializer) where TChild : class
+    {
+        if (write == GraphWrite.Insert)
+        {
+            RemoteMembers<TChild>.DiscardClientValues(child);
+        }
+        else if (write == GraphWrite.Update && stored is not null)
+        {
+            RemoteMembers<TChild>.KeepServerValues(child, stored);
+            RemoteMembers<TChild>.KeepValues(child, stored, RemoteMembers<TChild>.MarkedHidden.Where(serializer.Omits));
+        }
+    }
 }

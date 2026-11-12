@@ -16,7 +16,17 @@ a time ("the secret starts with a", "with ab"...). A property left out by the se
 
 A `[ServerOwned]` property never takes its value from a client: on an insert it is reset to its default, on an update
 the stored value is kept, whatever was sent. For a creator, an approval flag, a role, a balance: set them in the
-server's own code or in the database.
+server's own code or in the database. The same goes for a numeric key: an insert from a client is numbered by the database,
+whatever key it sent (a key the application assigns itself keeps its value: `[DatabaseGenerated(DatabaseGeneratedOption.None)]`,
+or a Guid).
+
+### A value that never leaves the server
+
+Hide it with the attribute **of the serializer the server uses**: `[IgnoreMember]` for MessagePack (MagicOnion), `[JsonIgnore]`
+for System.Text.Json. MessagePack ignores `[JsonIgnore]`: a server that would send a property marked for another serializer
+refuses to serve the type (`NotSupported`, and the reason in its log) instead of sending the value. An update keeps the
+stored value of a hidden property: the client never had it, so what it sends back is not its decision. A custom
+`IEntitySerializer` says what it leaves out with `Omits(PropertyInfo)`.
 
 An update reads the stored row (its `[ServerOwned]` values, and its owner with a row filter) and writes it back in one
 transaction. Under READ COMMITTED (PostgreSQL, SQL Server), the server's own code may still change the row between the
@@ -28,7 +38,7 @@ checked before the service's transaction: its service decides.
 public class Account
 {
     public long Id { get; set; }
-    [JsonIgnore] public string PasswordHash { get; set; } = "";
+    [IgnoreMember] public string PasswordHash { get; set; } = "";     // MessagePack; [JsonIgnore] with System.Text.Json
     [NotQueryable] public string InternalNote { get; set; } = "";
     [ServerOwned] public string? Role { get; set; }
 }
@@ -82,7 +92,7 @@ The server adds the filter to every read (all rows, filters, pages, changes) and
 | Delete | The stored row must be one of the user's rows, otherwise `NotFound` |
 
 The filter is built for each call from the authenticated user; an anonymous call gets `null`, and `_ => false` refuses it.
-The children of a graph follow their parent: expose a child type with its own filter when clients reach it directly.
+The children of a graph sent by a client follow the rules of their own type too (see [graphs](#graphs)).
 
 The stored row is checked, then written: give such types a `[ConcurrencyCheck]` version. A row changed between the check
 and the write (moved to another tenant by someone else, say) then fails the write with `Conflict` instead of being
@@ -113,16 +123,22 @@ key per user from the platform's key store (see [offline mode](offline-mode.md#e
 
 ## Graphs
 
-A graph saved remotely is checked as its parent: the policy and the row filter apply to the parent, the validation to the
-parent and to every child (`Contacts[2]: The Name field is required.`). A child sent with a key that belongs to another
-parent is rejected, so a client cannot take over rows through a graph. The policy of the child type does not apply to
-the children of a graph: when it is stricter than the parent's (a person and their medical records), do not put the
-children in the graph; expose them on their own.
+A graph saved remotely is checked as its parent (policy, row filter), and each child as its own type, in the same
+transaction: anything refused rolls back the whole graph.
+
+| Child | Rule |
+| --- | --- |
+| Any | `[ServerOwned]` reset on insert and kept on update; a property the serializer leaves out kept on update; validated (`Contacts[2]: The Name field is required.`) |
+| Type exposed | Its policy for the insert, update or delete of each child (a parent removed checks the deletion of each child), and its row filter as on a direct write: `NotFound` for a stored child out of reach, `Forbidden` for content outside the user's rows |
+| Key of another parent | Rejected (`Conflict`): a client cannot take over rows through a graph |
+
+A child type that is not exposed has no policy of its own: the parent's applies.
 
 ## Notification hubs
 
 Hubs broadcast keys of changed rows. Protect them like the data: `[Authorize]` on the MagicOnion hub class,
-`.RequireAuthorization()` on the SignalR `MapHub`.
+`.RequireAuthorization()` on the SignalR `MapHub`. They refuse anonymous connections by default; for public data only,
+`services.AddSingleton(new ChangeHubOptions { AllowAnonymous = true })`.
 
 What a client sends a hub is not trusted:
 

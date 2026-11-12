@@ -67,6 +67,12 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         get { lock (_gate) return _subscribers.ToArray(); }
     }
 
+    /// <summary>
+    /// Whether <paramref name="user"/> may subscribe: an authenticated user, or anyone with
+    /// <see cref="ChangeHubOptions.AllowAnonymous"/>. The hubs refuse the others before <see cref="AddSubscriber"/>.
+    /// </summary>
+    public bool Admits(ClaimsPrincipal? user) => _options.AllowAnonymous || user?.Identity?.IsAuthenticated == true;
+
     /// <param name="user">The authenticated user of the connection: the writes that name this connection are believed only
     /// when they come from this user.</param>
     /// <returns>true if the connection was not already subscribed.</returns>
