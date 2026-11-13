@@ -13,13 +13,17 @@ builder.Services.UseQueryeables(q => q
     .UseMagicOnion("https://server:5001")
     .AddGeneratedEntities()
     .WithOfflineMode(o => o
-        .UseStorage(new BrowserOfflineStorage())   // WebAssembly; new FileOfflineStorage(folder) on desktop
+        .UseStorage(new IndexedDbOfflineStorage()) // WebAssembly (Queryeables.Browser); SqliteOfflineStorage on desktop
         .Entity<Person, long>(p => p.Id, where: p => p.OwnerId == session.UserId)   // only what this user needs
         .Entity<Contact, long>(c => c.Id)));       // the children of a graph too
 ```
 
 `where` limits the copy to the rows the user works on; without it, every row the server gives is copied. Its captured
 values are read at each download: when they change (another user signs in), the copy is taken again in full.
+
+`where` is a choice of the client, not a protection: what a user may read is decided on the server, by the access
+policy and the row-level security of each type ([security](security.md)). The copy holds what the server lets this user
+read, at most.
 
 At startup, before the first store is created, read the stored state (the mode, the copy, the queue):
 
@@ -113,8 +117,18 @@ foreach (var conflict in offline.Conflicts)
 Each write is sent with the id of its queue entry. A write whose answer is lost (the connection drops after the server
 committed it), or a client that crashes before recording the answer, sends it again with the same id: the server answers
 with the first result instead of applying it twice, so an insert never creates a second row. The server keeps these
-results in an `IIdempotencyStore` (in memory for a day by default); register a durable one to also cover a restart of the
-server. Each answer is recorded as soon as it arrives.
+results in an `IIdempotencyStore`: in memory for a day by default, which a restart of the server forgets (the server logs
+a warning). In production, keep them in the database:
+
+```csharp
+.AddEntityServer(serializer, server => { server.DurableIdempotency = true; /* ... */ })
+```
+
+`StoreIdempotencyStore` keeps them in the table `IdempotencyRecords` (its creation script is in its documentation), for
+30 days, shared by the servers of a farm. A write the server was applying when it stopped is answered with a conflict
+when sent again (it may have been applied): the user decides, and "keep mine" sends it again. A write sent again after
+the retention is applied again: keep it longer than a client may stay offline. Each answer is recorded as soon as it
+arrives.
 
 ## What is downloaded and stored
 
@@ -154,6 +168,8 @@ var storage = new EncryptedOfflineStorage(new SqliteOfflineStorage("Data Source=
   read. A wrong key fails the same way, rather than silently dropping offline writes.
 - The key is the protection: keep it out of the storage and the code, one per user. `EncryptedOfflineStorage.NewKey()`
   makes one.
+- On desktop and mobile, wrap the storage as soon as the copy holds personal or business data: it stays on the disk
+  after the application closes, until `ForgetAsync` or a change of user.
 - Not in Blazor WebAssembly, which has no AES-GCM: encrypt with the Web Crypto API in your own `IOfflineStorage`. In the
   browser, a script injected into the page reads what the page reads, encrypted or not.
 

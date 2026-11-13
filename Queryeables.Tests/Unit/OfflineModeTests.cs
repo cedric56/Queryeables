@@ -868,7 +868,7 @@ public class OfflineModeTests
 
         var transaction = await inside.BeginTransactionAsync();
         await inside.InsertAsync(new TestClient { Name = "Inside" });
-        var write = outside.InsertAsync(new TestClient { Name = "Outside" });
+        var write = AnotherCaller(() => outside.InsertAsync(new TestClient { Name = "Outside" }));
         await Task.Delay(50);
         Assert.False(write.IsCompleted);                          // a write of another caller waits for the transaction
 
@@ -911,13 +911,47 @@ public class OfflineModeTests
         var transaction = await store.BeginTransactionAsync();
         await store.InsertAsync(new TestClient { Name = "Half done" });
 
-        var online = mode.GoOnlineAsync();
+        var online = AnotherCaller(() => mode.GoOnlineAsync());
         await Task.Delay(50);
         Assert.False(online.IsCompleted);                         // nothing half done is sent
         await transaction.RollbackAsync();
 
         Assert.True((await online.WaitAsync(TimeSpan.FromSeconds(5))).Completed);
         Assert.Empty(_server.All<TestClient>());
+    }
+
+    [Fact]
+    public async Task A_write_through_another_store_in_the_flow_of_a_transaction_fails_instead_of_blocking()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using var inside = stores.Create();
+        await using var other = stores.Create();
+
+        await using (var transaction = await inside.BeginTransactionAsync())
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => other.InsertAsync(new TestClient { Name = "Other" }));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => mode.GoOnlineAsync());
+            await Assert.ThrowsAsync<InvalidOperationException>(() => other.BeginTransactionAsync());
+            await inside.InsertAsync(new TestClient { Name = "Inside" });
+            Assert.True((await transaction.CommitAsync()).Successful);
+        }
+
+        await other.InsertAsync(new TestClient { Name = "After" });         // the transaction is over: allowed again
+        Assert.Equal(2, mode.Status.PendingChanges);
+    }
+
+    /// <summary>Runs <paramref name="call"/> as another caller would: outside the async flow of the test (its transaction).</summary>
+    private static Task<T> AnotherCaller<T>(Func<Task<T>> call)
+    {
+        using (ExecutionContext.SuppressFlow())
+            return Task.Run(call);
+    }
+
+    private static Task AnotherCaller(Func<Task> call)
+    {
+        using (ExecutionContext.SuppressFlow())
+            return Task.Run(call);
     }
 
     private sealed class NetworkRemote(IEntityTransport server) : IEntityTransport

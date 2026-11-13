@@ -30,6 +30,13 @@ public sealed class EntityServerBuilder
     public int MaxBatchSize { get; set; } = 100;
 
     /// <summary>
+    /// Keep the results of the writes in the database (<see cref="StoreIdempotencyStore"/>, table <c>IdempotencyRecords</c>)
+    /// rather than in memory: a write sent again after a restart of the server is not applied twice. What production
+    /// needs, with offline clients. An <see cref="IIdempotencyStore"/> registered before takes precedence.
+    /// </summary>
+    public bool DurableIdempotency { get; set; }
+
+    /// <summary>
     /// Exposes <typeparamref name="TEntity"/>. When an <see cref="IAggregateRepository{TEntity}"/> is registered for it (an entity
     /// graph), writes go through it: the entity is saved with its children.
     /// </summary>
@@ -98,9 +105,11 @@ public static class EntityServerExtensions
 
         builder.Services.TryAddSingleton(serializer);
         builder.Services.TryAddSingleton<IEntityHandlerRegistry>(server.Build);
-        builder.Services.TryAddSingleton<IIdempotencyStore>(_ => new MemoryIdempotencyStore());
+        builder.Services.TryAddSingleton<IIdempotencyStore>(sp => server.DurableIdempotency
+            ? new StoreIdempotencyStore(sp.GetRequiredService<IEntityStoreFactory>())
+            : new MemoryIdempotencyStore());
         builder.Services.TryAddSingleton<ConnectionOwners>();
-        builder.Services.TryAddSingleton(sp => new EntityRequestDispatcher(
+        builder.Services.TryAddSingleton(sp => Warned(sp, new EntityRequestDispatcher(
             sp.GetRequiredService<IEntityHandlerRegistry>(),
             sp.GetRequiredService<IEntitySerializer>(),
             sp.GetRequiredService<IEntityStoreFactory>())
@@ -112,7 +121,17 @@ public static class EntityServerExtensions
             UnexpectedError = sp.GetService<ILoggerFactory>()?.CreateLogger<EntityRequestDispatcher>() is { } logger
                 ? (exception, reference) => logger.LogError(exception, "Unexpected error, reference {Reference}.", reference)
                 : null,
-        });
+        }));
         return builder;
+    }
+
+    /// <summary>Says once, at the creation of the dispatcher, that the results of the writes do not survive a restart.</summary>
+    private static EntityRequestDispatcher Warned(IServiceProvider services, EntityRequestDispatcher dispatcher)
+    {
+        if (dispatcher.Idempotency is MemoryIdempotencyStore)
+            services.GetService<ILoggerFactory>()?.CreateLogger<EntityRequestDispatcher>().LogWarning(
+                "The results of the writes are kept in memory: a write an offline client sends again after a restart of " +
+                "this server is applied twice. In production, set DurableIdempotency (or register an IIdempotencyStore).");
+        return dispatcher;
     }
 }

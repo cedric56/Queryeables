@@ -177,6 +177,75 @@ public class IdempotencyTests
         Assert.Equal(2, calls);
     }
 
+    // ---------- Durable: StoreIdempotencyStore ----------
+
+    private StoreIdempotencyStore Durable(TimeProvider? time = null)
+        => new(new EntityStoreFactory(() => new MemoryStore(_database)), time);
+
+    [Fact]
+    public async Task A_durable_result_survives_a_restart_of_the_server()
+    {
+        var calls = 0;
+        Task<TransportResult> Write() { calls++; return Task.FromResult(TransportResult.Success([7])); }
+
+        await Durable().RunOnceAsync("user:insert:op", Write);
+        var again = await Durable().RunOnceAsync("user:insert:op", Write);     // another instance: a restarted server
+
+        Assert.Equal(1, calls);
+        Assert.True(again.Successful);
+        Assert.Equal([7], again.Data);
+    }
+
+    [Fact]
+    public async Task A_durable_failed_write_is_not_kept()
+    {
+        var calls = 0;
+        Task<TransportResult> Refused() { calls++; return Task.FromResult(TransportResult.Failure(EntityErrorCode.Validation, "no")); }
+
+        await Durable().RunOnceAsync("k", Refused);
+        await Durable().RunOnceAsync("k", Refused);
+
+        Assert.Equal(2, calls);
+        Assert.Empty(_database.All<IdempotencyRecord>());
+    }
+
+    [Fact]
+    public async Task A_write_interrupted_by_a_restart_is_a_conflict_then_can_be_sent_again()
+    {
+        var time = new ManualTime();
+        await new MemoryStore(_database).InsertAsync(new IdempotencyRecord
+        {
+            Id = StoreIdempotencyStore.IdOf("k"), Done = false, At = time.Now.UtcDateTime,        // started, the server stopped
+        });
+        time.Now += TimeSpan.FromMinutes(5);
+        var calls = 0;
+        Task<TransportResult> Write() { calls++; return Task.FromResult(TransportResult.Success()); }
+
+        var interrupted = await Durable(time).RunOnceAsync("k", Write);
+        Assert.Equal(EntityErrorCode.Conflict, interrupted.ErrorCode);
+        Assert.Equal(0, calls);                                                     // never applied twice blindly
+
+        Assert.True((await Durable(time).RunOnceAsync("k", Write)).Successful);    // "keep mine": sent again
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task Concurrent_durable_calls_apply_the_write_once()
+    {
+        var calls = 0;
+        var release = new TaskCompletionSource();
+        async Task<TransportResult> Slow() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([1]); }
+
+        var first = Durable().RunOnceAsync("k", Slow);
+        var second = Durable().RunOnceAsync("k", Slow);
+        await Task.Delay(50);
+        release.SetResult();
+
+        Assert.True((await first).Successful);
+        Assert.Equal([1], (await second).Data);
+        Assert.Equal(1, calls);
+    }
+
     private sealed class ManualTime : TimeProvider
     {
         public DateTimeOffset Now = DateTimeOffset.UtcNow;

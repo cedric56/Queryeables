@@ -126,7 +126,8 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         var copy = (T)Activator.CreateInstance(source.GetType())!;
         foreach (var property in typeof(T).GetProperties().Where(p => p.CanRead && p.CanWrite))
         {
-            if (property.PropertyType != typeof(string) && typeof(System.Collections.IEnumerable).IsAssignableFrom(property.PropertyType))
+            if (property.PropertyType != typeof(string) && property.PropertyType != typeof(byte[])     // a byte[] is a column
+                && typeof(System.Collections.IEnumerable).IsAssignableFrom(property.PropertyType))
                 continue;
             property.SetValue(copy, property.GetValue(source));
         }

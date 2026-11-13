@@ -16,7 +16,7 @@ namespace Queryeables.Abstraction;
 /// and limited; the connections to leave out are never shown to the clients; the queue is bounded.
 /// </para>
 /// </summary>
-public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : class
+public abstract class ChangeBroadcaster<TObject> : IDisposable, IAsyncDisposable where TObject : class
 {
     private readonly Dictionary<string, ClaimsPrincipal?> _subscribers = new(StringComparer.Ordinal);
     private readonly object _gate = new();
@@ -227,17 +227,54 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable where TObject : c
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    /// <summary>
+    /// Stops like <see cref="Dispose()"/>, without blocking a thread while the queued changes go out (what a host calls
+    /// for a singleton that implements it).
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0 || !disposing)
+        if (!Stop())
             return;
+        try
+        {
+            try
+            {
+                await _loop.WaitAsync(DrainTimeout);
+            }
+            catch (TimeoutException)
+            {
+                _disposeCts.Cancel();
+                await _loop.WaitAsync(DrainTimeout);
+            }
+        }
+        catch (Exception)
+        {
+            // A sender that never returns (timeout), or errors already reported by OnError.
+        }
+        finally
+        {
+            _disposeCts.Dispose();
+        }
+        GC.SuppressFinalize(this);
+    }
 
+    /// <summary>Unsubscribes and closes the queue; false when already stopped.</summary>
+    private bool Stop()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return false;
         _monitor.ChangeReceived -= OnChangeReceived;
         _registry?.Remove(_monitor);
-
         // Nothing enters the queue anymore; what is already in it still goes out, for a few seconds at most:
         // a client that does not read must not block the shutdown of the server.
         _queue.Writer.TryComplete();
+        return true;
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposing || !Stop())
+            return;
         try
         {
             if (!_loop.Wait(DrainTimeout))

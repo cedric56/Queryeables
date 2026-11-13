@@ -136,6 +136,18 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Audits of November 13 (code review, offline):
+  - Durable idempotency: `StoreIdempotencyStore` keeps the results of the writes in the database (table
+    `IdempotencyRecords`, 30 days), `EntityServerBuilder.DurableIdempotency` turns it on, and a server left with the
+    in-memory store logs a warning. A write interrupted by a restart is answered with a conflict, never applied twice.
+  - An offline transaction blocked forever when the same flow wrote through another store, synchronized or began a
+    second transaction: it now fails at once with a message (`InvalidOperationException`).
+  - `ChangeBroadcaster` is `IAsyncDisposable`: a host stops it without blocking a thread while the changes go out.
+  - A burst of changes on many rows made a cache start one waiting read per row: beyond 256, it synchronizes once.
+  - The PostgreSQL listener missed the changes committed between the load of a cache and its first `LISTEN`: the caches
+    now synchronize each time it starts listening, the first time included.
+  - Docs: the offline `where` is not a protection, the encryption of the copy, IndexedDB for WebAssembly, the clone of
+    Routeables.SignalR for a full build.
 - Third audit (commit 7ee8e22):
   - A patch checked the access policy against the client's content only: the stored row is now checked too, before and
     after the changes are applied. `EntityAccessRequest.Entity` documents what it holds (prefer `RowLevelSecurity`).

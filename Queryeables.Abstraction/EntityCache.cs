@@ -50,6 +50,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
     // One reload at a time; writes to the dictionary go through _writeLock.
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
+
+    /// <summary>Most rows waiting to be read again; beyond, a change makes the cache synchronize once instead.</summary>
+    private const int MaxQueuedRows = 256;
     private readonly object _writeLock = new();
     private volatile ConcurrentDictionary<TKey, TEntity> _byKey = new();
     private volatile bool _disposed;
@@ -357,6 +360,13 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         // No key, or a key of another kind (a SQLite rowid for a Guid key...): synchronize instead.
         if (_parseKey is null || !TryParseKey(record.EntityKey, out var key))
+        {
+            await RefreshAllCoalescedAsync();
+            return;
+        }
+
+        // A burst on many rows: one synchronization rather than a waiting read per row (memory stays bounded).
+        if (_queuedKeys.Count >= MaxQueuedRows && !_queuedKeys.ContainsKey(key))
         {
             await RefreshAllCoalescedAsync();
             return;

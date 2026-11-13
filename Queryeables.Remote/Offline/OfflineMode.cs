@@ -455,9 +455,43 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 
     internal SemaphoreSlim Gate => _gate;
 
+    /// <summary>
+    /// The transaction begun in this async flow, by the store of a mode (set without await, so that it reaches the
+    /// caller of <c>BeginTransactionAsync</c>): a wait for its end from the same flow would never end.
+    /// </summary>
+    private static readonly AsyncLocal<TransactionFlow?> Flow = new();
+
+    internal sealed class TransactionFlow(OfflineMode mode)
+    {
+        public OfflineMode Mode { get; } = mode;
+
+        public OfflineTransaction? Transaction { get; set; }
+    }
+
+    /// <summary>Marks this async flow as the one of the transaction about to begin on this mode.</summary>
+    internal TransactionFlow BeginFlow()
+    {
+        ThrowIfOpenInThisFlow();
+        var flow = new TransactionFlow(this);
+        Flow.Value = flow;
+        return flow;
+    }
+
+    private void ThrowIfOpenInThisFlow()
+    {
+        if (Flow.Value is { Transaction.IsOpen: true } flow && flow.Mode == this)
+            throw new InvalidOperationException(
+                "An offline transaction is open in this flow: write through the store that began it, and synchronize or " +
+                "resolve conflicts after its commit or rollback (waiting for it here would block forever).");
+    }
+
     /// <summary>Waits until no offline transaction is open, then takes the gate.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// A transaction of this mode is open in this very flow: waiting for it would block forever.
+    /// </exception>
     internal async Task EnterAsync(CancellationToken ct)
     {
+        ThrowIfOpenInThisFlow();
         await _exclusive.WaitAsync(ct);
         try
         {

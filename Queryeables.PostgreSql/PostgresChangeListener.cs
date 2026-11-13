@@ -15,8 +15,9 @@ namespace Queryeables.PostgreSql;
 /// the row again sees its new state. Changes made by any application are reported, not only those of this one.
 /// </para>
 /// <para>
-/// When the listening connection is lost, the listener reconnects, then tells every change feed that changes may have been
-/// missed (<see cref="ChangeFeedRegistry.PublishResync"/>): the caches synchronize.
+/// Each time it starts listening (the first time, and after a lost connection), the listener tells every change feed that
+/// changes may have been missed (<see cref="ChangeFeedRegistry.PublishResync"/>): the caches synchronize, and a cache loaded
+/// before the listener was ready misses nothing.
 /// </para>
 /// </summary>
 /// <remarks>
@@ -89,9 +90,10 @@ public sealed class PostgresChangeListener(
                 logger?.LogInformation("Listening to PostgreSQL changes of {Count} table(s).", notifications.Tables.Count);
                 _listening.TrySetResult();
 
-                // Notifications sent while the connection was down are lost: the caches synchronize.
-                if (connectedBefore)
-                    registry.PublishResync();
+                // Notifications sent before LISTEN are lost: those of a cut connection, and on the first connection those
+                // of the changes committed after a cache was loaded. The caches synchronize either way (incrementally
+                // with [LastModified]).
+                registry.PublishResync();
                 connectedBefore = true;
                 delay = notifications.ReconnectDelay;
 

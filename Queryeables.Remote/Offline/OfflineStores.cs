@@ -95,8 +95,13 @@ internal sealed class WatchedEntityStore(IEntityStore inner, OfflineMode mode) :
         where TEntity : class
         => Watch(inner.DeleteAsync(entity, ct), ct);
 
-    public async Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
-        => new WatchedTransaction(await inner.BeginTransactionAsync(ct), mode);
+    // Not async: the inner store marks the flow of its transaction, which must reach the caller (see OfflineMode.Flow).
+    public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
+    {
+        return Wrap(inner.BeginTransactionAsync(ct));
+
+        async Task<IEntityTransaction> Wrap(Task<IEntityTransaction> begun) => new WatchedTransaction(await begun, mode);
+    }
 
     public ValueTask DisposeAsync() => inner.DisposeAsync();
 
@@ -175,7 +180,7 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
     {
         if (_transaction is OfflineMode.OfflineTransaction { IsOpen: true })
             throw new InvalidOperationException("A transaction is already in progress on this store.");
-        return BeginAsync(ct);
+        return BeginAsync(mode.BeginFlow(), ct);           // the flow marked here, before any await: it reaches the caller
     }
 
     // ---------- Write ----------
@@ -213,9 +218,10 @@ internal sealed class OfflineEntityStore(OfflineMode mode) : IEntityStore
 
     // ---------- Internals ----------
 
-    private async Task<IEntityTransaction> BeginAsync(CancellationToken ct)
+    private async Task<IEntityTransaction> BeginAsync(OfflineMode.TransactionFlow flow, CancellationToken ct)
     {
         _transaction = await mode.BeginTransactionAsync(ct);
+        flow.Transaction = (OfflineMode.OfflineTransaction)_transaction;
         return _transaction;
     }
 
