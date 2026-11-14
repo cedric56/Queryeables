@@ -64,7 +64,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     private DateTime? _syncedUpTo;
 
     // Entities tracked while a load reads the table (guarded by _writeLock): applied over what it read.
-    private List<TEntity>? _trackedDuringLoad;
+    private List<TEntity>? _trackedDuringRead;
 
     // Freshness (guarded by _writeLock). _filled: loaded since the last ClearUserDataAsync, unlike _loaded which survives it.
     private bool _filled;
@@ -233,7 +233,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         lock (_writeLock)
         {
             Apply(_byKey, entity);
-            _trackedDuringLoad?.Add(entity);       // a load in progress may have read the table before this write
+            _trackedDuringRead?.Add(entity);       // a read in progress may have read the table before this write
         }
 
         RaiseEntitiesChanged();
@@ -261,7 +261,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     {
         using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "load");
         lock (_writeLock)
-            _trackedDuringLoad = [];
+            _trackedDuringRead = [];
         IReadOnlyList<TEntity> entities;
         try
         {
@@ -271,7 +271,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         catch
         {
             lock (_writeLock)
-                _trackedDuringLoad = null;
+                _trackedDuringRead = null;
             throw;
         }
 
@@ -288,9 +288,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         lock (_writeLock)
         {
             // What was tracked while the table was read is newer than what was read: it stays.
-            foreach (var tracked in _trackedDuringLoad ?? [])
+            foreach (var tracked in _trackedDuringRead ?? [])
                 Apply(byKey, tracked);
-            _trackedDuringLoad = null;
+            _trackedDuringRead = null;
             _byKey = byKey;
             _syncedUpTo = _incremental ? latest ?? DateTime.MinValue : null;
             _loaded = true;
@@ -312,13 +312,30 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         }
 
         IReadOnlyList<TEntity> changes;
-        await using (var store = _storeFactory())
+        lock (_writeLock)
+            _trackedDuringRead = [];
+        try
+        {
+            await using var store = _storeFactory();
             changes = await store.SelectChangesAsync<TEntity>(SyncMetadata.Before(since.Value, SyncOverlap), ct);
+        }
+        catch
+        {
+            lock (_writeLock)
+                _trackedDuringRead = null;
+            throw;
+        }
 
         lock (_writeLock)
         {
+            var tracked = TakeTracked();
             foreach (var entity in changes)
             {
+                if (tracked.Contains(_key(entity)))
+                {
+                    _syncedUpTo = Latest(_syncedUpTo, entity);
+                    continue;                       // written by this application during the read: newer than what was read
+                }
                 if (SyncMetadata.IsDeleted(entity))
                     _byKey.TryRemove(_key(entity), out _);
                 else
@@ -327,6 +344,14 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
                 _syncedUpTo = Latest(_syncedUpTo, entity);
             }
         }
+    }
+
+    /// <summary>The keys tracked during the read that ends (under <c>_writeLock</c>); stops tracking them.</summary>
+    private HashSet<TKey> TakeTracked()
+    {
+        var keys = (_trackedDuringRead ?? []).Select(_key).ToHashSet();
+        _trackedDuringRead = null;
+        return keys;
     }
 
     private static DateTime? Latest(DateTime? current, TEntity entity)
@@ -386,14 +411,31 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             TEntity? entity = null;
             if (record.ChangeType != ChangeType.Delete)
             {
-                await using var store = _storeFactory();
-                entity = await Tracked(store.FirstOrDefaultAsync(KeyEquals(key)));
+                lock (_writeLock)
+                    _trackedDuringRead = [];
+                try
+                {
+                    await using var store = _storeFactory();
+                    entity = await Tracked(store.FirstOrDefaultAsync(KeyEquals(key)));
+                }
+                catch
+                {
+                    lock (_writeLock)
+                        _trackedDuringRead = null;
+                    throw;
+                }
             }
 
             lock (_writeLock)
             {
+                // Written by this application during the read (its own notification never comes): newer, it stays.
+                if (TakeTracked().Contains(key))
+                {
+                    if (entity is not null && _syncedUpTo is not null)
+                        _syncedUpTo = Latest(_syncedUpTo, entity);
+                }
                 // Row deleted (physically or logically), or not found anymore: remove it.
-                if (entity is null || SyncMetadata.IsDeleted(entity))
+                else if (entity is null || SyncMetadata.IsDeleted(entity))
                     _byKey.TryRemove(key, out _);
                 else
                     _byKey[key] = entity;

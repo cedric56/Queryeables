@@ -41,6 +41,9 @@
        benchmarks and samples are left out. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' != 'Queryeables.Tests' And '$(MSBuildProjectName)' != 'Queryeables.Benchmarks' And !$(MSBuildProjectDirectory.Contains('Samples'))">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The vulnerability feed out of reach (offline, proxy) is not a defect of the code: a warning, not a failed build.
+         A vulnerable package found (NU1901-NU1904) stays an error. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900</WarningsNotAsErrors>
   </PropertyGroup>
 
   <!-- Each package shows the README of its project; the README of the repository when the project has none. -->

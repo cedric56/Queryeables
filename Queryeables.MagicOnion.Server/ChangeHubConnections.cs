@@ -56,6 +56,14 @@ public sealed class ChangeHubConnections<TObject>(
         return Task.CompletedTask;
     }
 
+    protected override Task SendToAsync(EntityChange<TObject> record, IReadOnlyList<string> recipients, CancellationToken ct)
+    {
+        var only = recipients.Select(id => Guid.TryParse(id, out var guid) ? guid : (Guid?)null).OfType<Guid>().ToList();
+        if (only.Count > 0)
+            _group?.Only(only).OnChanged(ChangeMessage.From(record));
+        return Task.CompletedTask;
+    }
+
     protected override void OnError(Exception exception)
         => logger?.LogError(exception, "Failed to broadcast a change.");
 }

@@ -221,11 +221,23 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 
             var sent = 0;
             var refused = new List<OfflineConflict>();
+            var refusedInserts = new List<(OfflineEntityType Type, string Key)>();
             foreach (var id in _outbox.Snapshot().Select(e => e.Id))
             {
                 // The entry as it is now: an earlier insert may have given it the server's key.
                 if (_outbox.Find(id) is not { } entry)
                     continue;
+
+                // A write on a row whose insert was refused, or naming it: sent with its temporary key, it would fail or
+                // point at nothing. Kept as a conflict until that insert is resolved (KeepMine gives it the real key).
+                if (RefusedParentOf(entry, refusedInserts) is { } parent)
+                {
+                    _outbox.Remove(entry.Id);
+                    Refuse(entry, EntityErrorCode.Conflict,
+                        $"Depends on {parent.Type.Name} {parent.Key}, whose insert was refused: resolve that conflict first.", refused);
+                    await PersistAsync(ct);
+                    continue;
+                }
 
                 // Recorded as sent before it leaves: from then on, a later write on the row is queued after it instead of
                 // changing it, even after a crash (the server may have applied it under its id).
@@ -247,6 +259,17 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
                     return new SyncReport(false, sent, refused, $"The connection was lost during the synchronization: {ex.Message}");
                 }
 
+                // An unexpected failure of the server (database down, bug) is not the user's to decide: the queue stops
+                // there and is sent again by the next synchronization; a conflict only after a few attempts.
+                if (!result.Successful && result.ErrorCode == EntityErrorCode.Unknown
+                    && (_transientFailures[entry.Id] = _transientFailures.GetValueOrDefault(entry.Id) + 1) < MaxTransientFailures)
+                {
+                    await PersistAsync(ct);
+                    return new SyncReport(false, sent, refused,
+                        $"The server failed on a write ({result.Exception ?? "unexpected error"}): synchronize again later.");
+                }
+                _transientFailures.Remove(entry.Id);
+
                 _outbox.Remove(entry.Id);
                 if (result.Successful)
                 {
@@ -256,14 +279,9 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
                 }
                 else
                 {
-                    var conflict = new OfflineConflict(entry.Id, entry.Type, entry.Kind, entry.Key, entry.Payload,
-                        result.ErrorCode, result.Exception ?? "Refused by the server.", entry.At);
-                    _conflicts.Add(conflict);
-                    _conflictsChanged = true;
-                    refused.Add(conflict);
-                    RemoteDiagnostics.OfflineConflicts.Add(1,
-                        new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type),
-                        new KeyValuePair<string, object?>(QueryeablesDiagnostics.OutcomeTag, QueryeablesDiagnostics.Outcome(result.ErrorCode)));
+                    Refuse(entry, result.ErrorCode, result.Exception ?? "Refused by the server.", refused);
+                    if (entry.Kind == BatchOperationKind.Insert && _types.Values.FirstOrDefault(t => t.Name == entry.Type) is { } insertedType)
+                        refusedInserts.Add((insertedType, entry.Key));
                 }
 
                 // Acknowledged at once, with its conflict if refused: a crash later in the loop does not send it again (and
@@ -288,6 +306,60 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         Raise(OfflineEvent.ModeChanged);
         Raise(OfflineEvent.Synchronized);
         return report;
+    }
+
+    /// <summary>Unexpected failures of the server on one write, in this process, before it becomes a conflict.</summary>
+    private const int MaxTransientFailures = 3;
+
+    private readonly Dictionary<Guid, int> _transientFailures = [];
+
+    private void Refuse(OutboxEntry entry, EntityErrorCode code, string message, List<OfflineConflict> refused)
+    {
+        var conflict = new OfflineConflict(entry.Id, entry.Type, entry.Kind, entry.Key, entry.Payload, code, message, entry.At);
+        _conflicts.Add(conflict);
+        _conflictsChanged = true;
+        refused.Add(conflict);
+        RemoteDiagnostics.OfflineConflicts.Add(1,
+            new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type),
+            new KeyValuePair<string, object?>(QueryeablesDiagnostics.OutcomeTag, QueryeablesDiagnostics.Outcome(code)));
+    }
+
+    /// <summary>The refused insert <paramref name="entry"/> writes on or refers to; null when none.</summary>
+    private (OfflineEntityType Type, string Key)? RefusedParentOf(OutboxEntry entry, List<(OfflineEntityType Type, string Key)> refusedInserts)
+    {
+        foreach (var parent in refusedInserts)
+        {
+            if (entry.Type == parent.Type.Name && entry.Key == parent.Key)
+                return parent;
+            // Rewriting the reference to itself tells whether the entry names that row.
+            if (_types.Values.FirstOrDefault(t => t.Name == entry.Type) is { } type
+                && type.RebaseReferences(entry.Payload, parent.Type.Type, parent.Key, parent.Key) is not null)
+                return parent;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The insert of <paramref name="conflict"/> got <paramref name="inserted"/>'s key on the server: the conflicts that wait
+    /// for it (writes on that row, rows naming it) name the real key now, so that keeping them works.
+    /// </summary>
+    private void RekeyConflicts(OfflineEntityType type, OfflineConflict conflict, byte[] inserted)
+    {
+        if (type.KeyTextOfData(inserted) is not { } serverKey || serverKey == conflict.Key)
+            return;
+        var references = long.TryParse(serverKey, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out _);
+        for (var i = 0; i < _conflicts.Count; i++)
+        {
+            var waiting = _conflicts[i];
+            if (waiting.Type == conflict.Type && waiting.Key == conflict.Key)
+                _conflicts[i] = waiting with { Key = serverKey, Payload = type.Rebase(waiting.Payload, inserted) };
+            else if (references && _types.Values.FirstOrDefault(t => t.Name == waiting.Type)
+                         ?.RebaseReferences(waiting.Payload, type.Type, conflict.Key, serverKey) is { } rebased)
+                _conflicts[i] = waiting with { Payload = rebased };
+            else
+                continue;
+            _conflictsChanged = true;
+        }
     }
 
     /// <summary>Resolves a conflict in favor of the offline write: sent again over the server's current row.</summary>
@@ -316,6 +388,8 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
 
             _conflicts.RemoveAll(c => c.Id == conflict.Id);
             _conflictsChanged = true;
+            if (conflict.Kind == BatchOperationKind.Insert && result.Data is { Length: > 0 } inserted)
+                RekeyConflicts(type, conflict, inserted);
             type.MarkLocal(conflict.Key);       // read again from the server, with the version it now has
             await RefreshTypeAsync(type, ct);
             await PersistAsync(ct);
@@ -425,7 +499,21 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
     {
         var reachable = await PingAsync(ct);
         if (reachable && Mode == ConnectionMode.Offline && _state.SnapshotTakenAt is { } since)
-            _serverChanges = await CountServerChangesAsync(since.UtcDateTime, ct);
+        {
+            // Counted without the gate (a call to the server), kept under it, and only for the copy it was counted
+            // against: a synchronization that ran meanwhile has the last word.
+            var counted = await CountServerChangesAsync(since.UtcDateTime, ct);
+            await _gate.WaitAsync(ct);
+            try
+            {
+                if (Mode == ConnectionMode.Offline && _state.SnapshotTakenAt == since)
+                    _serverChanges = counted;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
         SetReachable(reachable);
         if (!reachable)
             StartProbing();

@@ -140,6 +140,18 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable, IAsyncDisposable
     /// <summary>Sends the change to every client except <paramref name="excludedConnections"/>.</summary>
     protected abstract Task SendAsync(EntityChange<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct);
 
+    /// <summary>
+    /// Sends the change to <paramref name="recipients"/> only (subscribers of this server that
+    /// <see cref="ChangeHubOptions.Visibility"/> accepts): never to a connection it did not check, such as one of another
+    /// server behind a backplane, or one that arrived after the check. The default sends to every subscriber of this
+    /// server except the others, through <see cref="SendAsync"/>: override it with a transport's "only these" send.
+    /// </summary>
+    protected virtual Task SendToAsync(EntityChange<TObject> record, IReadOnlyList<string> recipients, CancellationToken ct)
+    {
+        var allowed = recipients.ToHashSet(StringComparer.Ordinal);
+        return SendAsync(record, Subscribers.Where(c => !allowed.Contains(c)).ToList(), ct);
+    }
+
     /// <summary>Called when a broadcast fails; broadcasting of the following changes goes on.</summary>
     protected virtual void OnError(Exception exception)
     {
@@ -169,7 +181,10 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable, IAsyncDisposable
                 {
                     // The connections to leave out are the server's business: the clients only see the row and the change.
                     var shown = new EntityChange<TObject>(record.EntityKey, record.ChangeType);
-                    await SendAsync(shown, await ExcludedAsync(record, ct), ct);
+                    if (await RecipientsAsync(record, ct) is { } recipients)
+                        await SendToAsync(shown, recipients, ct);
+                    else
+                        await SendAsync(shown, record.Connections ?? [], ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -190,35 +205,38 @@ public abstract class ChangeBroadcaster<TObject> : IDisposable, IAsyncDisposable
         }
     }
 
-    /// <summary>The connections left out: those that named themselves, and those <see cref="ChangeHubOptions.Visibility"/> refuses.</summary>
-    private async Task<IReadOnlyList<string>> ExcludedAsync(EntityChange<TObject> record, CancellationToken ct)
+    /// <summary>
+    /// The connections allowed to hear of <paramref name="record"/> by <see cref="ChangeHubOptions.Visibility"/> (those that
+    /// named themselves left out); null without a rule, or for a change that names no row: everyone hears of it.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> RecipientsAsync(EntityChange<TObject> record, CancellationToken ct)
     {
-        IReadOnlyList<string> named = record.Connections ?? [];
         if (_options.Visibility is not { } visibility || string.IsNullOrEmpty(record.EntityKey))
-            return named;
+            return null;
 
+        IReadOnlyList<string> named = record.Connections ?? [];
         KeyValuePair<string, ClaimsPrincipal?>[] subscribers;
         lock (_gate)
             subscribers = _subscribers.ToArray();
-        var excluded = new List<string>(named);
+        var allowed = new List<string>();
         foreach (var (connection, user) in subscribers)
         {
             if (named.Contains(connection))
                 continue;
-            bool allowed;
+            bool visible;
             try
             {
-                allowed = await visibility(new ChangeAudience(user, typeof(TObject), record.EntityKey, record.ChangeType), ct);
+                visible = await visibility(new ChangeAudience(user, typeof(TObject), record.EntityKey, record.ChangeType), ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 OnError(ex);
-                allowed = false;                // a rule that fails tells nothing
+                visible = false;                // a rule that fails tells nothing
             }
-            if (!allowed)
-                excluded.Add(connection);
+            if (visible)
+                allowed.Add(connection);
         }
-        return excluded;
+        return allowed;
     }
 
     public void Dispose()

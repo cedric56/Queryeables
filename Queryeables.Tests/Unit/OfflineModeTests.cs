@@ -22,7 +22,9 @@ public class OfflineModeTests
         var serverStores = new EntityStoreFactory(() => new MemoryStore(_server).WithSyncConventions());
         var graph = PersonGraph();
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(serverStores, EntityAccessPolicies.AllowAll));
+        // An insert named "Refused" is refused: a write the server turns down.
+        registry.Register(new EntityHandler<TestClient>(serverStores, EntityAccessPolicies.From(r =>
+            !(r.Operation == EntityOperation.Insert && r.Entity is TestClient { Name: "Refused" }))));
         registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<AuditPerson, long>(serverStores, graph)));
         registry.Register(new EntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
@@ -939,6 +941,27 @@ public class OfflineModeTests
 
         await other.InsertAsync(new TestClient { Name = "After" });         // the transaction is over: allowed again
         Assert.Equal(2, mode.Status.PendingChanges);
+    }
+
+    [Fact]
+    public async Task The_writes_on_a_row_whose_insert_was_refused_wait_as_conflicts_instead_of_going_with_its_temporary_key()
+    {
+        var (mode, stores, _) = Client();
+        await mode.GoOfflineAsync();
+        await using var store = stores.Create();
+        var refused = new TestClient { Name = "Refused" };
+        await store.InsertAsync(refused);                                   // temporary key
+        await store.InsertAsync(new TestClient { Name = "Other" });
+        refused.Active = true;
+        await store.UpdateAsync(refused);                                   // after another row: not merged
+
+        var report = await mode.GoOnlineAsync();
+
+        Assert.True(report.Completed);
+        Assert.Equal(1, report.Sent);
+        Assert.Equal(2, mode.Conflicts.Count);
+        Assert.StartsWith("Depends on", mode.Conflicts[1].Message);
+        Assert.Equal(["Other"], _server.All<TestClient>().Select(c => c.Name));
     }
 
     /// <summary>Runs <paramref name="call"/> as another caller would: outside the async flow of the test (its transaction).</summary>

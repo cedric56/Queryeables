@@ -1,6 +1,7 @@
 using Grpc.Core;
 using MagicOnion;
 using MagicOnion.Server;
+using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
 using Queryeables.Remote;
 
@@ -37,44 +38,60 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
         => new(Context.CallContext.GetHttpContext().User, connectionId);
 
     public UnaryResult<EntityResultMessage> GetAllAsync(string type)
-        => Reply(dispatcher.GetAllAsync(type, Caller(), Aborted));
+        => Reply(() => dispatcher.GetAllAsync(type, Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
-        => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(conditions), any, Caller(), Aborted));
+        => Reply(() => dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(conditions), any, Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
-        => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize, Caller(), Aborted));
+        => Reply(() => dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize, Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
         int pageSize, SortKeyMessage[] sort)
-        => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize,
+        => Reply(() => dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize,
             SortKeyMessage.ToKeys(sort), Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
-        => Reply(dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
+        => Reply(() => dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
-        => Reply(dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(() => dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<EntityResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
-        => Reply(dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(() => dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<EntityResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
-        => Reply(dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
+        => Reply(() => dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
-        => Reply(dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
+        => Reply(() => dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> ExecuteBatchOnceAsync(Guid operationId, BatchOperationMessage[] operations)
-        => Reply(dispatcher.ExecuteBatchOnceAsync(operationId, BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
+        => Reply(() => dispatcher.ExecuteBatchOnceAsync(operationId, BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId)
-        => Reply(dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller(connectionId), Aborted));
+        => Reply(() => dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller(connectionId), Aborted));
 
     public UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request)
-        => Reply(dispatcher.ExecuteAsync(type, request.ToRequest(), Caller(), Aborted));
+        => Reply(() => dispatcher.ExecuteAsync(type, (request ?? throw new ArgumentNullException(nameof(request))).ToRequest(), Caller(), Aborted));
 
-    private static UnaryResult<EntityResultMessage> Reply(Task<TransportResult> call) => new(ToMessageAsync(call));
+    /// <summary>
+    /// The answer to a call. A malformed message (a null request, a null element in an array) is answered with
+    /// InvalidRequest rather than a gRPC error without a cause.
+    /// </summary>
+    private static UnaryResult<EntityResultMessage> Reply(Func<Task<TransportResult>> call)
+    {
+        Task<TransportResult> pending;
+        try
+        {
+            pending = call();
+        }
+        catch (ArgumentException ex)
+        {
+            return new(Task.FromResult(EntityResultMessage.From(TransportResult.Failure(EntityErrorCode.InvalidRequest, ex.Message))));
+        }
+        return new(ToMessageAsync(pending));
+    }
 
     private static async Task<EntityResultMessage> ToMessageAsync(Task<TransportResult> call) => EntityResultMessage.From(await call);
 }

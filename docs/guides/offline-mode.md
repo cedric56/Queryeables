@@ -103,6 +103,13 @@ During `GoOnlineAsync`, each write is sent on its own. A write the server refuse
 deleted, a validation rule...) does not stop the synchronization: it becomes an `OfflineConflict` in
 `report.Conflicts` and `offline.Conflicts`, kept across restarts until the user decides.
 
+- An unexpected failure of the server (`Unknown`: database down, a bug) is not the user's to decide: the synchronization
+  stops there (`report.Completed` is false), the write stays queued and goes again at the next one. After three such
+  failures in a row, it becomes a conflict.
+- A refused insert holds back the writes that depend on it (an update of that row, a row naming it): sent with its
+  temporary key, they would fail or point at nothing. They become conflicts too ("Depends on..."); keeping the insert
+  ("keep mine") gives them its real key, and they can be kept in turn.
+
 ```csharp
 foreach (var conflict in offline.Conflicts)
 {

@@ -208,19 +208,37 @@ public sealed class DommelEntityStore : IEntityStore
         if (none)
             return aggregation.Compute([]);
 
+        // The values in a derived table, the aggregates over its columns: a key computed with parameters is written once
+        // (SQL Server refuses a group by whose expression differs from the select's, as two parameters make it).
         var sql = new CSharpSqlExpression<TEntity>(DommelMapper.GetSqlBuilder(_connection));
         var key = aggregation.Key is { } keyValue ? sql.ValueSql(keyValue) : null;
-        var columns = new List<string>();
+        var inner = new List<string>();
+        var outer = new List<string>();
         if (key is not null)
-            columns.Add(key);
-        columns.Add("count(*)");
-        columns.AddRange(aggregation.Values.Select(v => sql.AggregateSql(v.Function, v.Value, v.Type)));
-        sql.Select(string.Join(", ", columns));
+        {
+            inner.Add($"{key} as qk");
+            outer.Add("qk");
+        }
+        outer.Add("count(*)");
+        for (var i = 0; i < aggregation.Values.Count; i++)
+        {
+            var value = aggregation.Values[i];
+            if (value.Function == AggregateFunction.Count || value.Value is null)
+            {
+                outer.Add("count(*)");
+                continue;
+            }
+            inner.Add($"{sql.ValueSql(value.Value)} as qv{i}");
+            outer.Add(sql.AggregateSql(value.Function, $"qv{i}", value.Type));
+        }
+        if (inner.Count == 0)
+            inner.Add("1 as qone");
+        sql.Select(string.Join(", ", inner));
         if (filter is not null)
             sql.Where(filter);
-        var text = sql.ToSql(out var parameters);
+        var text = $"select {string.Join(", ", outer)} from ({sql.ToSql(out var parameters)}) q";
         if (key is not null)
-            text += $" group by {key}";
+            text += " group by qk";
 
         var rows = new List<AggregateRow>();
         await using var reader = await _connection.ExecuteReaderAsync(new CommandDefinition(text, parameters, _transaction, cancellationToken: ct));

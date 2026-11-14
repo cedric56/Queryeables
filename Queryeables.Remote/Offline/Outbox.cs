@@ -24,6 +24,10 @@ internal sealed class Outbox
     private bool _indexChanged;
     private bool _stagedLeft;
 
+    // Recovered from the staged list at load (not in the index yet): staged again with the next new ones, until an index
+    // names them. Otherwise a second stop, after the staged list is replaced and before the index, would lose them.
+    private HashSet<Guid> _unindexed = [];
+
     public IReadOnlyList<OutboxEntry> Entries => _entries;
 
     public int Count => _entries.Count;
@@ -142,6 +146,7 @@ internal sealed class Outbox
         _changed.Clear();
         _indexChanged = false;
         var ids = OfflineCodec.ReadStrings(await storage.ReadAsync($"{prefix}/outbox/index", ct)).ToList();
+        var indexed = ids.ToHashSet();
         // Entries written before a stop that came before the index: still in the queue, after the others, in their order.
         foreach (var staged in OfflineCodec.ReadStrings(await storage.ReadAsync(StagedKey(prefix), ct)))
         {
@@ -154,6 +159,7 @@ internal sealed class Outbox
                 _entries.Add(entry);
         }
         _stored = _entries.Select(e => e.Id).ToHashSet();
+        _unindexed = _entries.Where(e => !indexed.Contains(e.Id.ToString("N"))).Select(e => e.Id).ToHashSet();
         // What was recovered from the staged list belongs to the index from now on: the next save writes it, then clears it.
         _stagedLeft = await storage.ReadAsync(StagedKey(prefix), ct) is not null;
         _indexChanged = _stagedLeft;
@@ -167,7 +173,7 @@ internal sealed class Outbox
     public async Task SaveAsync(IOfflineStorage storage, string prefix, CancellationToken ct)
     {
         var current = _entries.ToDictionary(e => e.Id);
-        var added = _entries.Where(e => !_stored.Contains(e.Id)).Select(e => e.Id.ToString("N")).ToList();
+        var added = _entries.Where(e => !_stored.Contains(e.Id) || _unindexed.Contains(e.Id)).Select(e => e.Id.ToString("N")).ToList();
         if (added.Count > 0)
             await storage.WriteAsync(StagedKey(prefix), OfflineCodec.WriteStrings(added), ct);
         foreach (var id in _changed)
@@ -185,6 +191,8 @@ internal sealed class Outbox
         _stagedLeft = false;
 
         _stored = [.. current.Keys];
+        if (_indexChanged)
+            _unindexed.Clear();
         _changed.Clear();
         _indexChanged = false;
     }

@@ -24,10 +24,11 @@ public sealed record EntityRequestContext(ClaimsPrincipal? User = null, string? 
 }
 
 /// <param name="Entity">
-/// The entity concerned by a write; null for a read (type-level check). For an insert, an update or a delete it is the
-/// content the client sent, not the stored row: a rule on who owns a row (<c>e.OwnerId == me</c>) does not protect the
-/// stored row of someone else. Keep users to their rows with a row filter (<c>RowLevelSecurity</c>), which checks the stored
-/// row and the new content. A patch, an update or a deletion of many rows presents the stored rows themselves.
+/// The entity concerned by a write; null for a read (type-level check). For an insert it is the content the client sent.
+/// For an update or a delete, the policy is asked twice: for the content the client sent, then for the stored row it
+/// targets (unless <see cref="IEntityAccessPolicy.ChecksEntities"/> is false), so that a rule on who owns a row
+/// (<c>e.OwnerId == me</c>) protects the rows of others. A patch, an update or a deletion of many rows presents the stored
+/// rows too. Reads are filtered by a row filter (<c>RowLevelSecurity</c>), not by this.
 /// </param>
 public sealed record EntityAccessRequest(EntityOperation Operation, Type EntityType, object? Entity, ClaimsPrincipal? User);
 
@@ -38,6 +39,12 @@ public sealed record EntityAccessRequest(EntityOperation Operation, Type EntityT
 public interface IEntityAccessPolicy
 {
     ValueTask<bool> IsAllowedAsync(EntityAccessRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// True when the decision depends on the entity: an update or a delete then reads the stored row to ask about it too.
+    /// False for a rule on the user and the operation only, which spares that read.
+    /// </summary>
+    bool ChecksEntities => true;
 }
 
 /// <example>
@@ -51,29 +58,33 @@ public interface IEntityAccessPolicy
 public static class EntityAccessPolicies
 {
     /// <summary>Everything is allowed, even without authentication. For tests or a closed network.</summary>
-    public static IEntityAccessPolicy AllowAll { get; } = From(_ => true);
+    public static IEntityAccessPolicy AllowAll { get; } = From(_ => true, checksEntities: false);
 
     /// <summary>Everything is allowed to an authenticated user.</summary>
-    public static IEntityAccessPolicy Authenticated { get; } = From(r => r.User?.Identity?.IsAuthenticated == true);
+    public static IEntityAccessPolicy Authenticated { get; } = From(r => r.User?.Identity?.IsAuthenticated == true, checksEntities: false);
 
     /// <summary>Read for an authenticated user, no write.</summary>
     public static IEntityAccessPolicy ReadOnly { get; } = From(r =>
-        r.Operation == EntityOperation.Read && r.User?.Identity?.IsAuthenticated == true);
+        r.Operation == EntityOperation.Read && r.User?.Identity?.IsAuthenticated == true, checksEntities: false);
 
-    public static IEntityAccessPolicy From(Func<EntityAccessRequest, bool> rule)
+    /// <param name="checksEntities">False when <paramref name="rule"/> never reads <see cref="EntityAccessRequest.Entity"/>.</param>
+    public static IEntityAccessPolicy From(Func<EntityAccessRequest, bool> rule, bool checksEntities = true)
     {
         ArgumentNullException.ThrowIfNull(rule);
-        return new DelegatePolicy((request, _) => ValueTask.FromResult(rule(request)));
+        return new DelegatePolicy((request, _) => ValueTask.FromResult(rule(request)), checksEntities);
     }
 
-    public static IEntityAccessPolicy FromAsync(Func<EntityAccessRequest, CancellationToken, ValueTask<bool>> rule)
+    /// <param name="checksEntities">False when <paramref name="rule"/> never reads <see cref="EntityAccessRequest.Entity"/>.</param>
+    public static IEntityAccessPolicy FromAsync(Func<EntityAccessRequest, CancellationToken, ValueTask<bool>> rule, bool checksEntities = true)
     {
         ArgumentNullException.ThrowIfNull(rule);
-        return new DelegatePolicy(rule);
+        return new DelegatePolicy(rule, checksEntities);
     }
 
-    private sealed class DelegatePolicy(Func<EntityAccessRequest, CancellationToken, ValueTask<bool>> rule) : IEntityAccessPolicy
+    private sealed class DelegatePolicy(Func<EntityAccessRequest, CancellationToken, ValueTask<bool>> rule, bool checksEntities) : IEntityAccessPolicy
     {
         public ValueTask<bool> IsAllowedAsync(EntityAccessRequest request, CancellationToken ct = default) => rule(request, ct);
+
+        public bool ChecksEntities => checksEntities;
     }
 }

@@ -136,6 +136,28 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Code review of November 14:
+  - `StoreIdempotencyStore`: a write running longer than `RunningTimeout`, or a clock ahead on another server, could be
+    taken as interrupted and applied twice. A running write now beats (a counter, judged by the waiting server's own
+    clock), every change goes through a version, and a write finished after being taken as interrupted still records its
+    result. A failed cleanup no longer turns an applied write into a failure. The table gains `State`, `Runner`, `Beat`
+    and `Version` (script in its documentation).
+  - Offline queue: entries recovered after a stop could be lost by a second stop before the index was written.
+  - Cache: a row read again after a notification could overwrite what this application had just saved (`Track`) with an
+    older version; a synchronization too. What is tracked during any read now wins, as during a load.
+  - `ChangeHubOptions.Visibility`: changes are sent to the accepted connections by name (`SendToAsync`), never to all but
+    the refused ones: no leak to the connections of another server behind a backplane, or arrived after the check.
+  - The access policy is asked about the stored row of an update or a delete too, not only about the content sent
+    (`IEntityAccessPolicy.ChecksEntities`, false for the built-in policies, spares the read).
+  - MagicOnion: a null request or a null element in an array is answered with `InvalidRequest` instead of a gRPC error.
+  - PostgreSQL trigger: an update that changes the key also notifies the deletion of the old key.
+  - Offline synchronization: an `Unknown` failure of the server stops the synchronization instead of becoming a conflict
+    (a conflict after three); the writes depending on a refused insert wait as conflicts, and keeping the insert gives
+    them its real key. `CheckServerAsync` updates the count of server changes under the gate.
+  - Dommel on SQLite: decimals are compared as numbers (`cast(... as real)`), even in a column declared TEXT.
+  - Dommel aggregates: the values are computed in a derived table and grouped by its column, so that a key computed with
+    parameters is written once (SQL Server refused it).
+  - Build: NU1900 (vulnerability feed unreachable) is a warning, not an error.
 - Audits of November 13 (code review, offline):
   - Durable idempotency: `StoreIdempotencyStore` keeps the results of the writes in the database (table
     `IdempotencyRecords`, 30 days), `EntityServerBuilder.DurableIdempotency` turns it on, and a server left with the

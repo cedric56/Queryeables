@@ -71,8 +71,11 @@ var policy = EntityAccessPolicies.From(r =>
     (r.Operation == EntityOperation.Read || r.User.IsInRole("admin")));
 ```
 
-A policy decides per type and operation: it sees the entity of a write, but not the rows of a read. To keep each user to
-its own rows, add a row filter.
+A policy decides per type and operation: it sees the entity of a write, but not the rows of a read. For an update or a
+delete it is asked twice, about the content the client sent and about the stored row it targets, so that a rule on who
+owns a row (`r.Entity is Order { OwnerId: var owner } && owner == me`) protects the rows of others. A rule that never reads
+the entity spares that read: `EntityAccessPolicies.From(rule, checksEntities: false)` (the built-in policies do). To keep
+each user to its own rows in reads too, add a row filter.
 
 ## Row filters
 
@@ -169,6 +172,11 @@ services.AddSingleton(new ChangeHubOptions
 
 A "synchronize everything" names no row and still reaches every subscriber. A user who could see a row before a change
 but not after is not told of that change, and keeps the row until its cache refreshes.
+
+With a rule, a change is sent to the connections it accepted, named one by one (SignalR `Clients.Clients`, MagicOnion
+`Only`): never to a connection it did not check, one that arrived after the check, or one of another server behind a
+backplane (Redis). Each server then tells its own subscribers: in a farm, every server must receive the changes, from the
+database (the PostgreSQL listener) or from a feed they share.
 
 ## TLS
 

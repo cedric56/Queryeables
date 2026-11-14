@@ -40,10 +40,13 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
 
     /// <summary>The SQL of an aggregate over <paramref name="value"/> (count(*) without one), as C# computes it.</summary>
     public string AggregateSql(AggregateFunction function, LambdaExpression? value, Type? type)
+        => function == AggregateFunction.Count || value is null ? "count(*)" : AggregateSql(function, ValueSql(value), type);
+
+    /// <summary>The SQL of an aggregate over the SQL <paramref name="sql"/> of values of <paramref name="type"/>.</summary>
+    public string AggregateSql(AggregateFunction function, string sql, Type? type)
     {
-        if (function == AggregateFunction.Count || value is null)
+        if (function == AggregateFunction.Count)
             return "count(*)";
-        var sql = ValueSql(value);
         var core = Nullable.GetUnderlyingType(type ?? typeof(object)) ?? type ?? typeof(object);
         // SQLite keeps decimals as text: compared and summed as numbers. Averages of integers keep their fraction.
         if (core == typeof(decimal) && Kind == Dialect.Sqlite)
@@ -185,6 +188,10 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
             }
 
             var (a, b) = (Value(left), Value(right));
+            // SQLite keeps decimals as text (Microsoft.Data.Sqlite binds them so): a column declared TEXT would compare
+            // '10' before '9'. Compared as numbers, as C# does.
+            if (Kind == Dialect.Sqlite && (IsDecimal(left.Type) || IsDecimal(right.Type)))
+                (a, b) = ($"cast({a} as real)", $"cast({b} as real)");
             var op = type switch
             {
                 ExpressionType.Equal => "=",
@@ -205,6 +212,8 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
                 _ => $"{a} {op} {b}",
             };
         }
+
+        private static bool IsDecimal(Type type) => (Nullable.GetUnderlyingType(type) ?? type) == typeof(decimal);
 
         private string Call(MethodCallExpression call)
         {

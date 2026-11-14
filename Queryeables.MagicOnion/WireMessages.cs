@@ -19,13 +19,16 @@ public sealed class FilterConditionMessage
     public static FilterConditionMessage From(FilterCondition condition)
         => new() { Property = condition.Property, Operator = condition.Operator, Value = condition.Value };
 
-    public FilterCondition ToCondition() => new(Property, Operator, Value);
+    public FilterCondition ToCondition() => new(Property ?? throw Malformed("property name"), Operator, Value);
 
     public static FilterConditionMessage[] From(FilterCondition[]? conditions)
         => conditions is null ? [] : Array.ConvertAll(conditions, From);
 
+    /// <summary>A null element of an array: a malformed message (answered with InvalidRequest).</summary>
+    internal static ArgumentException Malformed(string element) => new($"The message holds an empty {element}.");
+
     public static FilterCondition[] ToConditions(FilterConditionMessage[]? messages)
-        => messages is null ? [] : Array.ConvertAll(messages, m => m.ToCondition());
+        => messages is null ? [] : Array.ConvertAll(messages, m => (m ?? throw Malformed("filter condition")).ToCondition());
 }
 
 /// <summary>MessagePack form of a <see cref="BatchOperation"/>.</summary>
@@ -53,7 +56,7 @@ public sealed class BatchOperationMessage
         => operations is null ? [] : Array.ConvertAll(operations, From);
 
     public static BatchOperation[] ToOperations(BatchOperationMessage[]? messages)
-        => messages is null ? [] : Array.ConvertAll(messages, m => m.ToOperation());
+        => messages is null ? [] : Array.ConvertAll(messages, m => (m ?? throw FilterConditionMessage.Malformed("batch operation")).ToOperation());
 }
 
 /// <summary>MessagePack form of a <see cref="Queryeables.Abstraction.SortKey"/>.</summary>
@@ -103,7 +106,7 @@ public sealed class RemoteRequestMessage
         Filter = FilterConditionMessage.ToConditions(Filter),
         Any = Any,
         Values = FilterConditionMessage.ToConditions(Values),
-        Members = Members ?? [],
+        Members = Members is null ? [] : Array.TrueForAll(Members, m => m is not null) ? Members : throw FilterConditionMessage.Malformed("member"),
         Original = Original,
         Entity = Entity,
         ConnectionId = ConnectionId,
@@ -123,5 +126,7 @@ public sealed class SortKeyMessage
         => keys is null ? [] : Array.ConvertAll(keys, k => new SortKeyMessage { Property = k.Property, Descending = k.Descending });
 
     public static Queryeables.Abstraction.SortKey[] ToKeys(SortKeyMessage[]? messages)
-        => messages is null ? [] : Array.ConvertAll(messages, m => new Queryeables.Abstraction.SortKey(m.Property, m.Descending));
+        => messages is null ? [] : Array.ConvertAll(messages, m => m is null
+            ? throw FilterConditionMessage.Malformed("sort key")
+            : new Queryeables.Abstraction.SortKey(m.Property, m.Descending));
 }

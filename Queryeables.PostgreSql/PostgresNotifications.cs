@@ -86,12 +86,24 @@ public sealed class PostgresNotifications
             CREATE OR REPLACE FUNCTION {FunctionName}() RETURNS trigger AS $queryeables$
             DECLARE
                 changed_key text;
+                old_key text;
             BEGIN
                 -- The key column only (its name is the trigger's argument), not the whole row.
                 IF TG_OP = 'DELETE' THEN
                     EXECUTE format('SELECT ($1).%I::text', TG_ARGV[0]) USING OLD INTO changed_key;
                 ELSE
                     EXECUTE format('SELECT ($1).%I::text', TG_ARGV[0]) USING NEW INTO changed_key;
+                END IF;
+                -- A key changed by an update: the row under the old key is gone, for the caches too.
+                IF TG_OP = 'UPDATE' THEN
+                    EXECUTE format('SELECT ($1).%I::text', TG_ARGV[0]) USING OLD INTO old_key;
+                    IF old_key IS DISTINCT FROM changed_key THEN
+                        PERFORM pg_notify('{Channel}', json_build_object(
+                            'schema', TG_TABLE_SCHEMA,
+                            'table', TG_TABLE_NAME,
+                            'op', 'DELETE',
+                            'key', old_key)::text);
+                    END IF;
                 END IF;
                 PERFORM pg_notify('{Channel}', json_build_object(
                     'schema', TG_TABLE_SCHEMA,

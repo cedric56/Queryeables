@@ -232,6 +232,7 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
         await CheckRowsAsync(store, kind, value, context, ct);
+        await AuthorizeStoredAsync(store, kind, value, context, ct);
         await KeepStoredAsync(serializer, store, kind, value, ct);
 
         // A graph: the parent and its children, in the batch's transaction.
@@ -277,8 +278,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     private async Task<byte[]> WriteThroughAggregateAsync(IEntitySerializer serializer, IAggregateRepository<T> service, BatchOperationKind kind, byte[] entity,
         EntityRequestContext context, CancellationToken ct)
     {
-        var checks = rows is not null || RemoteMembers<T>.ServerOwned.Count > 0 || OmittedBy(serializer).Length > 0;
-        if (checks && service is IGraphRepository<T>)
+        var rowChecks = rows is not null || RemoteMembers<T>.ServerOwned.Count > 0 || OmittedBy(serializer).Length > 0;
+        if (rowChecks && service is IGraphRepository<T>)
         {
             // A graph saves in a store given to it: the checks and the save in one transaction, as for a plain entity.
             await using var store = _storeFactory();
@@ -289,12 +290,13 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         }
 
         var value = await PrepareAsync(serializer, kind, entity, context, ct);
-        if (checks)
+        if (rowChecks || kind != BatchOperationKind.Insert && _policy.ChecksEntities)
         {
             // Another service saves in its own transaction: the stored row is checked just before, not inside it. A version
             // ([ConcurrencyCheck]) on the entity turns a change made in between into a Conflict at the save.
             await using var store = _storeFactory();
             await CheckRowsAsync(store, kind, value, context, ct);
+            await AuthorizeStoredAsync(store, kind, value, context, ct);
             await KeepStoredAsync(serializer, store, kind, value, ct);
         }
 
@@ -682,12 +684,15 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         CancellationToken ct)
     {
         HandlerGraphGuard.KeepServerValues(write, child, stored, serializer);
-        await AuthorizeAsync(write switch
+        var operation = write switch
         {
             GraphWrite.Insert => EntityOperation.Insert,
             GraphWrite.Update => EntityOperation.Update,
             _ => EntityOperation.Delete,
-        }, child, context, ct);
+        };
+        await AuthorizeAsync(operation, child, context, ct);
+        if (stored is not null && write != GraphWrite.Insert && _policy.ChecksEntities)
+            await AuthorizeAsync(operation, stored, context, ct);     // the stored child too, as for a row written alone
         if (rows is null)
             return;
         var visible = rows.Rows(context.User).Compile(preferInterpretation: true);
@@ -717,6 +722,21 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         if (kind != BatchOperationKind.Delete && !visible.Compile(preferInterpretation: true)(value))
             throw new EntityStoreException(EntityErrorCode.Forbidden,
                 $"Access denied: this {typeof(T).Name} is outside the rows you may write.");
+    }
+
+    /// <summary>
+    /// An update or a delete asks the policy about the stored row it targets too, not only about the content the client
+    /// sent: a rule on who owns a row protects the rows of others. Skipped for a policy that does not read entities.
+    /// </summary>
+    private async Task AuthorizeStoredAsync(IEntityStore store, BatchOperationKind kind, T value, EntityRequestContext context, CancellationToken ct)
+    {
+        if (kind == BatchOperationKind.Insert || !_policy.ChecksEntities || SyncMetadata.Key(typeof(T)) is not { } key)
+            return;
+        var parameter = Expression.Parameter(typeof(T), "e");
+        var sameKey = Expression.Lambda<Func<T, bool>>(
+            Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(value), key.PropertyType)), parameter);
+        if (await store.FirstOrDefaultAsync(sameKey, ct) is { } stored)
+            await AuthorizeAsync(kind == BatchOperationKind.Update ? EntityOperation.Update : EntityOperation.Delete, stored, context, ct);
     }
 
     private async Task AuthorizeAsync(EntityOperation operation, T? entity, EntityRequestContext context, CancellationToken ct)

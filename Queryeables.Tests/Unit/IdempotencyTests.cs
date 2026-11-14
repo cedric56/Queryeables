@@ -212,22 +212,65 @@ public class IdempotencyTests
     [Fact]
     public async Task A_write_interrupted_by_a_restart_is_a_conflict_then_can_be_sent_again()
     {
-        var time = new ManualTime();
         await new MemoryStore(_database).InsertAsync(new IdempotencyRecord
         {
-            Id = StoreIdempotencyStore.IdOf("k"), Done = false, At = time.Now.UtcDateTime,        // started, the server stopped
-        });
-        time.Now += TimeSpan.FromMinutes(5);
+            Id = StoreIdempotencyStore.IdOf("k"), State = IdempotencyState.Running, At = DateTime.UtcNow, Runner = "gone",
+        });                                                                         // started, the server stopped: no beat
         var calls = 0;
         Task<TransportResult> Write() { calls++; return Task.FromResult(TransportResult.Success()); }
 
-        var interrupted = await Durable(time).RunOnceAsync("k", Write);
+        var interrupted = await Quick().RunOnceAsync("k", Write);
         Assert.Equal(EntityErrorCode.Conflict, interrupted.ErrorCode);
         Assert.Equal(0, calls);                                                     // never applied twice blindly
 
-        Assert.True((await Durable(time).RunOnceAsync("k", Write)).Successful);    // "keep mine": sent again
+        Assert.True((await Quick().RunOnceAsync("k", Write)).Successful);          // "keep mine": sent again
+        Assert.Equal(1, calls);
+        Assert.Equal(IdempotencyState.Done, Assert.Single(_database.All<IdempotencyRecord>()).State);
+    }
+
+    [Fact]
+    public async Task A_long_write_that_beats_is_waited_for_not_taken_as_interrupted()
+    {
+        var calls = 0;
+        var release = new TaskCompletionSource();
+        async Task<TransportResult> Long() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([5]); }
+
+        var first = Quick().RunOnceAsync("k", Long);
+        var second = Quick().RunOnceAsync("k", Long);
+        await Task.Delay(400);                                                      // four timeouts: the beats keep it alive
+        Assert.False(second.IsCompleted);
+        release.SetResult();
+
+        Assert.Equal([5], (await first).Data);
+        Assert.Equal([5], (await second).Data);
         Assert.Equal(1, calls);
     }
+
+    [Fact]
+    public async Task A_write_finished_after_being_taken_as_interrupted_answers_the_next_send()
+    {
+        var store = Quick();
+        var release = new TaskCompletionSource();
+        var calls = 0;
+        async Task<TransportResult> Write() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([9]); }
+
+        var running = store.RunOnceAsync("k", Write);
+        var record = Assert.Single(_database.All<IdempotencyRecord>());
+        record.State = IdempotencyState.Interrupted;                                // as a waiter that lost its beats would
+        await new MemoryStore(_database).UpdateAsync(record);
+        release.SetResult();
+        await running;
+
+        var again = await Quick().RunOnceAsync("k", Write);                         // the client's "keep mine"
+        Assert.Equal([9], again.Data);
+        Assert.Equal(1, calls);
+    }
+
+    private StoreIdempotencyStore Quick() => new(new EntityStoreFactory(() => new MemoryStore(_database)))
+    {
+        RunningTimeout = TimeSpan.FromMilliseconds(100),
+        PollInterval = TimeSpan.FromMilliseconds(10),
+    };
 
     [Fact]
     public async Task Concurrent_durable_calls_apply_the_write_once()
