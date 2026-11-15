@@ -45,7 +45,8 @@ public sealed class LocalWrites
 /// <summary>
 /// Reports to <see cref="LocalWrites"/> each entity this store inserts, updates or deletes: at once outside a transaction,
 /// at the commit inside one (nothing on a rollback). The writes of many rows at once (<c>UpdateWhere</c>,
-/// <c>DeleteWhere</c>) are not reported: the database's notifications bring them. Everything else goes to the inner store.
+/// <c>DeleteWhere</c>) are not reported (the rows are not known here): the database's notifications bring them, to their
+/// author too (a remote client sends them without its notification session). Everything else goes to the inner store.
 /// </summary>
 public sealed class LocalWritesDecorator(IEntityStore inner, LocalWrites writes) : IEntityStore
 {

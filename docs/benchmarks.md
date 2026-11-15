@@ -20,6 +20,10 @@ Always run in `Release`, on a machine doing nothing else, and compare numbers on
 | `RemoteBenchmarks` | What does the remote layer cost without the network? Predicate translation, MessagePack, access policy and dispatcher, in process, against the local store. Add your network round trip to these numbers |
 | `NetworkBenchmarks` | What does a real connection add? The same calls on the database, through the remote layer in process, and through gRPC to a server on 127.0.0.1 (Kestrel, HTTP/2, MagicOnion, MessagePack), plus 16 reads at once on one connection |
 
+The remote benchmarks use MessagePack, not JSON, the default serializer since November 2026. JSON messages are larger
+and slower to read and write: expect a higher cost per call and per row on `Remote_*` and `Grpc_*` with the default, the
+more so for many rows. Choose MessagePack where that matters (see [remote access](guides/remote-access.md#entities-on-the-wire)).
+
 Every class runs `MemoryDiagnoser`: read the `Allocated` column next to the time.
 
 ## How to read the results

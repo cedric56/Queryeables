@@ -27,7 +27,8 @@ or a Guid).
 
 Hide it with the attribute **of the serializer the server uses**: `[JsonIgnore]` for JSON (the default of MagicOnion),
 `[IgnoreMember]` for MessagePack. MessagePack ignores `[JsonIgnore]`: a server that would send a property marked for another serializer
-refuses to serve the type (`NotSupported`, and the reason in its log) instead of sending the value. An update keeps the
+refuses to serve the type instead of sending the value: `app.MapQueryeables()` throws at startup with the reason (a
+transport without it answers `NotSupported` to each request for the type, the reason in its log). An update keeps the
 stored value of a hidden property: the client never had it, so what it sends back is not its decision. A custom
 `IEntitySerializer` says what it leaves out with `Omits(PropertyInfo)`.
 

@@ -255,6 +255,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
     {
         ArgumentNullException.ThrowIfNull(update);
         NotInTransaction("An update of many rows");
+        _manyRows.Value = true;                         // until this call returns (an async method restores it)
         var (conditions, any) = Filters.FromPredicate(predicate);
         var request = new RemoteRequest
         {
@@ -283,6 +284,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         CancellationToken ct = default) where TEntity : class
     {
         NotInTransaction("A deletion of many rows");
+        _manyRows.Value = true;
         var (conditions, any) = Filters.FromPredicate(predicate);
         var request = new RemoteRequest { Kind = RemoteRequestKind.DeleteWhere, Filter = conditions, Any = any, ConnectionId = ConnectionId<TEntity>() };
         var (supported, data) = await ExecuteAsync<TEntity>(request, ct);
@@ -458,8 +460,13 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
     /// <summary>Name under which the server registers the type (see <see cref="EntityName"/>).</summary>
     private static string Name<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>() => EntityName.Of<TEntity>();
 
+    // In a write of many rows: sent without the notification session, so that the author's caches get the notifications of
+    // the rows written too (they cannot apply rows they never saw; a single write, its caches apply at once).
+    private static readonly AsyncLocal<bool> _manyRows = new();
+
+    /// <summary>The notification session of the client, so that it is not notified of its own writes (it applies them).</summary>
     private string? ConnectionId<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>()
-        => session is not null && session.TryGetSession(typeof(TEntity), out var current) ? current.session : null;
+        => !_manyRows.Value && session is not null && session.TryGetSession(typeof(TEntity), out var current) ? current.session : null;
 
     private IReadOnlyList<TEntity> DeserializeMany<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(byte[]? data)
         => data is { Length: > 0 } ? _serializer.Deserialize<TEntity[]>(data) ?? [] : [];

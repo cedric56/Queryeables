@@ -7,6 +7,16 @@ may change the API.
 
 First public version.
 
+### Fixed (review of November 15, evening)
+- On a remote client, `UpdateWhere` and `DeleteWhere` now reach the author's own caches: they are sent without its
+  notification session, so the server notifies the author of the rows written too.
+- The cache keeps a copy of the columns of an entity the application saves, as a row read from the database: a change of
+  the instance not saved (a form cancelled) is no longer in the cache, nor are its loaded children.
+- `app.MapQueryeables()` checks the exposed types against the server's serializer at startup (a value hidden by
+  `[IgnoreMember]` only, served in JSON), instead of refusing them at their first request.
+- Documented: on PostgreSQL, `CreateTables` makes `DateTime` columns `timestamp with time zone` (UTC dates); the benchmarks
+  measure MessagePack, JSON costs more.
+
 ### Changed
 - A simpler first hour (review of November 15). Breaking:
   - **Table names**: Dommel stores name a table after its class (`Person`), not Dommel's plural (`Persons`); `[Table]` still

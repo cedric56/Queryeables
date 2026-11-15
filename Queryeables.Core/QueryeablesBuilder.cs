@@ -113,7 +113,7 @@ public sealed class QueryeablesBuilder
     /// <c>INTEGER PRIMARY KEY</c> table...) report that key. With any other key, a notification synchronizes the cache
     /// (only the changed rows with [LastModified], everything otherwise): a rowid cannot be read as a Guid or a string key.
     /// </remarks>
-    public QueryeablesBuilder AddCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity,
+    public QueryeablesBuilder AddCache<[DynamicallyAccessedMembers(EntityMembers.Required | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TEntity,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(Expression<Func<TEntity, TKey>> key)
         where TEntity : class
         where TKey : notnull

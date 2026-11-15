@@ -36,7 +36,10 @@ services.UseQueryeables(q => q
 - **SQL logging** (`DbLogConnection`): every command with its parameters, at the level you choose. For development.
 - `q.CreateTables()` creates the missing tables of the application's entities at startup, from their classes (SQLite,
   PostgreSQL, SQL Server, MySQL; `DommelSchema.CreateScript` gives the script): for a first application, not a migration
-  tool. `DommelEntityStore.EnsureSchemaAsync(factory, connectionString, script)` runs a script of your own.
+  tool. `DommelEntityStore.EnsureSchemaAsync(factory, connectionString, script)` runs a script of your own. On PostgreSQL,
+  a `DateTime` column is a `timestamp with time zone`, as the dates Queryeables writes (`[LastModified]`) are UTC: Npgsql
+  then refuses a `DateTime` whose `Kind` is not `Utc` (`DateTime.Now`). Store `DateTime.UtcNow` or a `DateTimeOffset`,
+  or declare `[Column(TypeName = "timestamp")]` for a local date and time.
 
 ## Table names
 

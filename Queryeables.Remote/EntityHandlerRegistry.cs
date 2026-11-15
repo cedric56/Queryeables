@@ -15,6 +15,8 @@ public sealed class EntityHandlerRegistry : IEntityHandlerRegistry
     public bool TryGet(string name, out EntityHandler handler)
         => _handlers.TryGetValue(name, out handler!);
 
+    public IReadOnlyCollection<EntityHandler> Handlers => [.. _handlers.Values.Distinct()];
+
     /// <summary>
     /// Registers a handler under a name. Replacing the handler of the same type is allowed;
     /// reusing the name of another type throws, instead of silently exposing the wrong table.

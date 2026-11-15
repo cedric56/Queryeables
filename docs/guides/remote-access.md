@@ -64,7 +64,10 @@ the server, with the `Queryeables` package only: `AddGeneratedEntities()` regist
   source-generated `JsonSerializerContext` on both sides: `q.UseMagicOnion(url, new JsonEntitySerializer(AppJson.Default.Options))`
   and `AddMagicOnionServer(serializer, ...)`.
 - **MessagePack**, as before: `MessagePackEntitySerializer.Default` on the client and `MessagePackEntitySerializer.Server` on
-  the server, with `[MessagePackObject]` on the entities and `[IgnoreMember]` on navigations and hidden values.
+  the server, with `[MessagePackObject]` on the entities and `[IgnoreMember]` on navigations and hidden values. Smaller
+  messages and faster to read and write than JSON: worth it for many rows or a slow network (the
+  [benchmarks](../benchmarks.md) measure MessagePack). An entity that still hides a value with `[IgnoreMember]` only, served
+  in JSON, stops the server at startup (`MapQueryeables`): give it `[JsonIgnore]` too, or keep MessagePack.
 
 ## Limits
 

@@ -15,7 +15,12 @@ namespace Queryeables.Dommel;
 /// For SQLite, PostgreSQL, SQL Server and MySQL. A table that exists is left as it is: this is no migration tool. Use it
 /// for a first application, a prototype, the tests; manage the schema of a database in production with migrations.
 /// </summary>
-/// <remarks>No foreign key constraints and no indexes besides the key: add them in your migrations.</remarks>
+/// <remarks>
+/// No foreign key constraints and no indexes besides the key: add them in your migrations. On PostgreSQL a
+/// <see cref="DateTime"/> is a <c>timestamp with time zone</c> (the dates Queryeables writes are UTC): Npgsql refuses a
+/// <see cref="DateTime"/> whose <see cref="DateTime.Kind"/> is not <see cref="DateTimeKind.Utc"/>. Write UTC dates, use
+/// <see cref="DateTimeOffset"/>, or declare <c>[Column(TypeName = "timestamp")]</c> for a local date and time.
+/// </remarks>
 public static class DommelSchema
 {
     /// <summary>The script that creates the tables of <paramref name="types"/> (when missing) on <paramref name="sqlBuilder"/>'s database.</summary>

@@ -209,6 +209,17 @@ public sealed class EntityRequestDispatcher(
                 : RemoteDiagnostics.ServerAsync(operation, type, async () => Hide(await call(handler)))
             : Task.FromResult(UnknownType(type));
 
+    /// <summary>
+    /// Throws when an exposed type cannot be served with this serializer (a property hidden by an attribute it ignores):
+    /// at startup, instead of at the first request for the type. <c>MapQueryeables</c> calls it.
+    /// </summary>
+    public void CheckConfiguration()
+    {
+        var problems = _registry.Handlers.Select(h => h.CheckSerializer(_serializer)).OfType<string>().ToList();
+        if (problems.Count > 0)
+            throw new InvalidOperationException(string.Join(Environment.NewLine, problems));
+    }
+
     // Checked once per type: a property hidden by an attribute this serializer ignores would reach every client.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<EntityHandler, string?> _serializerProblems = new();
 

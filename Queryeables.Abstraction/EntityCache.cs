@@ -37,7 +37,7 @@ namespace Queryeables.Abstraction;
 /// Incremental synchronization: idea taken from the Datasync Community Toolkit; coalescing of invalidations:
 /// idea taken from ActualLab.Fusion. See CREDITS.md.
 /// </remarks>
-public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IUserScopedData, IDisposable
+public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IUserScopedData, IDisposable
     where TEntity : class
     where TKey : notnull
 {
@@ -133,12 +133,28 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     {
         if (type != ChangeType.Delete)
         {
-            Track(entity);
+            Track(Detached(entity));
             return;
         }
         lock (_writeLock)
             _byKey.TryRemove(_key(entity), out _);
         RaiseEntitiesChanged();
+    }
+
+    private static readonly bool CanCopy = typeof(TEntity).GetConstructor(Type.EmptyTypes) is not null;
+
+    /// <summary>
+    /// A copy of the columns of the entity the application saved, as a row read from the database: a later change of its
+    /// instance (a form cancelled) is not in the cache, nor are its loaded children. The instance itself when it cannot be
+    /// copied (no parameterless constructor, or a derived type whose columns would be lost).
+    /// </summary>
+    private static TEntity Detached(TEntity entity)
+    {
+        if (!CanCopy || entity.GetType() != typeof(TEntity))
+            return entity;
+        var copy = Activator.CreateInstance<TEntity>();
+        EntityPatch.CopyColumns(entity, copy);
+        return copy;
     }
 
     /// <summary>Snapshot of the current state: safe to enumerate while the cache updates.</summary>
