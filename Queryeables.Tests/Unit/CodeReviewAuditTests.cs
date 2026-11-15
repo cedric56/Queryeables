@@ -105,6 +105,24 @@ public class CodeReviewAuditTests
         Assert.Equal("Locked", Assert.Single(_database.All<TestClient>()).Name);
     }
 
+    [Fact]
+    public async Task An_update_of_many_rows_cannot_take_the_rows_of_others_with_the_values_it_sets()
+    {
+        await new MemoryStore(_database).InsertAsync(new TestClient { Name = "ana" });
+        await new MemoryStore(_database).InsertAsync(new TestClient { Name = "bob" });
+        // Name stands for the owner: a user writes only the rows it owns.
+        var policy = EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read || r.Entity is null || r.Entity is TestClient { Name: "ana" });
+        var registry = new EntityHandlerRegistry();
+        registry.Register(new EntityHandler<TestClient>(Stores, policy));
+        await using var store = new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
+
+        var taken = await Assert.ThrowsAsync<EntityStoreException>(
+            () => store.UpdateWhereAsync<TestClient>(c => c.Id > 0, set => set.Set(c => c.Name, "ana")));
+
+        Assert.Equal(EntityErrorCode.Forbidden, taken.ErrorCode);
+        Assert.Equal(["ana", "bob"], _database.All<TestClient>().Select(c => c.Name).Order());
+    }
+
     // ---------- A visibility rule sends to the connections it checked, not to all but the others ----------
 
     private sealed class Targeted(IChangeFeed<TestClient> monitor, ChangeHubOptions options) : ChangeBroadcaster<TestClient>(monitor, options: options)

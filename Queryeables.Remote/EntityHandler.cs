@@ -493,6 +493,9 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
                         count++;
                     continue;
                 }
+                // The stored row first, then its new content: a rule on who owns a row must not see only the row after
+                // the values (an UpdateWhere that sets OwnerId = me would take the rows of others).
+                await AuthorizeAsync(operation, row, context, ct);
                 foreach (var (property, value) in assignments)
                     property.SetValue(row, value);
                 await AuthorizeAsync(operation, row, context, ct);

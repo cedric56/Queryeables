@@ -136,6 +136,9 @@ First public version.
 - Dommel store: `e => e.Column == value` (reads by key and by foreign key) runs SQL built once per type and column.
 
 ### Fixed
+- Review of November 15: an update of many rows (`UpdateWhere`) asked the access policy only about each row after its new
+  values were set, so a rule on who owns a row (`OwnerId == me`) let a client take the rows of others by setting
+  `OwnerId`. The stored row is now checked before the values, then the new content after, as for a single update.
 - Code review of November 14:
   - `StoreIdempotencyStore`: a write running longer than `RunningTimeout`, or a clock ahead on another server, could be
     taken as interrupted and applied twice. A running write now beats (a counter, judged by the waiting server's own
