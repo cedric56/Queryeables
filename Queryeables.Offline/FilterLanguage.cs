@@ -4,7 +4,9 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Queryeables.Remote;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// The filters a client sends beyond "a property compared with a value": comparisons between properties, computations

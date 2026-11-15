@@ -4,7 +4,9 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Queryeables.Remote;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// The results of the writes already applied, kept in a table of the database (<see cref="IdempotencyRecord"/>): they
