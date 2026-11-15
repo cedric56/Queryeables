@@ -34,7 +34,7 @@ jobs:
           dotnet-version: 10.0.x
 
       # C# without a build: the sources are analyzed as they are, the source generators excepted.
-      - uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: csharp
           build-mode: none
