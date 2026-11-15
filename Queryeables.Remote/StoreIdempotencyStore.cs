@@ -195,6 +195,12 @@ public sealed class StoreIdempotencyStore(IEntityStoreFactory stores, TimeProvid
                         return;
                     }
                 }
+                catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested)
+                {
+                    // One beat lost (the database busy a moment): the next one tries again; three more fit in the timeout.
+                    running.Beat--;
+                    OnError?.Invoke(ex);
+                }
                 finally
                 {
                     gate.Release();
@@ -203,10 +209,6 @@ public sealed class StoreIdempotencyStore(IEntityStoreFactory stores, TimeProvid
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-        }
-        catch (Exception ex)
-        {
-            OnError?.Invoke(ex);                            // a lost beat never fails the write
         }
     }
 

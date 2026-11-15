@@ -235,9 +235,10 @@ public class IdempotencyTests
         var release = new TaskCompletionSource();
         async Task<TransportResult> Long() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([5]); }
 
-        var first = Quick().RunOnceAsync("k", Long);
-        var second = Quick().RunOnceAsync("k", Long);
-        await Task.Delay(400);                                                      // four timeouts: the beats keep it alive
+        // A timeout long enough for the beats of a slow machine (Windows timers tick every 15 ms), waited three times over.
+        var first = Quick(TimeSpan.FromMilliseconds(500)).RunOnceAsync("k", Long);
+        var second = Quick(TimeSpan.FromMilliseconds(500)).RunOnceAsync("k", Long);
+        await Task.Delay(1500);                                                     // three timeouts: the beats keep it alive
         Assert.False(second.IsCompleted);
         release.SetResult();
 
@@ -266,9 +267,9 @@ public class IdempotencyTests
         Assert.Equal(1, calls);
     }
 
-    private StoreIdempotencyStore Quick() => new(new EntityStoreFactory(() => new MemoryStore(_database)))
+    private StoreIdempotencyStore Quick(TimeSpan? timeout = null) => new(new EntityStoreFactory(() => new MemoryStore(_database)))
     {
-        RunningTimeout = TimeSpan.FromMilliseconds(100),
+        RunningTimeout = timeout ?? TimeSpan.FromMilliseconds(100),
         PollInterval = TimeSpan.FromMilliseconds(10),
     };
 
