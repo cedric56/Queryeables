@@ -235,10 +235,22 @@ public class IdempotencyTests
         var release = new TaskCompletionSource();
         async Task<TransportResult> Long() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([5]); }
 
-        // A timeout long enough for the beats of a slow machine (Windows timers tick every 15 ms), waited three times over.
-        var first = Quick(TimeSpan.FromMilliseconds(500)).RunOnceAsync("k", Long);
-        var second = Quick(TimeSpan.FromMilliseconds(500)).RunOnceAsync("k", Long);
-        await Task.Delay(1500);                                                     // three timeouts: the beats keep it alive
+        // The waiting call's clock moves only after a beat: a busy machine (a beat late, a poll late) cannot pass for a
+        // stopped server. The beats themselves run on real timers.
+        var clock = new ManualTimestamp();
+        StoreIdempotencyStore Store() => new(new EntityStoreFactory(() => new MemoryStore(_database)), clock)
+        {
+            RunningTimeout = TimeSpan.FromMilliseconds(200),
+            PollInterval = TimeSpan.FromMilliseconds(10),
+        };
+        var first = Store().RunOnceAsync("k", Long);
+        var second = Store().RunOnceAsync("k", Long);
+        for (var i = 0; i < 6; i++)                                                 // three timeouts, half a timeout per beat
+        {
+            await NextBeatAsync();
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+        }
+        await NextBeatAsync();                                                      // the waiting call has polled meanwhile
         Assert.False(second.IsCompleted);
         release.SetResult();
 
@@ -247,10 +259,19 @@ public class IdempotencyTests
         Assert.Equal(1, calls);
     }
 
+    private async Task NextBeatAsync()
+    {
+        long? Beat() => _database.All<IdempotencyRecord>().SingleOrDefault()?.Beat;
+        var before = Beat() ?? -1;
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (Beat() is not { } beat || beat <= before)
+            await Task.Delay(5, limit.Token);
+    }
+
     [Fact]
     public async Task A_write_finished_after_being_taken_as_interrupted_answers_the_next_send()
     {
-        var store = Quick();
+        var store = Quick(TimeSpan.FromMinutes(1));                                // no beat between the read and the update below
         var release = new TaskCompletionSource();
         var calls = 0;
         async Task<TransportResult> Write() { Interlocked.Increment(ref calls); await release.Task; return TransportResult.Success([9]); }
@@ -288,6 +309,16 @@ public class IdempotencyTests
         Assert.True((await first).Successful);
         Assert.Equal([1], (await second).Data);
         Assert.Equal(1, calls);
+    }
+
+    /// <summary>A clock for the elapsed times that moves only when told to; timers and the date are the system's.</summary>
+    private sealed class ManualTimestamp : TimeProvider
+    {
+        private long _timestamp;
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _timestamp, (long)(by.TotalSeconds * TimestampFrequency));
+
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
     }
 
     private sealed class ManualTime : TimeProvider

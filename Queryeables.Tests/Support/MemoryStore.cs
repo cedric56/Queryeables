@@ -20,10 +20,13 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     public async Task<IReadOnlyList<T>> SelectAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, CancellationToken ct = default) where T : class
     {
         predicate = await EntityRelations.ExpandAsync(this, predicate, ct);      // as every store: relation filters become queries
-        IReadOnlyList<T> rows = Matching(predicate).ToList();
-        _database.RowsRead += rows.Count;
-        _database.Queries++;
-        return rows;
+        lock (_database.Gate)
+        {
+            IReadOnlyList<T> rows = Matching(predicate).ToList();
+            _database.RowsRead += rows.Count;
+            _database.Queries++;
+            return rows;
+        }
     }
 
     private IEnumerable<T> Matching<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate) where T : class
@@ -38,13 +41,23 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
     public async Task<IReadOnlyList<T>> SelectPagedAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(Expression<Func<T, bool>> predicate, int pageNumber, int pageSize, CancellationToken ct = default) where T : class
     {
         predicate = await EntityRelations.ExpandAsync(this, predicate, ct);
-        IReadOnlyList<T> page = Matching(predicate).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();     // as a database pages
-        _database.RowsRead += page.Count;
-        _database.Queries++;
-        return page;
+        lock (_database.Gate)
+        {
+            IReadOnlyList<T> page = Matching(predicate).Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();     // as a database pages
+            _database.RowsRead += page.Count;
+            _database.Queries++;
+            return page;
+        }
     }
 
     public Task InsertAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
+    {
+        lock (_database.Gate)
+            Insert(entity);
+        return Task.CompletedTask;
+    }
+
+    private void Insert<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity) where T : class
     {
         var rows = _database.Rows<T>();
         var keys = SyncMetadata.Keys(typeof(T));
@@ -59,31 +72,42 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         }
         rows.Add(Copy(entity));
         _database.Log.Add($"INSERT {typeof(T).Name} {KeyText(entity)}");
-        return Task.CompletedTask;
     }
 
     public Task<bool> UpdateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
+    {
+        lock (_database.Gate)
+            return Task.FromResult(Update(entity));
+    }
+
+    private bool Update<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity) where T : class
     {
         var rows = _database.Rows<T>();
         var index = IndexOf(rows, entity);
         _database.Log.Add($"UPDATE {typeof(T).Name} {KeyText(entity)}");
         if (index < 0)
-            return Task.FromResult(false);
+            return false;
         CheckVersion((T)rows[index], entity, increment: true);
         rows[index] = Copy(entity);
-        return Task.FromResult(true);
+        return true;
     }
 
     public Task<bool> DeleteAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity, CancellationToken ct = default) where T : class
+    {
+        lock (_database.Gate)
+            return Task.FromResult(Delete(entity));
+    }
+
+    private bool Delete<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity) where T : class
     {
         var rows = _database.Rows<T>();
         var index = IndexOf(rows, entity);
         _database.Log.Add($"DELETE {typeof(T).Name} {KeyText(entity)}");
         if (index < 0)
-            return Task.FromResult(false);
+            return false;
         CheckVersion((T)rows[index], entity, increment: false);
         rows.RemoveAt(index);
-        return Task.FromResult(true);
+        return true;
     }
 
     /// <summary>[ConcurrencyCheck], as the Dommel store does it: a stale version is a conflict; an update increments it.</summary>
@@ -99,8 +123,11 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
 
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default)
     {
-        _snapshot = _database.Snapshot();
-        _database.Log.Add("BEGIN");
+        lock (_database.Gate)
+        {
+            _snapshot = _database.Snapshot();
+            _database.Log.Add("BEGIN");
+        }
         return Task.FromResult<IEntityTransaction>(new Transaction(this));
     }
 
@@ -142,7 +169,8 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         {
             _done = true;
             store._snapshot = null;
-            store._database.Log.Add("COMMIT");
+            lock (store._database.Gate)
+                store._database.Log.Add("COMMIT");
             return Task.FromResult(EntityResult.Success());
         }
 
@@ -162,18 +190,27 @@ public sealed class MemoryStore(MemoryDatabase database) : IEntityStore
         private void Restore()
         {
             _done = true;
-            if (store._snapshot is { } snapshot)
-                store._database.Restore(snapshot);
+            lock (store._database.Gate)
+            {
+                if (store._snapshot is { } snapshot)
+                    store._database.Restore(snapshot);
+                store._database.Log.Add("ROLLBACK");
+            }
             store._snapshot = null;
-            store._database.Log.Add("ROLLBACK");
         }
     }
 }
 
-/// <summary>Tables shared by the <see cref="MemoryStore"/> instances of a test.</summary>
+/// <summary>
+/// Tables shared by the <see cref="MemoryStore"/> instances of a test. Safe to use from several threads at once (a server
+/// beating while another call polls), as a database is: every statement of a store runs under <see cref="Gate"/>.
+/// </summary>
 public sealed class MemoryDatabase
 {
     private Dictionary<Type, List<object>> _tables = [];
+
+    /// <summary>Held by every statement of a <see cref="MemoryStore"/>: one at a time, as a database serializes them.</summary>
+    internal Lock Gate { get; } = new();
 
     public List<string> Log { get; } = [];
 
@@ -190,7 +227,11 @@ public sealed class MemoryDatabase
         return rows;
     }
 
-    public IReadOnlyList<T> All<T>() => Rows<T>().Cast<T>().ToList();
+    public IReadOnlyList<T> All<T>()
+    {
+        lock (Gate)
+            return Rows<T>().Cast<T>().ToList();
+    }
 
     internal Dictionary<Type, List<object>> Snapshot() => _tables.ToDictionary(t => t.Key, t => t.Value.ToList());
 
