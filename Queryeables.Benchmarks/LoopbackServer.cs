@@ -44,7 +44,8 @@ public sealed class LoopbackServer : IAsyncDisposable
         builder.Services.AddMagicOnion();
         builder.Services.UseQueryeables(q => q
             .UseStores(_ => stores)
-            .AddMagicOnionServer(server => server.Expose<Item>(EntityAccessPolicies.AllowAll)));
+            // MessagePack, as the client below: the default (JSON) would answer in a format the client cannot read.
+            .AddMagicOnionServer(MessagePackEntitySerializer.Server, server => server.Expose<Item>(EntityAccessPolicies.AllowAll)));
 
         var app = builder.Build();
         app.MapMagicOnionService(typeof(BenchmarkLayerService));
