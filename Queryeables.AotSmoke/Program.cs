@@ -3,6 +3,7 @@ using Queryeables;
 using Queryeables.Abstraction;
 using Queryeables.AotSmoke;
 using Queryeables.Generated;
+using Queryeables.Offline;
 using Queryeables.Remote;
 
 var serializer = new SmokeSerializer();
@@ -14,6 +15,7 @@ services.UseQueryeables(q => q
     .UseStores(_ => new MemoryStore(database, serializer))
     .AddGeneratedEntities()
     .AddEntityServer(serializer, server => server
+        .AllowWrites()
         .Expose<Person>(EntityAccessPolicies.AllowAll)
         .Expose<Contact>(EntityAccessPolicies.AllowAll)));
 await using var provider = services.BuildServiceProvider();
@@ -42,11 +44,19 @@ provider.GetRequiredService<IChangeFeed<Person>>().Publish(new EntityChange<Pers
 await changed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 Expect(cache.Find(bob.Id)?.Name == "Bob", "cache updated by its monitor");
 
-// Remote: a client of the in-process server, with the same generated service.
+// Remote: a replica of the in-process server, read by key.
 var dispatcher = provider.GetRequiredService<EntityRequestDispatcher>();
+await using (var replica = RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer).Create())
+{
+    Expect((await replica.GetAllAsync<Person>()).Count == 2, "replica read");
+    var id = ana.Id;
+    Expect((await replica.FirstOrDefaultAsync<Person>(p => p.Id == id))?.Name == "Ana", "replica row by key");
+}
+
+// Remote writes (Queryeables.Offline): a client of the in-process server, with the same generated service.
 var clientServices = new ServiceCollection();
 clientServices.UseQueryeables(q => q
-    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
+    .UseStores(_ => WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
     .AddGeneratedEntities());
 await using var client = clientServices.BuildServiceProvider();
 

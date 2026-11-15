@@ -135,7 +135,8 @@ Load the contacts first (`LoadContactsAsync`): the selection is the complete lis
 
 ## Remotely
 
-With a remote provider, `SaveAsync` sends the parent with its children in one call, with the ids of the children the user
+With a remote provider that writes (`UseRemoteWrites()` of `Queryeables.Offline`, `AllowWrites()` on the server), `SaveAsync`
+sends the parent with its children in one call, with the ids of the children the user
 left as loaded; the server saves them with its own `IInvoiceRepository` and leaves those rows alone. The server must
 therefore register the graph: `AddGeneratedEntities()` on the server, with the entities in a library both sides reference.
 `Expose<Invoice>` fails at startup otherwise.

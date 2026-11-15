@@ -1,5 +1,5 @@
 using Queryeables.Abstraction;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.Security.Cryptography;
 using System.Text;
 

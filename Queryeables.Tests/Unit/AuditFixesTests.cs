@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -145,11 +146,11 @@ public class AuditFixesTests
     {
         var serverStores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<AuditPerson, long>(serverStores, Graph())));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer());
         var client = new GraphRepository<AuditPerson, long>(
-            RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer()), Graph());
+            WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer()), Graph());
 
         var ana = Ana();
         ana.LocalTag = "selected";

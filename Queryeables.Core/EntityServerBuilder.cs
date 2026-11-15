@@ -4,13 +4,13 @@ using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 
 namespace Queryeables;
 
 /// <summary>
-/// The entity types a server exposes to its remote clients (see <see cref="EntityServerExtensions.AddEntityServer"/>).
-/// A type that is not exposed cannot be reached; each exposed type has its own access policy.
+/// The entity types a server publishes to its remote clients (see <see cref="EntityServerExtensions.AddEntityServer"/>):
+/// each client keeps a replica of the rows it may read. A type that is not exposed cannot be reached; each exposed type has
+/// its own access policy.
 /// </summary>
 public sealed class EntityServerBuilder
 {
@@ -18,9 +18,19 @@ public sealed class EntityServerBuilder
     private readonly HashSet<Type> _exposed = [];
     private (IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, int MaxReadSize)? _generated;
 
-    internal EntityServerBuilder()
+    internal EntityServerBuilder(IServiceCollection services)
     {
+        Services = services;
     }
+
+    /// <summary>The services of the application: what an extension registers with its handlers.</summary>
+    public IServiceCollection Services { get; }
+
+    /// <summary>
+    /// Creates the handler of each exposed type: <see cref="EntityHandler{T}"/> (replicas, read only) unless an extension
+    /// replaces it (<c>AllowWrites()</c> of <c>Queryeables.Offline</c>).
+    /// </summary>
+    public IEntityHandlerFactory Handlers { get; set; } = ReplicaHandlers.Instance;
 
     /// <summary>
     /// Send the message of unexpected errors (database errors...) to the clients. Off by default: they get a reference,
@@ -28,28 +38,18 @@ public sealed class EntityServerBuilder
     /// </summary>
     public bool DetailedErrors { get; set; }
 
-    /// <summary>Most operations a client may send in one batch (one transaction).</summary>
+    /// <summary>Most operations a client may send in one batch (one transaction), when writes are allowed.</summary>
     public int MaxBatchSize { get; set; } = 100;
 
-    /// <summary>
-    /// Keep the results of the writes in the database (<see cref="StoreIdempotencyStore"/>, table <c>IdempotencyRecords</c>)
-    /// rather than in memory: a write sent again after a restart of the server is not applied twice. What production
-    /// needs, with offline clients. An <see cref="IIdempotencyStore"/> registered before takes precedence.
-    /// </summary>
-    public bool DurableIdempotency { get; set; }
-
-    /// <summary>
-    /// Exposes <typeparamref name="TEntity"/>. When an <see cref="IAggregateRepository{TEntity}"/> is registered for it (an entity
-    /// graph), writes go through it: the entity is saved with its children.
-    /// </summary>
-    /// <param name="policy">Who may read and write. Never <see cref="EntityAccessPolicies.AllowAll"/> on a public network.</param>
-    /// <param name="validate">Validates entities (DataAnnotations) before insert and update.</param>
-    /// <param name="maxPageSize">Maximum page size: a larger page is reduced to this size.</param>
+    /// <summary>Exposes <typeparamref name="TEntity"/>.</summary>
+    /// <param name="policy">Who may read (and write, when writes are allowed). Never <see cref="EntityAccessPolicies.AllowAll"/> on a public network.</param>
+    /// <param name="validate">Validates entities (DataAnnotations) before insert and update, when writes are allowed.</param>
+    /// <param name="maxPageSize">Maximum page size, when pages are served: a larger page is reduced to this size.</param>
     /// <param name="rows">
-    /// The rows each user may reach, added to every read and checked on every write
+    /// The rows each user may reach, added to every read (and checked on every write)
     /// (<see cref="RowLevelSecurity.For{T, TKey}"/>). Without it, a user allowed by the policy reaches every row.
     /// </param>
-    /// <param name="maxReadSize">Most rows a read that is not paged may return; beyond it, the read fails.</param>
+    /// <param name="maxReadSize">Most rows a replica (a read that is not paged) may hold; beyond it, the read fails.</param>
     public EntityServerBuilder Expose<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000, RowLevelSecurity<TEntity>? rows = null,
         int maxReadSize = EntityHandler.DefaultMaxReadSize)
@@ -57,7 +57,7 @@ public sealed class EntityServerBuilder
     {
         ArgumentNullException.ThrowIfNull(policy);
         _exposed.Add(typeof(TEntity));
-        _handlers.Add(sp => Handler(sp, policy, validate, maxPageSize, rows, maxReadSize));
+        _handlers.Add(sp => Handlers.Create(sp, new ExposeOptions<TEntity>(policy, validate, maxPageSize, rows, maxReadSize)));
         return this;
     }
 
@@ -75,26 +75,9 @@ public sealed class EntityServerBuilder
         return this;
     }
 
-    private static EntityHandler<TEntity> Handler<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IServiceProvider sp,
-        IEntityAccessPolicy policy, bool validate, int maxPageSize, RowLevelSecurity<TEntity>? rows, int maxReadSize)
-        where TEntity : class
-    {
-        var aggregate = sp.GetService<IAggregateRepository<TEntity>>();
-
-        // Without its graph repository, the server would save the parent and silently drop the children it received.
-        if (aggregate is null && HasEntityGraph(typeof(TEntity)))
-            throw new InvalidOperationException(
-                $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IAggregateRepository<{typeof(TEntity).Name}> is registered " +
-                "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
-                "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
-
-        return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate, rows,
-            maxReadSize);
-    }
-
     /// <summary>Creates the handler of each generated entity type not exposed one by one.</summary>
-    private sealed class GeneratedHandlers(IServiceProvider services, (IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, int MaxReadSize) options)
-        : IEntityTypeVisitor
+    private sealed class GeneratedHandlers(IServiceProvider services, IEntityHandlerFactory factory,
+        (IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, int MaxReadSize) options) : IEntityTypeVisitor
     {
         public List<EntityHandler> Handlers { get; } = [];
 
@@ -102,12 +85,9 @@ public sealed class EntityServerBuilder
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(EntityType<TEntity, TKey> type)
             where TEntity : class
             where TKey : notnull
-            => Handlers.Add(Handler<TEntity>(services, options.Policy, options.Validate, options.MaxPageSize, null, options.MaxReadSize));
+            => Handlers.Add(factory.Create(services,
+                new ExposeOptions<TEntity>(options.Policy, options.Validate, options.MaxPageSize, null, options.MaxReadSize)));
     }
-
-    private static bool HasEntityGraph([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type)
-        => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Any(property => property.IsDefined(typeof(EntityGraphAttribute), inherit: true));
 
     internal EntityHandlerRegistry Build(IServiceProvider services)
     {
@@ -121,7 +101,7 @@ public sealed class EntityServerBuilder
                 throw new InvalidOperationException(
                     "ExposeGenerated found no entity: call AddGeneratedEntities() in UseQueryeables, from a project that references " +
                     "the one declaring the entities.");
-            var visitor = new GeneratedHandlers(services, generated);
+            var visitor = new GeneratedHandlers(services, Handlers, generated);
             foreach (var type in types)
                 type.Accept(visitor);
             foreach (var handler in visitor.Handlers)
@@ -129,14 +109,35 @@ public sealed class EntityServerBuilder
         }
         return registry;
     }
+
+    /// <summary>The handlers of the core: replicas, read only.</summary>
+    private sealed class ReplicaHandlers : IEntityHandlerFactory
+    {
+        public static readonly ReplicaHandlers Instance = new();
+
+        public EntityHandler Create<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IServiceProvider services,
+            ExposeOptions<TEntity> options) where TEntity : class
+            => new EntityHandler<TEntity>(services.GetRequiredService<IEntityStoreFactory>(), options.Policy, options.Rows, options.MaxReadSize);
+    }
+}
+
+/// <summary>How a type is exposed (see <see cref="EntityServerBuilder.Expose{TEntity}"/>).</summary>
+public sealed record ExposeOptions<TEntity>(IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, RowLevelSecurity<TEntity>? Rows,
+    int MaxReadSize) where TEntity : class;
+
+/// <summary>Creates the handler of an exposed type: the extension point of what a server serves (<see cref="EntityServerBuilder.Handlers"/>).</summary>
+public interface IEntityHandlerFactory
+{
+    EntityHandler Create<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IServiceProvider services, ExposeOptions<TEntity> options)
+        where TEntity : class;
 }
 
 public static class EntityServerExtensions
 {
     /// <summary>
     /// Makes this application a Queryeables server: registers <see cref="EntityRequestDispatcher"/>, which a transport
-    /// (the MagicOnion service, an HTTP endpoint...) calls for its clients. Remote transactions run on the stores of this
-    /// application.
+    /// (the MagicOnion service, an HTTP endpoint...) calls for its clients: each client keeps a replica of the exposed types,
+    /// the rows it may read.
     /// </summary>
     /// <param name="serializer">The entity serializer of the transport, the same as the clients'.</param>
     /// <param name="expose">The exposed entity types and their access policies.</param>
@@ -147,14 +148,12 @@ public static class EntityServerExtensions
         ArgumentNullException.ThrowIfNull(serializer);
         ArgumentNullException.ThrowIfNull(expose);
 
-        var server = new EntityServerBuilder();
+        var server = new EntityServerBuilder(builder.Services);
         expose(server);
 
         builder.Services.TryAddSingleton(serializer);
         builder.Services.TryAddSingleton<IEntityHandlerRegistry>(server.Build);
-        builder.Services.TryAddSingleton<IIdempotencyStore>(sp => server.DurableIdempotency
-            ? new StoreIdempotencyStore(sp.GetRequiredService<IEntityStoreFactory>())
-            : new MemoryIdempotencyStore());
+        builder.Services.TryAddSingleton<IIdempotencyStore, MemoryIdempotencyStore>();
         builder.Services.TryAddSingleton<ConnectionOwners>();
         builder.Services.TryAddSingleton(sp => Warned(sp, new EntityRequestDispatcher(
             sp.GetRequiredService<IEntityHandlerRegistry>(),
@@ -175,10 +174,11 @@ public static class EntityServerExtensions
     /// <summary>Says once, at the creation of the dispatcher, that the results of the writes do not survive a restart.</summary>
     private static EntityRequestDispatcher Warned(IServiceProvider services, EntityRequestDispatcher dispatcher)
     {
-        if (dispatcher.Idempotency is MemoryIdempotencyStore)
+        if (dispatcher.Idempotency is MemoryIdempotencyStore
+            && services.GetRequiredService<IEntityHandlerRegistry>().Handlers.Any(h => h.AcceptsWrites))
             services.GetService<ILoggerFactory>()?.CreateLogger<EntityRequestDispatcher>().LogWarning(
                 "The results of the writes are kept in memory: a write an offline client sends again after a restart of " +
-                "this server is applied twice. In production, set DurableIdempotency (or register an IIdempotencyStore).");
+                "this server is applied twice. In production, use AllowWrites(durableIdempotency: true) (or register an IIdempotencyStore).");
         return dispatcher;
     }
 }

@@ -2,6 +2,7 @@ using Grpc.Core;
 using MagicOnion;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.EntityFramework;
@@ -92,9 +93,9 @@ public sealed class RemoteEntityStoreContractTests : SqliteContractTests
     protected override IEntityStore CreateStore()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), CreateDommelStore);
-        return new RemoteEntityStore(dispatcher.AsTransport(), new JsonTestSerializer());
+        return new WritableRemoteEntityStore(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 }
 
@@ -113,7 +114,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
             : CreateDommelStore;
 
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(serverStore, policy, maxPageSize: maxPageSize));
+        registry.Register(new WritableEntityHandler<TestClient>(serverStore, policy, maxPageSize: maxPageSize));
         return Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, serverStore));
     }
 
@@ -211,7 +212,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     {
         var service = new RecordingService(CreateDommelStore);
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll, aggregate: service));
+        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll, aggregate: service));
         await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
 
         var ana = new TestClient { Name = "Ana" };
@@ -228,7 +229,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     public async Task Aggregate_service_failures_reach_the_client()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll,
             aggregate: new RecordingService(CreateDommelStore, fail: true)));
         await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
 

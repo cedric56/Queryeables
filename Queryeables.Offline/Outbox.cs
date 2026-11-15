@@ -1,6 +1,8 @@
 using Queryeables.Abstraction;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>A write made offline, waiting for the server.</summary>
 /// <param name="Sent">

@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -19,9 +20,9 @@ public class EntityQueryTests
     private IEntityStoreFactory Remote()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditContact>(Local(), EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditContact>(Local(), EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), Local());
-        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
+        return WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     private static IEnumerable<AuditContact> All()

@@ -1,6 +1,6 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -42,7 +42,7 @@ public sealed class DiagnosticsTests : IDisposable
 
         var stores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
         _dispatcher = new EntityRequestDispatcher(registry, _serializer, stores);
     }
 
@@ -68,7 +68,7 @@ public sealed class DiagnosticsTests : IDisposable
     [Fact]
     public async Task Remote_calls_are_timed_and_tagged_on_both_sides()
     {
-        await using var store = new RemoteEntityStore(_dispatcher.AsTransport(), _serializer);
+        await using var store = new WritableRemoteEntityStore(_dispatcher.AsTransport(), _serializer);
 
         await store.InsertAsync(new TestClient { Name = "Ana" });
         await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "" }));     // [Required]
@@ -106,7 +106,7 @@ public sealed class DiagnosticsTests : IDisposable
     public async Task An_offline_synchronization_counts_what_it_sent()
     {
         await using var mode = new OfflineMode(_dispatcher.AsTransport(), _serializer, new MemoryOfflineStorage()).Add<TestClient, long>(c => c.Id);
-        var stores = new OfflineStoreFactory(RemoteEntityStore.Factory(_dispatcher.AsTransport(), _serializer), mode);
+        var stores = new OfflineStoreFactory(WritableRemoteEntityStore.Factory(_dispatcher.AsTransport(), _serializer), mode);
         await mode.GoOfflineAsync();
         await using (var store = stores.Create())
         {

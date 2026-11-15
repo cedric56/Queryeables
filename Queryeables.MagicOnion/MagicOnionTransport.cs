@@ -9,7 +9,7 @@ namespace Queryeables.MagicOnion;
 /// <example>
 /// <code>
 /// var layer = MagicOnionClient.Create&lt;IMagicOnionLayer&gt;(channel);
-/// IEntityStoreFactory stores = MagicOnionTransport.Stores(layer, JsonEntitySerializer.Default, session);
+/// IEntityStoreFactory stores = MagicOnionTransport.Stores(layer, JsonEntitySerializer.Default);
 /// await using var store = stores.Create();
 /// </code>
 /// </example>
@@ -17,9 +17,12 @@ public sealed class MagicOnionTransport(IMagicOnionLayer layer) : IEntityTranspo
 {
     private readonly IMagicOnionLayer _layer = layer ?? throw new ArgumentNullException(nameof(layer));
 
-    /// <summary>Stores that reach the server through <paramref name="layer"/>, with <paramref name="serializer"/> (the server's).</summary>
-    public static IEntityStoreFactory Stores(IMagicOnionLayer layer, IEntitySerializer serializer, IChangeSession? session = null)
-        => RemoteEntityStore.Factory(new MagicOnionTransport(layer), serializer ?? throw new ArgumentNullException(nameof(serializer)), session);
+    /// <summary>
+    /// Stores that read the replicas the server publishes through <paramref name="layer"/>, with <paramref name="serializer"/>
+    /// (the server's).
+    /// </summary>
+    public static IEntityStoreFactory Stores(IMagicOnionLayer layer, IEntitySerializer serializer)
+        => RemoteEntityStore.Factory(new MagicOnionTransport(layer), serializer ?? throw new ArgumentNullException(nameof(serializer)));
 
     public async Task<TransportResult> GetAllAsync(string type, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).GetAllAsync(type)).ToTransportResult();

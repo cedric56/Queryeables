@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
+using Queryeables.Offline;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
@@ -32,9 +33,9 @@ public class NetworkBenchmarks
         _grpc = _server.Client();
 
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, _database.Stores);
-        _inProcess = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        _inProcess = WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
         _id = Rows / 2;
 
         // The first call opens the HTTP/2 connection: not measured.

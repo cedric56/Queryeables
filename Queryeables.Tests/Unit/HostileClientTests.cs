@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.Security.Claims;
 
 namespace Queryeables.Tests.Unit;
@@ -37,7 +37,7 @@ public class HostileClientTests
     {
         var stores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<Folder>(stores, EntityAccessPolicies.Authenticated,
+        registry.Register(new WritableEntityHandler<Folder>(stores, EntityAccessPolicies.Authenticated,
             aggregate: new GraphRepository<Folder, long>(stores, Graph()),
             rows: RowLevelSecurity.For<Folder, long>(f => f.Id, user =>
             {
@@ -45,7 +45,7 @@ public class HostileClientTests
                 return f => f.Owner == name;
             })));
         // The notes are exposed too: their filter follows the folders of the user.
-        registry.Register(new EntityHandler<Note>(stores, EntityAccessPolicies.Authenticated,
+        registry.Register(new WritableEntityHandler<Note>(stores, EntityAccessPolicies.Authenticated,
             rows: RowLevelSecurity.For<Note, long>(n => n.Id, user =>
             {
                 var name = NameOf(user);
@@ -71,7 +71,7 @@ public class HostileClientTests
     private static EntityRequestContext As(string user)
         => new(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, user)], "test")));
 
-    private IEntityStoreFactory Stores(IEntityTransport transport) => RemoteEntityStore.Factory(transport, _serializer);
+    private IEntityStoreFactory Stores(IEntityTransport transport) => WritableRemoteEntityStore.Factory(transport, _serializer);
 
     private IEntityStoreFactory Bob => Stores(_dispatcher.AsTransport(As("bob")));
 

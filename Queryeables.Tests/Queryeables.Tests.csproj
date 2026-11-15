@@ -27,6 +27,8 @@
     <ProjectReference Include="..\Queryeables.Dommel\Queryeables.Dommel.csproj" />
     <ProjectReference Include="..\Queryeables.EntityFramework\Queryeables.EntityFramework.csproj" />
     <ProjectReference Include="..\Queryeables.MagicOnion\Queryeables.MagicOnion.csproj" />
+    <ProjectReference Include="..\Queryeables.Offline\Queryeables.Offline.csproj" />
+    <ProjectReference Include="..\Queryeables.Offline.Sqlite\Queryeables.Offline.Sqlite.csproj" />
     <ProjectReference Include="..\Queryeables.Replication\Queryeables.Replication.csproj" Condition="$(HasRouteablesRemote)" />
   </ItemGroup>
 

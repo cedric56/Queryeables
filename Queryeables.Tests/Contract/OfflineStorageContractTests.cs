@@ -1,4 +1,4 @@
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using Queryeables.Sqlite;
 
 namespace Queryeables.Tests.Contract;

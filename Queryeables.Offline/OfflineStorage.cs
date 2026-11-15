@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// Where the offline mode keeps its data between runs: the copy of the offline entities, the writes waiting for the

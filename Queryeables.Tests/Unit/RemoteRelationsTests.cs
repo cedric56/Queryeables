@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using Queryeables.Tests.Graphs;
 
 namespace Queryeables.Tests.Unit;
@@ -20,16 +20,16 @@ public sealed class RemoteRelationsTests
     private EntityRequestDispatcher Server(bool exposeTags = true, IEntityAccessPolicy? clients = null)
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<GInvoice>(Stores, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<GInvoice>(Stores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<GInvoice, long>(Stores, GInvoiceGraph.Create())));
-        registry.Register(new EntityHandler<GInvoiceLine>(Stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<GLineTax>(Stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<GInvoiceNote>(Stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<GClient>(Stores, clients ?? EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GInvoiceLine>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GLineTax>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GInvoiceNote>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GClient>(Stores, clients ?? EntityAccessPolicies.AllowAll));
         if (exposeTags)
         {
-            registry.Register(new EntityHandler<GTag>(Stores, EntityAccessPolicies.AllowAll));
-            registry.Register(new EntityHandler<GInvoiceTag>(Stores, EntityAccessPolicies.AllowAll));
+            registry.Register(new WritableEntityHandler<GTag>(Stores, EntityAccessPolicies.AllowAll));
+            registry.Register(new WritableEntityHandler<GInvoiceTag>(Stores, EntityAccessPolicies.AllowAll));
         }
         return new EntityRequestDispatcher(registry, _serializer, Stores);
     }
@@ -37,10 +37,10 @@ public sealed class RemoteRelationsTests
     private static EntityRequestContext User(string name = "ana")
         => new(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, name)], "test")));
 
-    private RemoteEntityStore Client(EntityRequestDispatcher? server = null) => new((server ?? Server()).AsTransport(User()), _serializer);
+    private WritableRemoteEntityStore Client(EntityRequestDispatcher? server = null) => new((server ?? Server()).AsTransport(User()), _serializer);
 
     private IEntityStoreFactory ClientStores(EntityRequestDispatcher server)
-        => RemoteEntityStore.Factory(server.AsTransport(User()), _serializer);
+        => WritableRemoteEntityStore.Factory(server.AsTransport(User()), _serializer);
 
     private async Task SeedAsync()
     {
@@ -241,9 +241,9 @@ public sealed class RemoteRequestsTests
     {
         var stores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<GClient>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GClient>(stores, EntityAccessPolicies.AllowAll));
         var transport = new Recording(new EntityRequestDispatcher(registry, _serializer, stores).AsTransport());
-        await using var store = new RemoteEntityStore(transport, _serializer);
+        await using var store = new WritableRemoteEntityStore(transport, _serializer);
         await store.InsertAsync(new GClient { Name = "Ana", City = "Paris" });
         var read = (await store.GetAllAsync<GClient>()).Single();
         var changed = EntityValues.Copy(read);
@@ -276,8 +276,8 @@ public sealed class OfflineReferencesTests
     {
         var serverStores = new EntityStoreFactory(() => new MemoryStore(_server).WithSyncConventions());
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
         var remote = new EntityRequestDispatcher(registry, _serializer, serverStores).AsTransport();
         EntityRelations.Register<AuditPerson>(EntityGraph.For<AuditPerson, long>(p => p.Id)
             .HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id));
@@ -287,7 +287,7 @@ public sealed class OfflineReferencesTests
         var mode = new OfflineMode(remote, _serializer, new MemoryOfflineStorage())
             .Add<AuditPerson, long>(p => p.Id)
             .Add<AuditContact, long>(c => c.Id);
-        var stores = new OfflineStoreFactory(RemoteEntityStore.Factory(remote, _serializer), mode);
+        var stores = new OfflineStoreFactory(WritableRemoteEntityStore.Factory(remote, _serializer), mode);
         Assert.True((await mode.GoOfflineAsync()).Successful);
 
         await using (var store = stores.Create())

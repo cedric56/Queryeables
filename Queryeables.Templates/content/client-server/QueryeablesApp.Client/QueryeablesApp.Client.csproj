@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Queryeables.MagicOnion.Client" Version="QUERYEABLES_VERSION" />
+    <PackageReference Include="Queryeables.Offline" Version="QUERYEABLES_VERSION" />
   </ItemGroup>
 
   <ItemGroup>

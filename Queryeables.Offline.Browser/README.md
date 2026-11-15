@@ -1,4 +1,4 @@
-# Queryeables.Browser
+# Queryeables.Offline.Browser
 
 Offline storage for [Queryeables](https://github.com/cedric56/Queryeables) in Blazor WebAssembly: `IndexedDbOfflineStorage`
 keeps the offline copy and its queue in IndexedDB, without the 5 MB limit of `localStorage`.
@@ -17,4 +17,4 @@ await host.RunAsync();
 ```
 
 The JavaScript module ships with the package and is loaded on first use from
-`_content/Queryeables.Browser/queryeables-indexeddb.js`: nothing to add to `index.html`.
+`_content/Queryeables.Offline.Browser/queryeables-indexeddb.js`: nothing to add to `index.html`.

@@ -3,7 +3,7 @@ using Queryeables;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using Queryeables.Sqlite;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -23,7 +23,7 @@ serverServices.UseQueryeables(q => q
     .UseSqlite(serverConnection)
     .WithSyncConventions()                                   // [LastModified], [SoftDelete]: incremental downloads
     .AddChangeFeed<Todo>()                                   // SQLite reports each change of the table
-    .AddEntityServer(serializer, server => server.Expose<Todo>(EntityAccessPolicies.AllowAll)));     // in process only
+    .AddEntityServer(serializer, server => server.AllowWrites().Expose<Todo>(EntityAccessPolicies.AllowAll)));     // in process only
 await using var server = serverServices.BuildServiceProvider();
 await DommelEntityStore.EnsureSchemaAsync(server.GetRequiredService<DbProviderFactory>(), serverConnection, """
     CREATE TABLE Todo (Id INTEGER PRIMARY KEY AUTOINCREMENT, Title TEXT NOT NULL, Done INTEGER NOT NULL,
@@ -182,7 +182,7 @@ internal sealed class Client : IAsyncDisposable
         services.AddSingleton<IEntityTransport>(network);
         services.AddSingleton(serializer);
         services.UseQueryeables(q => q
-            .UseStores(sp => RemoteEntityStore.Factory(network, serializer, sp.GetRequiredService<IChangeSession>()))
+            .UseStores(_ => RemoteEntityStore.Factory(network, serializer))       // WithOfflineMode makes them write through the server
             .AddCache<Todo, long>(t => t.Id)
             .WithOfflineMode(o =>
             {

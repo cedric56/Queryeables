@@ -98,7 +98,7 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .En
 ## What you get
 
 - **One store API**, `IEntityStore`: async CRUD, filters, paging, counting and transactions, identical for Dommel, EF Core
-  and a remote server. Every implementation passes the same [contract tests](Queryeables.Tests/Contract).
+  and MongoDB. Every implementation passes the same [contract tests](Queryeables.Tests/Contract).
 - **Entity graphs**, `[EntityGraph]`: a parent saved, removed and loaded with its children, navigation properties set,
   related entities found in their caches. The generator writes `I{Parent}Repository` and `{Parent}Graph`, and a mistake in
   the attributes is a compile error (QRY001 to QRY009).
@@ -106,11 +106,13 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .En
   a reconnection.
 - **Transactions that report their outcome**: an `EntityResult` with an error kind (`Validation`, `Conflict`, `NotFound`,
   `Forbidden`...) instead of an exception.
-- **Remote access without coupling**: the remote core speaks to an `IEntityTransport`, and MagicOnion is one transport among
-  others. No SQL from the client, a whitelist of filter operators, an access policy per type.
-- **Offline mode**, `WithOfflineMode`: a remote client keeps working on a local copy (IndexedDB in the browser, SQLite
-  on desktop and mobile), is told when the server is back and when the data differs, and the user chooses when to
-  synchronize. See [offline mode](docs/guides/offline-mode.md) and the [two-client demo](Samples/Queryeables.OfflineDemo/Program.cs).
+- **Replicas on the clients**: a server publishes its types; each client keeps the rows its user may read in its caches,
+  kept up to date by the server's notifications, queried in memory. The remote core speaks to an `IEntityTransport`, and
+  MagicOnion is one transport among others. No query and no write from the client: it calls your services.
+  See [remote access](docs/guides/remote-access.md).
+- **Offline mode**, a package of its own (`Queryeables.Offline`, experimental): clients that write through the server, and
+  keep working on a local copy without it (IndexedDB in the browser, SQLite on desktop and mobile); the user chooses when
+  to synchronize. See [offline mode](docs/guides/offline-mode.md) and the [two-client demo](Samples/Queryeables.OfflineDemo/Program.cs).
 - **Per-user data**: row-level security on the server, and `ChangeUserAsync()` on the client, which forgets the caches
   and the offline copy of the previous user before anything is loaded for the next.
 - **Change notifications** from SQLite or SQL Server, relayed to clients over MagicOnion or SignalR, without echoing a
@@ -121,21 +123,24 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .En
 - **Trimming and AOT analyzers** clean on every library; the generator replaces reflection-based registration. Full
   Native AOT works for a client over MagicOnion, not over Dommel or EF Core: see [Native AOT](#native-aot).
 
-## Local or remote, the same code
+## A server, replicas on its clients
 
 ```mermaid
 flowchart LR
     subgraph Client
-        VM[IPersonRepository, caches] --> RS[RemoteEntityStore]
+        VM[caches: the replicas] --> RS[RemoteEntityStore<br/>rows, changes, by key]
         M[IChangeFeed] --> VM
+        APP[your code] -- writes --> SVC[your services]
     end
     subgraph Server["Server (ASP.NET Core)"]
-        D[EntityRequestDispatcher<br/>policy, validation] --> PS[IPersonRepository<br/>children saved]
-        PS --> ST[IEntityStore]
+        D[EntityRequestDispatcher<br/>policy, row filter] --> ST[IEntityStore]
+        SVC2[your services] --> PS[IPersonRepository<br/>children saved]
+        PS --> ST
         ST --> DB[(SQLite, SQL Server...)]
         DB -. changes .-> H[change hub]
     end
     RS -- MagicOnion --> D
+    SVC -- MagicOnion, HTTP --> SVC2
     H -. MagicOnion or SignalR .-> M
 ```
 
@@ -150,8 +155,10 @@ builder.Services.UseQueryeables(q => q
 app.MapQueryeables();
 ```
 
-**Client**: `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`. Keep the entities in a shared library:
-`AddGeneratedEntities()` registers them on both sides, and they travel as JSON, without attributes.
+**Client**: `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`: its caches (`IPersonCache`) are replicas of
+what the server publishes. It writes through your services; or, with `Queryeables.Offline`, through the exposed types
+(`server.AllowWrites()`, `q.UseRemoteWrites()`). Keep the entities in a shared library: `AddGeneratedEntities()` registers
+them on both sides, and they travel as JSON, without attributes.
 
 ## Queries
 
@@ -164,8 +171,8 @@ var page = await stores.Query<Person>()
     .ToListAsync();
 ```
 
-The same query locally and remotely: filtered, sorted and paged by the database with EF Core, by the server with a remote
-store. See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
+Filtered, sorted and paged by the database (by the server for a client of `Queryeables.Offline`; a replica is queried in
+memory). See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
 
 ## Transactions and EntityResult
 
@@ -199,7 +206,7 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | --- | --- |
 | [`Queryeables`](Queryeables.Core/README.md) | [Contracts](Queryeables.Abstraction/README.md), [remote core](Queryeables.Remote/README.md), `UseQueryeables`, [source generator](Queryeables.Generated/README.md). No database, no transport |
 | [`Queryeables.Dommel`](Queryeables.Dommel/README.md) | Stores on Dommel: generated keys, optimistic concurrency, SQL logging |
-| [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications; `SqliteOfflineStorage` for the offline copy |
+| [`Queryeables.Sqlite`](Queryeables.Sqlite/README.md) | Dommel on SQLite, with change notifications |
 | [`Queryeables.PostgreSql`](Queryeables.PostgreSql/README.md) | Dommel on PostgreSQL, with change notifications |
 | [`Queryeables.MongoDB`](Queryeables.MongoDB/README.md) | Stores on MongoDB, with transactions and change streams |
 | [`Queryeables.EntityFramework`](Queryeables.EntityFramework/README.md) | Stores on EF Core |
@@ -207,7 +214,9 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables.MagicOnion`](Queryeables.MagicOnion/README.md) | MagicOnion messages and serializer, shared by client and server |
 | [`Queryeables.MagicOnion.Client`](Queryeables.MagicOnion.Client/README.md) | `UseMagicOnion`, change hub subscription |
 | [`Queryeables.MagicOnion.Server`](Queryeables.MagicOnion.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
-| [`Queryeables.Browser`](Queryeables.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
+| [`Queryeables.Offline`](Queryeables.Offline/README.md) | Experimental. The offline mode, and the generic remote writes and filters it needs (`AllowWrites` on the server, `UseRemoteWrites` on the client) |
+| [`Queryeables.Offline.Sqlite`](Queryeables.Offline.Sqlite/README.md) | `SqliteOfflineStorage`: the offline copy in a SQLite file |
+| [`Queryeables.Offline.Browser`](Queryeables.Offline.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
 | [`Queryeables.SignalR`](Queryeables.SignalR/README.md), [`.SignalR.Server`](Queryeables.SignalR.Server/README.md) | Change notifications over SignalR |
 | [`Queryeables.Replication`](Queryeables.Replication/README.md) | A durable server for the Routeables Remote Protocol (offline-first replication with merge): its log and documents in any store, projected to your entities |
 | [`Queryeables.Templates`](Queryeables.Templates/README.md) | `dotnet new queryeables-console`, `queryeables-client-server` |
@@ -230,7 +239,7 @@ own code, not about every provider at run time:
 
 | Setup | Trimming | Full Native AOT |
 | --- | --- | --- |
-| Remote client, caches, graphs, offline mode | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
+| Remote client (replicas, and the writes of `Queryeables.Offline`), caches, graphs, offline mode | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
 | MagicOnion transport (`UseMagicOnion`) | Yes, with a `JsonEntitySerializer` on a `JsonSerializerContext` | Same, with the MagicOnion source generator; not run in CI. The default JSON serializer reads the types by reflection |
 | Dommel / Dapper (`UseSqlite`, `UseNpgsql`, `UseDommel`) | Yes | No: Dapper emits IL at run time |
 | EF Core (`UseEntityFramework`) | Yes | No: marked as requiring dynamic code, like EF Core itself |

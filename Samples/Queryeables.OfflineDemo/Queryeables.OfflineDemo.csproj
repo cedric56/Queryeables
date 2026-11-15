@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Queryeables.Sqlite\Queryeables.Sqlite.csproj" />
+    <ProjectReference Include="..\..\Queryeables.Offline.Sqlite\Queryeables.Offline.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

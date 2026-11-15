@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
 using Queryeables.Remote;
@@ -50,7 +51,7 @@ public class SecondAuditTests
     public async Task An_update_keeps_the_values_the_client_never_had()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, _serializer, Stores);
         await new MemoryStore(_database).InsertAsync(new SAccount { Name = "ana", PasswordHash = "h1", Role = "admin" });
         var stored = Assert.Single(_database.All<SAccount>());
@@ -80,7 +81,7 @@ public class SecondAuditTests
     public async Task A_type_whose_hidden_property_the_serializer_would_send_is_not_served()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
         var logged = new List<string>();
         var dispatcher = new EntityRequestDispatcher(registry, new MessagePackLike(_serializer), Stores)
         {
@@ -106,17 +107,17 @@ public class SecondAuditTests
 
     // ---------- 3. The children of a graph follow the rules of their own type ----------
 
-    private RemoteEntityStore Client(IEntityAccessPolicy? linePolicy, RowLevelSecurity<SOrderLine>? lineRows = null, string user = "ana")
+    private WritableRemoteEntityStore Client(IEntityAccessPolicy? linePolicy, RowLevelSecurity<SOrderLine>? lineRows = null, string user = "ana")
     {
         var graph = EntityGraph.For<SOrder, long>(o => o.Id)
             .HasMany(o => o.SOrderLines, foreignKey: l => l.SOrderId, key: l => l.Id);
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<SOrder>(Stores, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<SOrder>(Stores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<SOrder, long>(Stores, graph)));
         if (linePolicy is not null)
-            registry.Register(new EntityHandler<SOrderLine>(Stores, linePolicy, rows: lineRows));
+            registry.Register(new WritableEntityHandler<SOrderLine>(Stores, linePolicy, rows: lineRows));
         var dispatcher = new EntityRequestDispatcher(registry, _serializer, Stores);
-        return new RemoteEntityStore(dispatcher.AsTransport(As(user)), _serializer);
+        return new WritableRemoteEntityStore(dispatcher.AsTransport(As(user)), _serializer);
     }
 
     [Fact]
@@ -213,9 +214,9 @@ public class SecondAuditTests
     public async Task A_numeric_key_sent_with_an_insert_is_not_kept()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, _serializer, Stores);
-        await using var store = new RemoteEntityStore(dispatcher.AsTransport(As("ana")), _serializer);
+        await using var store = new WritableRemoteEntityStore(dispatcher.AsTransport(As("ana")), _serializer);
 
         await store.InsertAsync(new SAccount { Id = 1_000_000, Name = "ana" });
 

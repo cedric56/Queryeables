@@ -27,7 +27,8 @@ services.UseQueryeables(q => q
 | `AddChangeFeed<T>(table)` | `IChangeFeed<T>`, fed by the database changes (table name from `[Table]` by default) |
 | `AddCache<T, TKey>(e => e.Id)` | `IEntityCache<T, TKey>` and its change feed |
 | `AddGraph<TParent, TKey>(sp => graph)` | An `EntityGraph` and its `IAggregateRepository<TParent>` service |
-| `AddEntityServer(serializer, s => s.Expose<T>(policy))` | The server side of remote access (`EntityRequestDispatcher`); `s.ExposeGenerated(policy)` exposes every generated entity |
+| `AddEntityServer(serializer, s => s.Expose<T>(policy))` | The server side of remote access (`EntityRequestDispatcher`): replicas for the clients; `s.ExposeGenerated(policy)` exposes every generated entity |
+| `DecorateStores((sp, factory) => ...)` | Wraps the stores of the provider: the extension point of `Queryeables.Offline` |
 | `AddEntity<T, TKey>(e => e.Id)` | Declares an entity and its key (`IEntityType`): the generator does it for every entity it knows |
 | `CreateTables()` (Dommel providers) | Creates the missing tables at startup |
 | `Preload<T, TKey>()` | Loads a cache at startup: `[EntityCache(Preload = true)]` |

@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Security.Claims;
@@ -15,7 +16,7 @@ public class IdempotencyTests
     {
         var stores = new EntityStoreFactory(() => new MemoryStore(_database).WithSyncConventions());
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
         _dispatcher = new EntityRequestDispatcher(registry, _serializer, stores);
     }
 
@@ -77,7 +78,7 @@ public class IdempotencyTests
     public async Task A_commit_whose_answer_is_lost_is_sent_again_and_applied_once()
     {
         var transport = new LosingTransport(_dispatcher.AsTransport(As("ana")));
-        await using var store = new RemoteEntityStore(transport, _serializer);
+        await using var store = new WritableRemoteEntityStore(transport, _serializer);
         var ana = new TestClient { Name = "Ana" };
 
         await using (var transaction = await store.BeginTransactionAsync())
@@ -96,7 +97,7 @@ public class IdempotencyTests
     public async Task A_transport_without_operation_ids_sends_a_plain_batch_once()
     {
         var transport = new LosingTransport(_dispatcher.AsTransport(As("ana"))) { CarriesIds = false };
-        await using var store = new RemoteEntityStore(transport, _serializer);
+        await using var store = new WritableRemoteEntityStore(transport, _serializer);
 
         await using (var transaction = await store.BeginTransactionAsync())
         {

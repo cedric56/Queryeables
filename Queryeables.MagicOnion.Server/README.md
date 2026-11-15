@@ -26,18 +26,21 @@ service. A server that declares its own class deriving from `MagicOnionService` 
 
 Only exposed types can be reached, each with its policy: `Authenticated`, `ReadOnly`, `AllowAll` (tests and closed networks
 only), or your own rule with `EntityAccessPolicies.From(request => ...)`. Each call runs with the user authenticated by
-ASP.NET Core. Writes are validated (DataAnnotations); remote transactions run in one transaction of the server's stores.
-`Expose<T>` fails at startup when `T` has `[EntityGraph]` collections but no graph repository is registered.
+ASP.NET Core. The clients read replicas: every row they may read, the changes, a row by key. To let them write and query
+through the exposed types, add `server.AllowWrites()` (package `Queryeables.Offline`): writes are then validated
+(DataAnnotations), remote transactions run in one transaction of the server's stores, and `Expose<T>` fails at startup when
+`T` has `[EntityGraph]` collections but no graph repository is registered.
 
-A policy decides per type. To keep each user to its own rows, give the type a row filter: it is added to every read and
-checked on every write.
+A policy decides per type. To keep each user to its own rows, give the type a row filter: it is added to every read (and
+checked on every write).
 
 ```csharp
 .Expose<Order>(EntityAccessPolicies.Authenticated,
     rows: RowLevelSecurity.For<Order, long>(o => o.Id, user => o => o.TenantId == TenantOf(user)))
 ```
 
-Pages are cut to `maxPageSize` (1000); a read that is not paged fails beyond `maxReadSize` (10,000). See
+A replica (a read that is not paged) fails beyond `maxReadSize` (10,000); with writes allowed, pages are cut to
+`maxPageSize` (1000). See
 [security](https://github.com/cedric56/Queryeables/blob/master/docs/guides/security.md).
 
 ## Change notifications

@@ -1,8 +1,10 @@
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 
-namespace Queryeables.Browser;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// The offline copy and its queue in IndexedDB, for Blazor WebAssembly: hundreds of megabytes where
@@ -53,7 +55,7 @@ public sealed partial class IndexedDbOfflineStorage : IOfflineStorage
 
     /// <summary>The module ships in this package (a static web asset), next to the application's own files.</summary>
     private static Task ImportAsync(CancellationToken ct)
-        => (_import ??= JSHost.ImportAsync(Module, "../_content/Queryeables.Browser/queryeables-indexeddb.js", CancellationToken.None)).WaitAsync(ct);
+        => (_import ??= JSHost.ImportAsync(Module, "../_content/Queryeables.Offline.Browser/queryeables-indexeddb.js", CancellationToken.None)).WaitAsync(ct);
 
     [JSImport("get", Module)]
     [return: JSMarshalAs<JSType.Promise<JSType.String>>]

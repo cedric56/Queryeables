@@ -7,21 +7,19 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Shipped inside the "Queryeables" package (Queryeables.Core/Queryeables.nuspec), not as a package of its own. -->
     <IsPackable>false</IsPackable>
-    <!-- [JSImport] of BrowserOfflineStorage (offline mode in WebAssembly) needs it; no unsafe code is written. -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!--
-    Remote access, independent of any transport: the client store (RemoteEntityStore), the server handlers, the filter
-    translation and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityTransport on the client,
-    calls EntityRequestDispatcher on the server, and provides an IEntitySerializer. No package references.
+    Remote access, independent of any transport: the client store of the replicas (RemoteEntityStore), the server handlers
+    that publish them, the routing and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityTransport
+    on the client, calls EntityRequestDispatcher on the server, and provides an IEntitySerializer. No package references.
+    Queryeables.Offline adds the writes, the filters and the offline mode through the extension points.
   -->
 
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Abstraction\Queryeables.Abstraction.csproj" />
   </ItemGroup>
 
-  <!-- The tests also check the filter translation, which is internal to this project. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Queryeables.Tests" />
   </ItemGroup>

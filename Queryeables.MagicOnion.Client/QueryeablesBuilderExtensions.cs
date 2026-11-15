@@ -15,7 +15,9 @@ public static class MagicOnionClientQueryeablesBuilderExtensions
     /// <summary>
     /// Stores that reach a Queryeables server over MagicOnion (gRPC through the WebSocket bridge, so it also works in the
     /// browser). Registers <see cref="IMagicOnionLayer"/>, the entity serializer (JSON: <see cref="JsonEntitySerializer"/>, no
-    /// attribute on the classes) and remote stores: the same caches and services as locally, served by the server.
+    /// attribute on the classes) and remote stores: the caches of the client hold replicas of what the server publishes, kept
+    /// up to date by its notifications. A client writes through a service of the application (or <c>UseRemoteWrites()</c> of
+    /// <c>Queryeables.Offline</c>).
     /// </summary>
     /// <param name="url">Address of the server, for example <c>https://server:5001</c>.</param>
     /// <param name="validateCertificate">Custom certificate validation, for example a known self-signed certificate.</param>
@@ -44,7 +46,6 @@ public static class MagicOnionClientQueryeablesBuilderExtensions
         builder.Services.TryAddSingleton<IEntityTransport>(sp => new MagicOnionTransport(sp.GetRequiredService<IMagicOnionLayer>()));
         return builder.UseStores(sp => RemoteEntityStore.Factory(
             sp.GetRequiredService<IEntityTransport>(),
-            sp.GetRequiredService<IEntitySerializer>(),
-            sp.GetService<IChangeSession>()));
+            sp.GetRequiredService<IEntitySerializer>()));
     }
 }

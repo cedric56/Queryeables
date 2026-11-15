@@ -1,9 +1,14 @@
 # Security
 
+A server of the core publishes **read-only replicas**: a client reads the rows of an exposed type its user may read (the
+policy, then the row filter), the changes since a date, and a row by key; nothing else, and it writes through the services
+of the application. The filters, pages, sorts and writes described below exist when the server allows them, with
+`server.AllowWrites()` of `Queryeables.Offline`.
+
 ## What never crosses the wire
 
-No SQL, no expression tree, no type name chosen by the client. A remote filter is a list of "property, operator, value"
-conditions: the server checks the property on the exposed type, the operator against a whitelist, converts the value to
+No SQL, no expression tree, no type name chosen by the client. A replica is read by key only. With `AllowWrites()`, a
+remote filter is a list of "property, operator, value" conditions: the server checks the property on the exposed type, the operator against a whitelist, converts the value to
 the property type, and builds the query itself. At most 1000 conditions, 1000 values in one `In`, 2000 values in the
 whole filter, and 32 levels of AND/OR; a page starts at most 1,000,000 rows in; a batch holds at most 100 operations
 (`server.MaxBatchSize`).

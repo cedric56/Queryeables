@@ -1,20 +1,20 @@
 namespace Queryeables.Abstraction;
 
 /// <summary>
-/// What a client keeps for the signed-in user: the caches, the offline copy. When the user changes (sign-out, another
+/// What a client keeps for the signed-in user: the caches, and what an extension keeps (an offline copy). When the user changes (sign-out, another
 /// account), it must be forgotten before the next user sees anything: <see cref="UserScopedData.ChangeUserAsync"/> does it
 /// for all of them.
 /// </summary>
 public interface IUserScopedData
 {
     /// <summary>
-    /// True when forgetting would lose work of the current user (offline writes not sent yet): the change of user is then
-    /// refused until they are synchronized or discarded.
+    /// True when forgetting would lose work of the current user (writes not sent yet): the change of user is then refused
+    /// until they are saved or discarded.
     /// </summary>
     bool HasUnsavedChanges => false;
 
     /// <summary>
-    /// True when <see cref="ClearUserDataAsync"/> may refuse because of unsaved work (the offline mode):
+    /// True when <see cref="ClearUserDataAsync"/> may refuse because of unsaved work (an offline copy):
     /// <see cref="UserScopedData.ChangeUserAsync"/> clears these first, so that a refusal leaves everything else as it was.
     /// </summary>
     bool CanHoldUnsavedChanges => false;
@@ -34,10 +34,10 @@ public static class UserScopedData
     /// before anything is loaded: a failed reload leaves empty data, never the previous user's.
     /// <para>
     /// The check is made again by each item as it forgets, under its own lock (<see cref="IUserScopedData.CanHoldUnsavedChanges"/>,
-    /// cleared first): an offline write made during the change is never lost; the change is refused instead.
+    /// cleared first): a write made during the change is never lost; the change is refused instead.
     /// </para>
     /// </summary>
-    /// <exception cref="InvalidOperationException">Offline writes are waiting: synchronize or discard them first. Nothing was forgotten.</exception>
+    /// <exception cref="InvalidOperationException">Writes are waiting to be sent: save or discard them first. Nothing was forgotten.</exception>
     /// <exception cref="AggregateException">Some reloads failed (no network...); everything was forgotten anyway.</exception>
     public static async Task ChangeUserAsync(IEnumerable<IUserScopedData> data, bool reload = true, CancellationToken ct = default)
     {
@@ -45,8 +45,8 @@ public static class UserScopedData
         var all = data.Distinct().ToList();
         if (all.Any(d => d.HasUnsavedChanges))
             throw new InvalidOperationException(
-                "Writes of the current user are waiting to be sent: synchronize them (OfflineMode.GoOnlineAsync) or discard them " +
-                "(OfflineMode.DiscardPendingChangesAsync) before changing user.");
+                "Writes of the current user are waiting to be sent: send or discard them before changing user (the offline mode: " +
+                "GoOnlineAsync or DiscardPendingChangesAsync).");
 
         foreach (var item in all.OrderBy(d => d.CanHoldUnsavedChanges ? 0 : 1))
             await item.ClearUserDataAsync(ct);

@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -18,9 +19,9 @@ public class SortAndProjectionTests
     {
         var stores = new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditContact>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditContact>(stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), stores);
-        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
+        return WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     [Fact]
@@ -86,7 +87,7 @@ public class SortAndProjectionTests
     public async Task The_server_reports_an_unknown_sort_property()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditContact>(new EntityStoreFactory(() => new MemoryStore(_database)), EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditContact>(new EntityStoreFactory(() => new MemoryStore(_database)), EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer());
 
         var result = await dispatcher.SelectPagedAsync(EntityName.Of<AuditContact>(), [], false, 1, 10, [new SortKey("Nope")], EntityRequestContext.Anonymous);

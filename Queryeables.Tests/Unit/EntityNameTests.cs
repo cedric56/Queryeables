@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -31,18 +32,18 @@ public class EntityNameTests
     public void Registry_rejects_a_name_used_by_another_type()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register("Client", new EntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll));
+        registry.Register("Client", new WritableEntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll));
 
         Assert.Throws<InvalidOperationException>(() =>
-            registry.Register("Client", new EntityHandler<Renamed>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll)));
+            registry.Register("Client", new WritableEntityHandler<Renamed>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll)));
     }
 
     [Fact]
     public void Registry_allows_replacing_the_handler_of_the_same_type()
     {
         var registry = new EntityHandlerRegistry();
-        var second = new EntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll);
-        registry.Register(new EntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll));
+        var second = new WritableEntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll);
+        registry.Register(new WritableEntityHandler<TestClient>(() => throw new NotSupportedException(), EntityAccessPolicies.AllowAll));
         registry.Register(second);
 
         Assert.True(registry.TryGet(EntityName.Of<TestClient>(), out var handler));

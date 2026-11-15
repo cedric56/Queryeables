@@ -1,4 +1,4 @@
-// Key-value storage in IndexedDB for Queryeables.Browser (IndexedDbOfflineStorage).
+// Key-value storage in IndexedDB for Queryeables.Offline.Browser (IndexedDbOfflineStorage).
 // One database per name, one object store "entries"; values are strings (Base64 from .NET).
 
 const STORE = "entries";

@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Security.Claims;
@@ -28,17 +29,17 @@ public class ServerLimitsTests
             return c => c.SponsorId == mine;
         });
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Server(), EntityAccessPolicies.Authenticated, rows: rows, maxReadSize: maxReadSize));
+        registry.Register(new WritableEntityHandler<TestClient>(Server(), EntityAccessPolicies.Authenticated, rows: rows, maxReadSize: maxReadSize));
         var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sponsor", sponsor.ToString(System.Globalization.CultureInfo.InvariantCulture))], "test"));
         var remote = new EntityRequestDispatcher(registry, _serializer, Server()).AsTransport(new EntityRequestContext(user));
-        return new RemoteEntityStore(remote, _serializer);
+        return new WritableRemoteEntityStore(remote, _serializer);
     }
 
     private IEntityStore Unbounded(int maxReadSize)
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Server(), EntityAccessPolicies.AllowAll, maxReadSize: maxReadSize));
-        return new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Server()).AsTransport(), _serializer);
+        registry.Register(new WritableEntityHandler<TestClient>(Server(), EntityAccessPolicies.AllowAll, maxReadSize: maxReadSize));
+        return new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Server()).AsTransport(), _serializer);
     }
 
     [Fact]

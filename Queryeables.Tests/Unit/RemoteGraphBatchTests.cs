@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -14,10 +15,10 @@ public class RemoteGraphBatchTests
         var graph = EntityGraph.For<AuditPerson, long>(p => p.Id)
             .HasMany(p => p.Contacts, foreignKey: c => c.PersonId, key: c => c.Id);
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<AuditPerson, long>(serverStores, graph)));
         var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), serverStores);
-        return RemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
+        return WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
     }
 
     [Fact]

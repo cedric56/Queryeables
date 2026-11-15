@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 using System.Linq.Expressions;
@@ -36,7 +37,7 @@ public class FiltersTests
     }
 
     /// <summary>What the server binds the names of a filter to: the queryable properties of Row.</summary>
-    private static readonly IFilterScope Scope = new EntityHandler<Row>(new EntityStoreFactory(() => null!), EntityAccessPolicies.AllowAll).FilterScope(null);
+    private static readonly IFilterScope Scope = ((IFilterableHandler)new WritableEntityHandler<Row>(new EntityStoreFactory(() => null!), EntityAccessPolicies.AllowAll)).FilterScope(null);
 
     /// <summary>The translated, carried then rebuilt predicate must select the same rows.</summary>
     private static void AssertRoundTrip(Expression<Func<Row, bool>> predicate)

@@ -1,6 +1,6 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 
 namespace Queryeables.Tests.Load;
 
@@ -41,7 +41,7 @@ public class ConvergenceTests
         {
             var stores = new EntityStoreFactory(() => new MemoryStore(_database).WithSyncConventions());
             var registry = new EntityHandlerRegistry();
-            registry.Register(new EntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
+            registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
             _dispatcher = new EntityRequestDispatcher(registry, _serializer, stores);
 
             await using (var seedStore = stores.Create())
@@ -179,7 +179,7 @@ public class ConvergenceTests
                 var network = new Network(run, name, random);
                 var session = new ChangeSession();
                 session.SetSession(typeof(TestClient), (name, () => Task.CompletedTask));
-                var client = new Client(name, run, random, network, RemoteEntityStore.Factory(network, run._serializer, session));
+                var client = new Client(name, run, random, network, WritableRemoteEntityStore.Factory(network, run._serializer, session));
                 await client.Offline.InitializeAsync();
                 await client.Offline.RefreshSnapshotAsync();
                 await client.Cache.LoadAsync();

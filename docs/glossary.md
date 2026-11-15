@@ -15,4 +15,5 @@ The names an application meets, from the most common to the least.
 | **Aggregate repository** (`IAggregateRepository<T>`) | What a server calls to save an entity with its children: the generated repository, or your own service. | [Remote access](guides/remote-access.md) |
 | **Dispatcher** (`EntityRequestDispatcher`) | The server's entry point: checks the policy and the rows of each request, then calls the stores. The transport calls it. | [Remote access](guides/remote-access.md) |
 | **Access policy** (`IEntityAccessPolicy`) | Who may read and write a type on a server; a row filter (`RowLevelSecurity`) says which rows. | [Security](guides/security.md) |
-| **Offline mode** (`OfflineMode`) | A copy of the server's rows on the client and a queue of the writes made without the server. | [Offline mode](guides/offline-mode.md) |
+| **Replica** | On a remote client, the cache of a type: the rows of the server its user may read, kept up to date by the server's notifications. | [Remote access](guides/remote-access.md) |
+| **Offline mode** (`OfflineMode`) | Package `Queryeables.Offline`: a copy of the server's rows on the client and a queue of the writes made without the server. | [Offline mode](guides/offline-mode.md) |

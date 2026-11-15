@@ -14,13 +14,15 @@
   <Project Path="Queryeables.Abstraction/Queryeables.Abstraction.csproj" />
   <Project Path="Queryeables.AotSmoke/Queryeables.AotSmoke.csproj" />
   <Project Path="Queryeables.Benchmarks/Queryeables.Benchmarks.csproj" />
-  <Project Path="Queryeables.Browser/Queryeables.Browser.csproj" />
   <Project Path="Queryeables.Core/Queryeables.Core.csproj" />
   <Project Path="Queryeables.Dommel/Queryeables.Dommel.csproj" />
   <Project Path="Queryeables.EntityFramework/Queryeables.EntityFramework.csproj" />
   <Project Path="Queryeables.Generated/Queryeables.Generated.csproj" Id="bdf35e5b-372f-44e0-8db7-9ef1071ec43c" />
   <Project Path="Queryeables.Generated.CodeFixes/Queryeables.Generated.CodeFixes.csproj" />
   <Project Path="Queryeables.MongoDB/Queryeables.MongoDB.csproj" />
+  <Project Path="Queryeables.Offline/Queryeables.Offline.csproj" />
+  <Project Path="Queryeables.Offline.Browser/Queryeables.Offline.Browser.csproj" />
+  <Project Path="Queryeables.Offline.Sqlite/Queryeables.Offline.Sqlite.csproj" />
   <Project Path="Queryeables.MagicOnion.Client/Queryeables.MagicOnion.Client.csproj" />
   <Project Path="Queryeables.MagicOnion/Queryeables.MagicOnion.csproj" Id="b02edfb3-6a85-4718-890e-8ca3bcd9459d" />
   <Project Path="Queryeables.PostgreSql/Queryeables.PostgreSql.csproj" />

@@ -1,3 +1,4 @@
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
 using Queryeables.Remote;
@@ -47,7 +48,7 @@ public class RemoteContractTests
 
     [Fact]
     public void Handler_requires_a_policy()
-        => Assert.Throws<ArgumentNullException>(() => new EntityHandler<TestClient>(() => throw new NotSupportedException(), null!));
+        => Assert.Throws<ArgumentNullException>(() => new WritableEntityHandler<TestClient>(() => throw new NotSupportedException(), null!));
 
     // ---------- Error codes ----------
 

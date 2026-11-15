@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
+using Queryeables.Offline;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
@@ -25,9 +26,9 @@ public class RemoteBenchmarks
     {
         _database = await BenchmarkDatabase.CreateAsync("remote-benchmarks", Rows);
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, _database.Stores);
-        _remote = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        _remote = WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
         _id = Rows / 2;
     }
 

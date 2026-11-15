@@ -1,8 +1,10 @@
 using Microsoft.Data.Sqlite;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.Data.Common;
 
-namespace Queryeables.Sqlite;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// The offline copy and its queue in a SQLite file: for desktop and MAUI applications, without the size limit of the

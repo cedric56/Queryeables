@@ -1,6 +1,6 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using System.ComponentModel.DataAnnotations;
 using System.Linq.Expressions;
 using System.Net;
@@ -310,8 +310,8 @@ public class SecurityHardeningTests
     {
         stores ??= new EntityStoreFactory(() => new MemoryStore(_database));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<HAccount>(stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<HAccount>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
         return new EntityRequestDispatcher(registry, _serializer, stores) { DetailedErrors = detailed, UnexpectedError = log, MaxBatchSize = 3 };
     }
 

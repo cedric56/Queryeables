@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Claims;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 
 namespace Queryeables.Tests.Unit;
 
@@ -94,8 +94,8 @@ public class CodeReviewAuditTests
         await new MemoryStore(_database).InsertAsync(locked);
         var policy = EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read || r.Entity is TestClient { Name: not "Locked" });
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Stores, policy));
-        await using var store = new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
+        registry.Register(new WritableEntityHandler<TestClient>(Stores, policy));
+        await using var store = new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
 
         var claimed = EntityValues.Copy(locked);
         claimed.Name = "Free";                                                // what the client claims, to pass the policy
@@ -113,8 +113,8 @@ public class CodeReviewAuditTests
         // Name stands for the owner: a user writes only the rows it owns.
         var policy = EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read || r.Entity is null || r.Entity is TestClient { Name: "ana" });
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Stores, policy));
-        await using var store = new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
+        registry.Register(new WritableEntityHandler<TestClient>(Stores, policy));
+        await using var store = new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
 
         var taken = await Assert.ThrowsAsync<EntityStoreException>(
             () => store.UpdateWhereAsync<TestClient>(c => c.Id > 0, set => set.Set(c => c.Name, "ana")));

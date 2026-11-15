@@ -4,20 +4,17 @@ using System.Diagnostics.Metrics;
 
 namespace Queryeables.Remote;
 
-/// <summary>The instruments of remote clients, servers and the offline mode (see <see cref="QueryeablesDiagnostics"/>).</summary>
-internal static class RemoteDiagnostics
+/// <summary>
+/// The instruments of remote clients and servers (see <see cref="QueryeablesDiagnostics"/>): what a transport or an extension
+/// calls to time, trace and tag its calls like the rest of Queryeables.
+/// </summary>
+public static class RemoteDiagnostics
 {
     private static readonly Histogram<double> ClientDuration = QueryeablesDiagnostics.Meter.CreateHistogram<double>(
         "queryeables.remote.duration", "ms", "Calls of a remote client.");
 
     private static readonly Histogram<double> ServerDuration = QueryeablesDiagnostics.Meter.CreateHistogram<double>(
         "queryeables.server.duration", "ms", "Requests handled by a server.");
-
-    internal static readonly Counter<long> OfflineSent = QueryeablesDiagnostics.Meter.CreateCounter<long>(
-        "queryeables.offline.sent", "{write}", "Offline writes sent and accepted by the server.");
-
-    internal static readonly Counter<long> OfflineConflicts = QueryeablesDiagnostics.Meter.CreateCounter<long>(
-        "queryeables.offline.conflicts", "{write}", "Offline writes refused by the server.");
 
     /// <summary>A call of a remote client: timed, traced, its outcome tagged.</summary>
     public static Task<TransportResult> ClientAsync(string operation, string type, Func<Task<TransportResult>> call)

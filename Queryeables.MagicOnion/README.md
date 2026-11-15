@@ -12,7 +12,7 @@ You do not reference it directly: [`Queryeables.MagicOnion.Client`](https://gith
 | --- | --- |
 | `IMagicOnionLayer` | The MagicOnion service: one method per store operation |
 | `EntityResultMessage`, `FilterConditionMessage`, `BatchOperationMessage` | Its MessagePack messages |
-| `MagicOnionTransport` | `IEntityTransport` on top of `IMagicOnionLayer`: plugs MagicOnion into `RemoteEntityStore` |
+| `MagicOnionTransport` | `IEntityTransport` on top of `IMagicOnionLayer`: plugs MagicOnion into `RemoteEntityStore` (and `WritableRemoteEntityStore` of `Queryeables.Offline`) |
 | `MessagePackEntitySerializer` | `IEntitySerializer` with MessagePack (`MessagePackEntitySerializer.Default`) |
 | `IChangeHub<T>`, `IChangeHubReceiver<T>`, `ChangeMessage` | The change notification hub |
 | `ChangeHubReceiver<T>` | Client side of the hub: publishes the server's changes on the local change feed |

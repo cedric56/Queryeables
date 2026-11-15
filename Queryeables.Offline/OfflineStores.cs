@@ -2,7 +2,9 @@ using Queryeables.Abstraction;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// The store factory of an application that may work offline: remote stores while <see cref="OfflineMode.Mode"/> is

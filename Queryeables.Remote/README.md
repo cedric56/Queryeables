@@ -1,43 +1,28 @@
 # Queryeables.Remote
 
-Remote access for [Queryeables](https://github.com/cedric56/Queryeables), independent of any transport. This project is not
-published on its own: it ships inside the [`Queryeables`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Core/README.md) package.
+Remote access for [Queryeables](https://github.com/cedric56/Queryeables), independent of any transport: a server publishes its
+entity types, each client keeps a replica of the rows its user may read. This project is not published on its own: it ships
+inside the [`Queryeables`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Core/README.md) package.
 
 ## Client
 
-`RemoteEntityStore` is an `IEntityStore` that talks to an **`IEntityTransport`**: one method per operation, entities as bytes,
-written by an **`IEntitySerializer`**.
+`RemoteEntityStore` is an `IEntityStore` that talks to an **`IEntityTransport`** (entities as bytes, written by an
+**`IEntitySerializer`**), for the caches of the client, its replicas:
 
 ```csharp
-var stores = RemoteEntityStore.Factory(remote, serializer, session);   // IsRemote = true
+var stores = RemoteEntityStore.Factory(remote, serializer);   // IsRemote = true
 ```
 
-- Predicates are sent as conditions: `==`, `!=`, `<`, `<=`, `>`, `>=`, booleans, `ids.Contains(e.Id)`, and `StartsWith`,
-  `EndsWith`, `Contains` on strings, combined with `&&`, `||`, parentheses and `!` (pushed down to the terms). Anything
-  else throws `NotSupportedException` before any call.
-- Sorted pages (`SelectPagedAsync(predicate, page, size, Sort<T>.By(...))`) are sorted by the server: only the page
-  crosses the network. The sort names properties, checked by the server against the exposed type. Projections run on
-  the client.
-- In a transaction, writes are queued and sent in one batch on commit: all applied, or none. A parent with an entity
-  graph is saved with its children inside that batch.
-- After a write, the keys, versions and dates set by the server are copied into your objects. Navigation properties and
-  members the serializer does not carry are left as they are.
-
-## Offline mode
-
-`OfflineMode` keeps a local copy of chosen types and a queue of the writes made without the server, and tells the
-application when the server is lost or back and when the data differs; the user chooses when to switch.
-`OfflineStoreFactory` gives remote stores online and stores on the copy offline. Storage: `IndexedDbOfflineStorage`
-(`Queryeables.Browser`), `SqliteOfflineStorage` (`Queryeables.Sqlite`), `FileOfflineStorage`, `BrowserOfflineStorage`
-(localStorage), `MemoryOfflineStorage`, or your own `IOfflineStorage`. `services.ChangeUserAsync()` forgets the copy and
-the caches when the user changes. Register it with
-`q.WithOfflineMode(...)`: see the [offline mode guide](https://github.com/cedric56/Queryeables/blob/master/docs/guides/offline-mode.md).
+- Every row the user may read (`GetAllAsync`), the rows changed since a date (`SelectChangesAsync`), and a row by its key
+  (`e => e.Id == id`): what a cache loads, then reads again when the server notifies a change.
+- Anything else, and every write, throws `EntityStoreException` (`NotSupported`) before any call: a client queries its
+  replica in memory and writes through a service of the application.
 
 ## Server
 
-`EntityRequestDispatcher` receives the same calls and routes them to the exposed types (`EntityHandler<T>`), each with its
-access policy (`IEntityAccessPolicy`) and DataAnnotations validation. A type with an `IAggregateRepository<T>` is saved with its
-children. Filters are rebuilt from a whitelist of operators; no SQL and no expression comes from the client.
+`EntityRequestDispatcher` receives the calls and routes them to the exposed types (`EntityHandler<T>`), each with its access
+policy (`IEntityAccessPolicy`) and row filter (`RowLevelSecurity<T>`). A replica holds at most `maxReadSize` rows: beyond, the
+read is refused, not cut.
 
 ```csharp
 q.AddEntityServer(serializer, server => server
@@ -47,8 +32,16 @@ q.AddEntityServer(serializer, server => server
 
 `dispatcher.AsTransport(context)` connects both sides in-process: for tests, or an application that hosts its own server.
 
+## Extension points
+
+What a server serves is the handler of each type: `EntityServerBuilder.Handlers` (an `IEntityHandlerFactory`) replaces the
+read-only `EntityHandler<T>`. On the client, `QueryeablesBuilder.DecorateStores` wraps the stores. The package
+[`Queryeables.Offline`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Offline/README.md) uses both: the generic
+writes and filters (`AllowWrites`, `UseRemoteWrites`) and the offline mode.
+
 ## Writing a transport
 
 Implement `IEntityTransport` on the client, and forward each call to `EntityRequestDispatcher` on the server with an
 `EntityRequestContext` (the authenticated user, the notification connection). `TransportResult` carries the data or the
-error kind. [`Queryeables.MagicOnion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion/README.md) is the MagicOnion transport.
+error kind; `RemoteDiagnostics` times and traces the calls. [`Queryeables.MagicOnion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion/README.md)
+is the MagicOnion transport.

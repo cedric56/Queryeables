@@ -18,7 +18,7 @@ public sealed record EntityRequestContext(ClaimsPrincipal? User = null, string? 
     public static EntityRequestContext Anonymous { get; } = new();
 
     /// <summary>The exposed types, set by the dispatcher: the children of a graph follow the rules of their own type.</summary>
-    internal IEntityHandlerRegistry? Handlers { get; init; }
+    public IEntityHandlerRegistry? Handlers { get; init; }
 
     public EntityRequestContext WithConnection(string? connectionId) => this with { ConnectionId = connectionId };
 }

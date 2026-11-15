@@ -2,7 +2,9 @@ using Queryeables.Abstraction;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>What <c>WithOfflineMode</c> configures: the storage, the entity types available offline, the checks.</summary>
 public sealed class OfflineModeOptions

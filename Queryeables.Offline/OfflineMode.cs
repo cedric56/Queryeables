@@ -2,7 +2,9 @@ using Queryeables.Abstraction;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// Lets a remote client keep working without the server, and leaves every switch to the user.
@@ -278,7 +280,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
                 {
                     sent++;
                     RekeyAfterInsert(entry, result);
-                    RemoteDiagnostics.OfflineSent.Add(1, new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type));
+                    OfflineDiagnostics.OfflineSent.Add(1, new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type));
                 }
                 else
                 {
@@ -322,7 +324,7 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         _conflicts.Add(conflict);
         _conflictsChanged = true;
         refused.Add(conflict);
-        RemoteDiagnostics.OfflineConflicts.Add(1,
+        OfflineDiagnostics.OfflineConflicts.Add(1,
             new KeyValuePair<string, object?>(QueryeablesDiagnostics.TypeTag, entry.Type),
             new KeyValuePair<string, object?>(QueryeablesDiagnostics.OutcomeTag, QueryeablesDiagnostics.Outcome(code)));
     }

@@ -9,6 +9,7 @@ using Queryeables.MagicOnion;
 using Queryeables.MagicOnion.Client;
 using Queryeables.Remote;
 using Queryeables.MagicOnion.Server;
+using Queryeables.Offline;
 using System.Net;
 
 namespace Queryeables.Benchmarks;
@@ -45,7 +46,7 @@ public sealed class LoopbackServer : IAsyncDisposable
         builder.Services.UseQueryeables(q => q
             .UseStores(_ => stores)
             // MessagePack, as the client below: the default (JSON) would answer in a format the client cannot read.
-            .AddMagicOnionServer(MessagePackEntitySerializer.Server, server => server.Expose<Item>(EntityAccessPolicies.AllowAll)));
+            .AddMagicOnionServer(MessagePackEntitySerializer.Server, server => server.AllowWrites().Expose<Item>(EntityAccessPolicies.AllowAll)));
 
         var app = builder.Build();
         app.MapMagicOnionService(typeof(BenchmarkLayerService));
@@ -59,7 +60,7 @@ public sealed class LoopbackServer : IAsyncDisposable
         var channel = MagicOnionClientExtensions.CreateChannel(Url);
         _channels.Add(channel);
         var transport = new MagicOnionTransport(MagicOnionClient.Create<IMagicOnionLayer>(channel));
-        return RemoteEntityStore.Factory(transport, MessagePackEntitySerializer.Default);
+        return WritableRemoteEntityStore.Factory(transport, MessagePackEntitySerializer.Default);
     }
 
     public async ValueTask DisposeAsync()

@@ -7,7 +7,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- [JSImport] generates its marshalling code; no unsafe code is written. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PackageId>Queryeables.Browser</PackageId>
+    <PackageId>Queryeables.Offline.Browser</PackageId>
     <Description>Offline storage for Queryeables in Blazor WebAssembly: IndexedDB, without the size limit of localStorage.</Description>
     <PackageTags>$(PackageTags);blazor;webassembly;indexeddb;offline</PackageTags>
   </PropertyGroup>
@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
+    <ProjectReference Include="..\Queryeables.Offline\Queryeables.Offline.csproj" />
   </ItemGroup>
 
 </Project>

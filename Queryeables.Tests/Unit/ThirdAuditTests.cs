@@ -3,7 +3,7 @@ using System.Security.Claims;
 using Queryeables.Abstraction;
 using Queryeables.PostgreSql;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 
 namespace Queryeables.Tests.Unit;
 
@@ -18,11 +18,11 @@ public class ThirdAuditTests
     private static EntityRequestContext As(string user)
         => new(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user)], "test")));
 
-    private RemoteEntityStore Client(EntityHandler<TestClient> handler, string user = "ana")
+    private WritableRemoteEntityStore Client(WritableEntityHandler<TestClient> handler, string user = "ana")
     {
         var registry = new EntityHandlerRegistry();
         registry.Register(handler);
-        return new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As(user)), _serializer);
+        return new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As(user)), _serializer);
     }
 
     private async Task<TestClient> SeedAsync(string name, bool active = false)
@@ -45,7 +45,7 @@ public class ThirdAuditTests
     public async Task A_patch_cannot_go_round_a_policy_with_the_content_it_sends()
     {
         var stored = await SeedAsync("Ana", active: true);
-        await using var store = Client(new EntityHandler<TestClient>(Stores, new InactiveOnly()));
+        await using var store = Client(new WritableEntityHandler<TestClient>(Stores, new InactiveOnly()));
 
         var original = EntityValues.Copy(stored);
         original.Active = false;                                    // what the client claims, to pass the policy
@@ -80,7 +80,7 @@ public class ThirdAuditTests
         await SeedAsync("Ana");
         await SeedAsync("Bob");
         await SeedAsync("Carl");
-        await using var store = Client(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll, maxReadSize: 2));
+        await using var store = Client(new WritableEntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll, maxReadSize: 2));
 
         var refused = await Assert.ThrowsAsync<EntityStoreException>(
             () => store.AggregateAsync<TestClient>(c => c.Id > 0, Aggregation.Of<TestClient>().Count()));
@@ -147,7 +147,7 @@ public class ThirdAuditTests
     public async Task A_batch_with_an_empty_operation_is_an_invalid_request()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
         var dispatcher = new EntityRequestDispatcher(registry, _serializer, Stores);
 
         var result = await dispatcher.ExecuteBatchAsync([null!], As("ana"));

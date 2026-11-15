@@ -14,9 +14,8 @@ namespace Queryeables.Abstraction;
 /// <item><term>queryeables.server.duration</term><description>Requests handled by a server, in ms; activity <c>queryeables.server</c>.</description></item>
 /// <item><term>queryeables.changes.published</term><description>Row changes published to the change feeds.</description></item>
 /// <item><term>queryeables.cache.refreshes</term><description>Cache loads, synchronizations and row refreshes; activity <c>queryeables.cache</c>.</description></item>
-/// <item><term>queryeables.offline.sent</term><description>Offline writes sent and accepted; activity <c>queryeables.offline.sync</c>.</description></item>
-/// <item><term>queryeables.offline.conflicts</term><description>Offline writes refused by the server.</description></item>
 /// </list>
+/// Extensions add their own instruments to the same meter (the offline mode: <c>queryeables.offline.*</c>).
 /// Tags: <c>queryeables.type</c> (entity type), <c>queryeables.operation</c>, <c>queryeables.outcome</c> (<c>ok</c>, an
 /// error kind such as <c>conflict</c>, or <c>unreachable</c>), <c>queryeables.table</c>, <c>queryeables.change</c>,
 /// <c>queryeables.kind</c>.

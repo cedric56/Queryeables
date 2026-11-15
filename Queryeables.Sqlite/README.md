@@ -35,11 +35,4 @@ application's connections (another process, a SQLite tool) are not seen.
 
 ## Offline storage
 
-`SqliteOfflineStorage` keeps the copy and the queue of the [offline mode](https://github.com/cedric56/Queryeables/blob/master/docs/guides/offline-mode.md)
-in a SQLite file, for desktop and MAUI clients:
-
-```csharp
-q.WithOfflineMode(o => o
-    .UseStorage(new SqliteOfflineStorage($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "offline.db")}"))
-    .Entity<Person, long>(p => p.Id));
-```
+The offline copy in a SQLite file is in [`Queryeables.Offline.Sqlite`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Offline.Sqlite/README.md).

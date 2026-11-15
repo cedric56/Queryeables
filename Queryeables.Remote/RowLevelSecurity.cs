@@ -28,17 +28,17 @@ public sealed class RowLevelSecurity<[DynamicallyAccessedMembers(EntityMembers.R
     }
 
     /// <summary>The rows the user may reach. Anonymous calls get a null user: return <c>_ => false</c> to refuse them.</summary>
-    internal Expression<Func<T, bool>> Rows(ClaimsPrincipal? user)
+    public Expression<Func<T, bool>> Rows(ClaimsPrincipal? user)
         => _rows(user) ?? throw new InvalidOperationException($"The row filter of {typeof(T).Name} returned no predicate.");
 
     /// <summary><c>e => e.Key == entity.Key</c>: the stored row a write targets.</summary>
-    internal Expression<Func<T, bool>> SameKey(T entity) => _sameKey(entity);
+    public Expression<Func<T, bool>> SameKey(T entity) => _sameKey(entity);
 
     /// <summary><paramref name="predicate"/> and the rows of the user.</summary>
-    internal Expression<Func<T, bool>> Restrict(Expression<Func<T, bool>> predicate, ClaimsPrincipal? user)
+    public Expression<Func<T, bool>> Restrict(Expression<Func<T, bool>> predicate, ClaimsPrincipal? user)
         => And(predicate, Rows(user));
 
-    internal static Expression<Func<T, bool>> And(Expression<Func<T, bool>> left, Expression<Func<T, bool>> right)
+    public static Expression<Func<T, bool>> And(Expression<Func<T, bool>> left, Expression<Func<T, bool>> right)
     {
         var parameter = left.Parameters[0];
         var rightBody = new Replacer(right.Parameters[0], parameter).Visit(right.Body)!;

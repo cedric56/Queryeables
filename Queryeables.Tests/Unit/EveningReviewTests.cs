@@ -1,4 +1,5 @@
 using System.Reflection;
+using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -46,11 +47,11 @@ public class EveningReviewTests
     public async Task A_write_of_many_rows_is_sent_without_the_session_so_that_its_author_is_notified()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
         var transport = new Sessions(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport());
         var session = new ChangeSession();
         session.SetSession(typeof(TestClient), ("me", () => Task.CompletedTask));
-        await using var store = new RemoteEntityStore(transport, _serializer, session);
+        await using var store = new WritableRemoteEntityStore(transport, _serializer, session);
 
         var ana = new TestClient { Name = "Ana" };
         await store.InsertAsync(ana);
@@ -112,8 +113,8 @@ public class EveningReviewTests
     public void The_configuration_check_names_a_hidden_property_the_serializer_would_send()
     {
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<SAccount>(Stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
 
         new EntityRequestDispatcher(registry, _serializer, Stores).CheckConfiguration();     // JSON honors [JsonIgnore]
         var error = Assert.Throws<InvalidOperationException>(

@@ -6,7 +6,9 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>The local copy of one entity type, without its generic arguments.</summary>
 internal abstract class OfflineEntityType

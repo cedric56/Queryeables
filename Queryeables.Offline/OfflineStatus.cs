@@ -1,6 +1,8 @@
 using Queryeables.Abstraction;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>Where the stores read and write.</summary>
 public enum ConnectionMode

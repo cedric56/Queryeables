@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 
 namespace Queryeables.Tests.Unit;
 
@@ -23,12 +23,12 @@ public class OfflineModeTests
         var graph = PersonGraph();
         var registry = new EntityHandlerRegistry();
         // An insert named "Refused" is refused: a write the server turns down.
-        registry.Register(new EntityHandler<TestClient>(serverStores, EntityAccessPolicies.From(r =>
+        registry.Register(new WritableEntityHandler<TestClient>(serverStores, EntityAccessPolicies.From(r =>
             !(r.Operation == EntityOperation.Insert && r.Entity is TestClient { Name: "Refused" }))));
-        registry.Register(new EntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
+        registry.Register(new WritableEntityHandler<AuditPerson>(serverStores, EntityAccessPolicies.AllowAll,
             aggregate: new GraphRepository<AuditPerson, long>(serverStores, graph)));
-        registry.Register(new EntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
-        registry.Register(new EntityHandler<GuidNote>(serverStores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<AuditContact>(serverStores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<GuidNote>(serverStores, EntityAccessPolicies.AllowAll));
         _network = new NetworkRemote(new EntityRequestDispatcher(registry, _serializer, serverStores).AsTransport());
     }
 
@@ -50,7 +50,7 @@ public class OfflineModeTests
             .Add<AuditPerson, long>(p => p.Id)
             .Add<AuditContact, long>(c => c.Id)
             .Add<GuidNote, Guid>(n => n.Id);
-        var stores = new OfflineStoreFactory(RemoteEntityStore.Factory(_network, _serializer), mode);
+        var stores = new OfflineStoreFactory(WritableRemoteEntityStore.Factory(_network, _serializer), mode);
         var persons = new GraphRepository<AuditPerson, long>(stores, PersonGraph());
         services.Add(typeof(IAggregateRepository<AuditPerson>), persons);
         return (mode, stores, persons);
@@ -322,7 +322,7 @@ public class OfflineModeTests
         services.AddSingleton<IEntityTransport>(_network);
         services.AddSingleton<IEntitySerializer>(_serializer);
         services.UseQueryeables(q => q
-            .UseStores(sp => RemoteEntityStore.Factory(sp.GetRequiredService<IEntityTransport>(), sp.GetRequiredService<IEntitySerializer>()))
+            .UseStores(sp => WritableRemoteEntityStore.Factory(sp.GetRequiredService<IEntityTransport>(), sp.GetRequiredService<IEntitySerializer>()))
             .WithOfflineMode(o => o.UseStorage(_storage).Entity<TestClient, long>(c => c.Id)));
         await using var provider = services.BuildServiceProvider();
 

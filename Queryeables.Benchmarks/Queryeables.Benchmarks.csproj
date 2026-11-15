@@ -18,6 +18,7 @@
     <ProjectReference Include="..\Queryeables.MagicOnion\Queryeables.MagicOnion.csproj" />
     <ProjectReference Include="..\Queryeables.MagicOnion.Client\Queryeables.MagicOnion.Client.csproj" />
     <ProjectReference Include="..\Queryeables.MagicOnion.Server\Queryeables.MagicOnion.Server.csproj" />
+    <ProjectReference Include="..\Queryeables.Offline\Queryeables.Offline.csproj" />
   </ItemGroup>
 
 </Project>

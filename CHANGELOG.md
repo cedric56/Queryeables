@@ -7,6 +7,23 @@ may change the API.
 
 First public version.
 
+### Changed (recentring of November 15)
+- **The core publishes read-only replicas.** A server exposes its types; a remote client's caches hold the rows its user may
+  read, kept up to date by the notifications. `RemoteEntityStore` reads every row, the changes since a date and a row by
+  key; any other read, and every write, throws `NotSupported`. `EntityHandler<T>` serves only those (its constructor takes
+  the stores, the policy, the row filter and `maxReadSize`). A client writes through the services of the application.
+- **New package `Queryeables.Offline` (experimental)**: the offline mode (`OfflineMode`, outbox, storages, conflicts), and
+  the generic remote writes and filters it needs, moved out of the core: `server.AllowWrites(durableIdempotency)` on the
+  server (`WritableEntityHandler<T>`, `StoreIdempotencyStore`), `q.UseRemoteWrites()` and `q.WithOfflineMode(...)` on the
+  client (`WritableRemoteEntityStore`). Namespace `Queryeables.Offline` (was `Queryeables.Remote.Offline`).
+- `SqliteOfflineStorage` moves to the package `Queryeables.Offline.Sqlite`; `Queryeables.Browser` becomes
+  `Queryeables.Offline.Browser` (its script: `_content/Queryeables.Offline.Browser/queryeables-indexeddb.js`).
+- Extension points of the core: `QueryeablesBuilder.DecorateStores`, `EntityServerBuilder.Handlers` (`IEntityHandlerFactory`,
+  `ExposeOptions<T>`) and `EntityServerBuilder.Services`, `IRelationRestrictor<T>`, `HandlerRelationGuard`, `FilterValues`,
+  `RemoteDiagnostics` and the members of `RowLevelSecurity<T>` made public. `EntityServerBuilder.DurableIdempotency` is
+  replaced by `AllowWrites(durableIdempotency: true)`; `RemoteEntityStore` and `MagicOnionTransport.Stores` no longer take an
+  `IChangeSession`.
+
 ### Fixed (review of November 15, evening)
 - On a remote client, `UpdateWhere` and `DeleteWhere` now reach the author's own caches: they are sent without its
   notification session, so the server notifies the author of the rows written too.

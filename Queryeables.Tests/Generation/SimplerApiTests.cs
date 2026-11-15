@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Queryeables.Abstraction;
 using Queryeables.Generated;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 using Queryeables.Tests.Graphs;
 
 namespace Queryeables.Tests;
@@ -136,11 +136,12 @@ public sealed class SimplerApiTests
             .UseStores(_ => new EntityStoreFactory(() => new MemoryStore(_database)))
             .AddGeneratedEntities()
             .AddEntityServer(_serializer, server => server
+                .AllowWrites()
                 .Expose<GProduct>(EntityAccessPolicies.ReadOnly)
                 .ExposeGenerated(EntityAccessPolicies.Authenticated)));
         await using var provider = services.BuildServiceProvider();
         var user = new EntityRequestContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ana")], "test")));
-        await using var store = new RemoteEntityStore(provider.GetRequiredService<EntityRequestDispatcher>().AsTransport(user), _serializer);
+        await using var store = new WritableRemoteEntityStore(provider.GetRequiredService<EntityRequestDispatcher>().AsTransport(user), _serializer);
 
         await store.InsertAsync(new GPerson { Name = "Ana" });              // exposed by ExposeGenerated
         await store.InsertAsync(new GTag { Name = "red" });

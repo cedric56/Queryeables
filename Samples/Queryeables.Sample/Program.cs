@@ -1,7 +1,7 @@
 using Sample;
 
 // The whole setup: a provider, what the attributes describe, the tables. AddEntityServer also makes this application a
-// server for remote clients (last part of the sample).
+// server that publishes replicas to remote clients (last part of the sample).
 var file = Path.Combine(Path.GetTempPath(), "queryeables-sample.db");
 File.Delete(file);
 await using var app = await QueryeablesHost.CreateAsync(q => q
@@ -33,18 +33,20 @@ foreach (var contact in loaded?.Contacts ?? [])
 await service.RemoveAsync(ana).OrThrow();
 Console.WriteLine($"Cache after removal: {string.Join(", ", persons.Entities)}");
 
-// The same code, remote. The client's provider talks to the server instead of SQLite: here through the dispatcher in
-// process; in an application through MagicOnion, with q.UseMagicOnion(url). The server saves the contacts.
+// Remote: a client keeps a replica of what the server publishes, the rows its user may read. Here through the dispatcher
+// in process; in an application through MagicOnion (q.UseMagicOnion(url)), whose notifications keep the replica up to date.
 var dispatcher = app.GetRequiredService<EntityRequestDispatcher>();
 await using var client = await QueryeablesHost.CreateAsync(q => q
     .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), JsonEntitySerializer.Default))
     .AddGeneratedEntities());
 
-var remoteService = client.GetRequiredService<IPersonRepository>();
-var carl = new Person { Name = "Carl", Contacts = [new Contact { Kind = "neighbour", PersonId = bob.Id }] };
-await remoteService.SaveAsync(carl).OrThrow();
-Console.WriteLine($"Remote save: {carl} #{carl.Id}, contact #{carl.Contacts![0].Id} owned by #{carl.Contacts[0].OwnerId}");
-Console.WriteLine($"Seen by the server's cache: {persons.Find(carl.Id) is not null}");
+var replica = client.GetRequiredService<IPersonCache>();
+await replica.LoadAsync();
+Console.WriteLine($"Replica: {string.Join(", ", replica.Entities.OrderBy(p => p.Id))}");
 
-var remoteCarl = await remoteService.GetAsync(carl.Id);
-Console.WriteLine($"Remote load: {remoteCarl} -> {string.Join(", ", (remoteCarl?.Contacts ?? []).Select(c => c.Kind))}");
+// A client writes by calling a service of the application, which saves on the server with its own stores (what this line
+// does); its replica follows (a notification, here an explicit synchronization).
+var carl = new Person { Name = "Carl", Contacts = [new Contact { Kind = "neighbour", PersonId = bob.Id }] };
+await service.SaveAsync(carl).OrThrow();
+await replica.SyncAsync();
+Console.WriteLine($"Replica after the server saved {carl}: {string.Join(", ", replica.Entities.OrderBy(p => p.Id))}");

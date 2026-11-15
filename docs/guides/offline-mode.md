@@ -1,19 +1,33 @@
 # Offline mode
 
 A remote client can keep working when the server is out of reach: it reads and writes a local copy, and the writes wait
-in a queue. **Nothing switches by itself.** The application is told what happens, shows it to the user, and the user
+in a queue. It is the package `Queryeables.Offline` (experimental), plugged into the core through its extension points: an
+application without it carries nothing of the offline mode. **Nothing switches by itself.** The application is told what happens, shows it to the user, and the user
 decides when to go offline and when to synchronize.
 
 It runs in Blazor WebAssembly as well: no thread, no blocking wait, and the local copy can be kept in the browser.
 
 ## Setup
 
+```bash
+dotnet add package Queryeables.Offline          # the server and the client
+dotnet add package Queryeables.Offline.Sqlite   # the client's copy in a SQLite file (or Queryeables.Offline.Browser)
+```
+
+The server lets its clients write (`AllowWrites`, of the same package; durable idempotency in production, see below):
+
+```csharp
+.AddMagicOnionServer(server => server.AllowWrites(durableIdempotency: true).ExposeGenerated(EntityAccessPolicies.Authenticated))
+```
+
+The client:
+
 ```csharp
 builder.Services.UseQueryeables(q => q
     .UseMagicOnion("https://server:5001")
     .AddGeneratedEntities()
     .WithOfflineMode(o => o
-        .UseStorage(new IndexedDbOfflineStorage()) // WebAssembly (Queryeables.Browser); SqliteOfflineStorage on desktop
+        .UseStorage(new IndexedDbOfflineStorage()) // WebAssembly (Queryeables.Offline.Browser); SqliteOfflineStorage (Queryeables.Offline.Sqlite) on desktop
         .AllGeneratedEntities()                    // every entity the generator knows, with its key
         .Entity<Person>(p => p.OwnerId == session.UserId)));   // only what this user needs of one of them
 ```
@@ -36,7 +50,8 @@ var offline = app.Services.GetRequiredService<OfflineMode>();
 await offline.InitializeAsync();
 ```
 
-`WithOfflineMode` puts an `OfflineStoreFactory` in front of the provider's factory. Services, caches and queries keep
+`WithOfflineMode` puts an `OfflineStoreFactory` in front of the provider's factory (through `DecorateStores`), and makes the
+client write through the server while online (`UseRemoteWrites`). Services, caches and queries keep
 asking for `IEntityStoreFactory`, `IPersonRepository` or `IPersonCache`: they do not change.
 
 ## What the user is told
@@ -132,7 +147,7 @@ results in an `IIdempotencyStore`: in memory for a day by default, which a resta
 a warning). In production, keep them in the database:
 
 ```csharp
-.AddEntityServer(serializer, server => { server.DurableIdempotency = true; /* ... */ })
+.AddEntityServer(serializer, server => server.AllowWrites(durableIdempotency: true) /* ... */)
 ```
 
 `StoreIdempotencyStore` keeps them in the table `IdempotencyRecords` (its creation script is in its documentation), for
@@ -154,8 +169,8 @@ arrives.
 
 | Storage | Package | Where | For |
 | --- | --- | --- | --- |
-| `IndexedDbOfflineStorage` | `Queryeables.Browser` | IndexedDB, hundreds of MB | Blazor WebAssembly |
-| `SqliteOfflineStorage(connectionString)` | `Queryeables.Sqlite` | One table in a SQLite file, WAL | Desktop, MAUI |
+| `IndexedDbOfflineStorage` | `Queryeables.Offline.Browser` | IndexedDB, hundreds of MB | Blazor WebAssembly |
+| `SqliteOfflineStorage(connectionString)` | `Queryeables.Offline.Sqlite` | One table in a SQLite file, WAL | Desktop, MAUI |
 | `FileOfflineStorage(folder)` | `Queryeables` | One file per key, written then renamed | Desktop, when SQLite is not wanted |
 | `BrowserOfflineStorage` | `Queryeables` | `localStorage`, about 5 MB per site | Small copies in the browser |
 | `MemoryOfflineStorage` | `Queryeables` | Memory, lost on close | Tests; the default |

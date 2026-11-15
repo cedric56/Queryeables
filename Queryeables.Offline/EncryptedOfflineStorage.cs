@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Queryeables.Remote.Offline;
+using Queryeables.Remote;
+
+namespace Queryeables.Offline;
 
 /// <summary>
 /// Encrypts the offline copy and the queue before they reach <paramref name="inner"/> (a file, SQLite...): AES-256-GCM per

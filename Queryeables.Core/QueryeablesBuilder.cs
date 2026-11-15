@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 
@@ -17,7 +16,7 @@ public sealed class QueryeablesBuilder
 {
     private Func<IServiceProvider, IEntityStoreFactory>? _stores;
     private bool _syncConventions;
-    private OfflineModeOptions? _offline;
+    private readonly List<Func<IServiceProvider, IEntityStoreFactory, IEntityStoreFactory>> _decorators = [];
     private readonly List<IEntityType> _entities = [];
 
     internal QueryeablesBuilder(IServiceCollection services)
@@ -58,33 +57,13 @@ public sealed class QueryeablesBuilder
     }
 
     /// <summary>
-    /// Lets a remote client work without the server (<see cref="OfflineMode"/>, registered as a singleton): the user is told
-    /// when the server is lost or back and when the data differs, and chooses when to switch. Call
-    /// <see cref="OfflineMode.InitializeAsync"/> once at startup, before the first store is created.
+    /// Wraps the stores of the provider, in the order of the calls, before the caches are told of the writes: what an
+    /// extension adds to every store (<c>Queryeables.Offline</c> switches between the server and a local copy).
     /// </summary>
-    /// <example>
-    /// <code>
-    /// q.UseMagicOnion(url).AddGeneratedEntities()
-    ///  .WithOfflineMode(o => o
-    ///      .UseStorage(new IndexedDbOfflineStorage())     // WebAssembly; SqliteOfflineStorage elsewhere
-    ///      .AllGeneratedEntities());
-    /// </code>
-    /// </example>
-    public QueryeablesBuilder WithOfflineMode(Action<OfflineModeOptions> configure)
+    /// <param name="decorate">Takes the services and the factory so far; returns the factory that replaces it.</param>
+    public QueryeablesBuilder DecorateStores(Func<IServiceProvider, IEntityStoreFactory, IEntityStoreFactory> decorate)
     {
-        ArgumentNullException.ThrowIfNull(configure);
-        var options = _offline ?? new OfflineModeOptions();
-        configure(options);
-        if (_offline is null)
-        {
-            _offline = options;
-            Services.TryAddSingleton(sp => options.Create(
-                sp.GetRequiredService<IEntityTransport>(),
-                sp.GetRequiredService<IEntitySerializer>(),
-                sp.GetService<ChangeFeedRegistry>(),
-                sp));
-            Services.AddSingleton<IUserScopedData>(sp => sp.GetRequiredService<OfflineMode>());
-        }
+        _decorators.Add(decorate ?? throw new ArgumentNullException(nameof(decorate)));
         return this;
     }
 
@@ -253,7 +232,7 @@ public sealed class QueryeablesBuilder
 
         var stores = _stores;
         var syncConventions = _syncConventions;
-        var offline = _offline is not null;
+        var decorators = _decorators.ToList();
         Services.TryAddSingleton<LocalWrites>();
         Services.Replace(ServiceDescriptor.Singleton<IEntityStoreFactory>(sp =>
         {
@@ -261,8 +240,8 @@ public sealed class QueryeablesBuilder
             var factory = syncConventions
                 ? new EntityStoreFactory(() => provider.Create().WithSyncConventions(), provider.IsRemote)
                 : provider;
-            if (offline)
-                factory = new OfflineStoreFactory(factory, sp.GetRequiredService<OfflineMode>());
+            foreach (var decorate in decorators)
+                factory = decorate(sp, factory);
             // The writes of this application reach its caches at once.
             var writes = sp.GetRequiredService<LocalWrites>();
             var reported = factory;

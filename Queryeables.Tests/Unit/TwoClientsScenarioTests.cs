@@ -1,6 +1,6 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Remote.Offline;
+using Queryeables.Offline;
 
 namespace Queryeables.Tests.Unit;
 
@@ -19,7 +19,7 @@ public class TwoClientsScenarioTests
     {
         var stores = new EntityStoreFactory(() => new MemoryStore(_database).WithSyncConventions());
         var registry = new EntityHandlerRegistry();
-        registry.Register(new EntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
+        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
         _dispatcher = new EntityRequestDispatcher(registry, _serializer, stores);
     }
 
@@ -146,7 +146,7 @@ public class TwoClientsScenarioTests
             var network = new Network(test, name);
             var session = new ChangeSession();
             session.SetSession(typeof(TestClient), (name, () => Task.CompletedTask));
-            var client = new Client(name, test, network, RemoteEntityStore.Factory(network, test._serializer, session));
+            var client = new Client(name, test, network, WritableRemoteEntityStore.Factory(network, test._serializer, session));
             await client.Offline.InitializeAsync();
             await client.Offline.RefreshSnapshotAsync();
             await client.Cache.LoadAsync();
