@@ -85,7 +85,7 @@ public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Remote store, transport-agnostic: <see cref="RemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsTransport"/>
+/// Remote store, transport-agnostic: <see cref="WritableRemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsTransport"/>
 /// → <see cref="EntityHandler{T}"/> → Dommel, with a JSON serializer: nothing of MagicOnion is involved.
 /// </summary>
 public sealed class RemoteEntityStoreContractTests : SqliteContractTests
@@ -100,8 +100,8 @@ public sealed class RemoteEntityStoreContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Remote store over MagicOnion: <see cref="RemoteEntityStore"/> → <see cref="MagicOnionTransport"/> → MessagePack messages
-/// → <see cref="EntityRequestDispatcher"/> → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
+/// Remote store over MagicOnion: <see cref="WritableRemoteEntityStore"/> → <see cref="MagicOnionTransport"/> → MessagePack messages
+/// → <see cref="EntityRequestDispatcher"/> → <see cref="WritableEntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
 /// </summary>
 public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
 {
@@ -119,7 +119,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     }
 
     private static IEntityStore Client(EntityRequestDispatcher dispatcher)
-        => MagicOnionTransport.Stores(new InProcessLayer(dispatcher), MessagePackEntitySerializer.Default).Create();
+        => new WritableRemoteEntityStore(new MagicOnionTransport(new InProcessLayer(dispatcher)), MessagePackEntitySerializer.Default);
 
     [Fact]
     public async Task Server_caps_the_page_size()

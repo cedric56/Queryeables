@@ -122,8 +122,8 @@ public sealed class EntityServerBuilder
 }
 
 /// <summary>How a type is exposed (see <see cref="EntityServerBuilder.Expose{TEntity}"/>).</summary>
-public sealed record ExposeOptions<TEntity>(IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, RowLevelSecurity<TEntity>? Rows,
-    int MaxReadSize) where TEntity : class;
+public sealed record ExposeOptions<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IEntityAccessPolicy Policy, bool Validate,
+    int MaxPageSize, RowLevelSecurity<TEntity>? Rows, int MaxReadSize) where TEntity : class;
 
 /// <summary>Creates the handler of an exposed type: the extension point of what a server serves (<see cref="EntityServerBuilder.Handlers"/>).</summary>
 public interface IEntityHandlerFactory
