@@ -4,10 +4,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
+using Queryeables.PostgreSql;
 
-namespace Queryeables.PostgreSql;
+namespace Queryeables;
 
-public static class QueryeablesBuilderExtensions
+/// <summary>The PostgreSql provider of <see cref="QueryeablesBuilder"/>: in the namespace of the builder, found without a using.</summary>
+public static class PostgreSqlQueryeablesBuilderExtensions
 {
     /// <summary>Stores with Dommel on PostgreSQL (Npgsql).</summary>
     /// <param name="logCommands">Logs every SQL command (category "Queryeables.SQL"). For development.</param>

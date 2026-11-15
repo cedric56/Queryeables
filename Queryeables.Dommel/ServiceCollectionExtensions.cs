@@ -34,6 +34,8 @@ public static class ServiceCollectionExtensions
 
         if (ignoreNotMapped)
             DommelMapper.SetPropertyResolver(new NotMappedPropertyResolver());
+        // Person → table Person (or its [Table]), not Dommel's Persons: q.PluralizeTableNames() for the plural.
+        DommelMapper.SetTableNameResolver(new QueryeablesTableNameResolver());
 
         var options = new DbFactoryOptions
         {

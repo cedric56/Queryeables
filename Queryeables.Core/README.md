@@ -27,9 +27,22 @@ services.UseQueryeables(q => q
 | `AddChangeFeed<T>(table)` | `IChangeFeed<T>`, fed by the database changes (table name from `[Table]` by default) |
 | `AddCache<T, TKey>(e => e.Id)` | `IEntityCache<T, TKey>` and its change feed |
 | `AddGraph<TParent, TKey>(sp => graph)` | An `EntityGraph` and its `IAggregateRepository<TParent>` service |
-| `AddEntityServer(serializer, s => s.Expose<T>(policy))` | The server side of remote access (`EntityRequestDispatcher`) |
+| `AddEntityServer(serializer, s => s.Expose<T>(policy))` | The server side of remote access (`EntityRequestDispatcher`); `s.ExposeGenerated(policy)` exposes every generated entity |
+| `AddEntity<T, TKey>(e => e.Id)` | Declares an entity and its key (`IEntityType`): the generator does it for every entity it knows |
+| `CreateTables()` (Dommel providers) | Creates the missing tables at startup |
+| `Preload<T, TKey>()` | Loads a cache at startup: `[EntityCache(Preload = true)]` |
+| `WaitForServer(timeout)` | A remote client waits at startup for its server |
+| `ThrowOnFailure()` | The repositories throw instead of returning a failed `EntityResult` |
 
-`UseQueryeables` also registers `ChangeFeedRegistry` and `IChangeSession`, and throws at startup when no provider was called.
+`UseQueryeables` also registers `ChangeFeedRegistry`, `IChangeSession` and `LocalWrites` (the writes of the application,
+applied to its caches at once), and throws at startup when no provider was called. The startup work (tables, preloaded
+caches, waiting for the server) runs in a hosted service, or by `provider.StartQueryeablesAsync()` without a host;
+`QueryeablesHost.CreateAsync(q => ...)` builds and starts it in one call, for a console or desktop application.
+
+The package adds its namespaces to the global usings of a project with `ImplicitUsings` (`Queryeables`,
+`Queryeables.Abstraction`, `Queryeables.Remote`, `Queryeables.Generated`, `Microsoft.Extensions.DependencyInjection`), and
+the providers put their methods in `Queryeables`: no `using` to write. `<QueryeablesImplicitUsings>false</QueryeablesImplicitUsings>`
+turns it off.
 
 ## Stores
 
@@ -55,7 +68,7 @@ Extensions: `SaveAsync`, `GetAsync` (throws NotFound), `InsertManyAsync`, `Updat
 ## Entities
 
 ```csharp
-[EntityCache]                                      // IEntityCache<Person, long>, kept up to date by the database
+[EntityCache]                                      // IPersonCache, kept up to date by the writes and the database
 public class Person
 {
     public long Id { get; set; }
@@ -65,8 +78,9 @@ public class Person
 }
 ```
 
-The generator writes `IPersonRepository` (save, remove, `LoadContactsAsync`) and `PersonGraph` (navigation properties,
-looked-up entities found in their caches). Attribute mistakes are compile errors, QRY001 to QRY009. Entities declared in a
+The generator writes `IPersonRepository` (save, `GetAsync` with the children, remove, `LoadContactsAsync`), `IPersonCache`
+and `PersonGraph` (navigation properties, looked-up entities found in their caches). Attribute mistakes are compile errors,
+QRY001 to QRY009, most of them with a fix in the editor (add the key, add or retype the foreign key). Entities declared in a
 shared library are registered by `AddGeneratedEntities()` in every project that references it.
 
 | Attribute | Effect |

@@ -1,114 +1,56 @@
 # Getting started
 
-A console or desktop application with SQLite, a cache and a parent with its children. The whole application is the
-`queryeables-console` template, built and run by the CI from the packages; the [tutorial](tutorial.md) goes further, up
-to a server and offline work.
-
-## 1. Add the package
+A console application with SQLite, a cache and a person with its contacts. It is the `queryeables-console` template
+(`dotnet new queryeables-console -n MyApp`); the [tutorial](tutorial.md) goes on to a server and offline work.
 
 ```bash
 dotnet add package Queryeables.Sqlite
-dotnet add package Microsoft.Extensions.DependencyInjection
 ```
-
-`Queryeables.Sqlite` brings the `Queryeables` package and its source generator. Or start from the template, which holds
-everything below:
-
-```bash
-dotnet new install Queryeables.Templates
-dotnet new queryeables-console -n MyApp
-cd MyApp && dotnet run
-```
-
-### Before the packages are published
-
-The packages are not on NuGet yet. Build them once from the sources, into a folder that serves as a package source:
-
-```bash
-git clone https://github.com/cedric56/Queryeables
-cd Queryeables
-dotnet pack -c Release -o ~/queryeables-packages -p:Version=0.1.0-local
-dotnet nuget add source ~/queryeables-packages --name queryeables-local
-```
-
-(In PowerShell, `$HOME\queryeables-packages`.) Then, in your application, add `--prerelease`, since `0.1.0-local` is a
-preview version:
-
-```bash
-dotnet add package Queryeables.Sqlite --prerelease
-```
-
-or install the templates from that folder:
-
-```bash
-dotnet new install ~/queryeables-packages/Queryeables.Templates.0.1.0-local.nupkg
-dotnet new queryeables-console -n MyApp
-```
-
-After a `git pull`, pack again with a higher version (`0.1.0-local.2`): NuGet keeps a version it has already seen in its
-cache. Once the packages are published, `dotnet nuget remove source queryeables-local`.
-
-## 2. Describe the entities
 
 ```csharp
-[EntityCache]
-[Table("Person")]                     // Dommel pluralizes table names by default
+[EntityCache]                                                  // a cache that follows the table
 public class Person
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
 
-    [NotMapped]                       // not a column
-    [EntityGraph(ParentNavigation = nameof(Contact.Owner))]
-    public List<Contact>? Contacts { get; set; }   // null = not loaded
+    [EntityGraph]                                              // saved, read and removed with the person
+    public List<Contact>? Contacts { get; set; }
 }
 
-[Table("Contact")]
 public class Contact
 {
     public long Id { get; set; }
-    public long PersonId { get; set; }             // found by its name: {Parent}Id or Id{Parent}
+    public long PersonId { get; set; }                         // the parent, found by its name
     public string Kind { get; set; } = "";
-
-    [NotMapped] public Person? Owner { get; set; }
 }
-```
 
-## 3. Register
-
-```csharp
-var services = new ServiceCollection();
-services.UseQueryeables(q => q
+await using var app = await QueryeablesHost.CreateAsync(q => q
     .UseSqlite("Data Source=app.db")
-    .AddGeneratedEntities());
-await using var provider = services.BuildServiceProvider();
+    .AddGeneratedEntities()                                    // the cache, the repository: written by the generator
+    .CreateTables());                                          // tables Person and Contact, when missing
 
-// The tables: Queryeables does not create them (use your migrations; this is the simplest way for a first app).
-await DommelEntityStore.EnsureSchemaAsync(provider.GetRequiredService<DbProviderFactory>(), "Data Source=app.db", """
-    CREATE TABLE IF NOT EXISTS Person  (Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS Contact (Id INTEGER PRIMARY KEY AUTOINCREMENT, PersonId INTEGER NOT NULL, Kind TEXT NOT NULL);
-    """);
+var persons = app.GetRequiredService<IPersonRepository>();
+await persons.SaveAsync(new Person { Name = "Ana", Contacts = [new() { Kind = "friend" }] }).OrThrow();
+var cached = app.GetRequiredService<IPersonCache>().Entities;  // Ana is there already
 ```
 
-## 4. Use
+No `using` to write: the package adds its namespaces to a project with `ImplicitUsings`. `CreateTables()` is for a first
+application; manage the schema of a database in production with your migrations. The packages are not published on
+NuGet yet: build them first ([contributing](../CONTRIBUTING.md#trying-the-packages-before-they-are-published)).
 
-```csharp
-var cache = provider.GetRequiredService<IEntityCache<Person, long>>();
-await cache.LoadAsync();
+## Which package
 
-var persons = provider.GetRequiredService<IPersonRepository>();
-var ana = new Person { Name = "Ana", Contacts = [new() { Kind = "friend" }] };
-EntityResult result = await persons.SaveAsync(ana);     // the person, then its contacts, in one transaction
+| You have | Add | Then |
+| --- | --- | --- |
+| SQLite | `Queryeables.Sqlite` | `q.UseSqlite(connectionString)` |
+| PostgreSQL | `Queryeables.PostgreSql` | `q.UseNpgsql(connectionString)` |
+| SQL Server, MySQL | `Queryeables.Dommel` and the ADO.NET driver | `q.UseDommel<SqlConnection>(connectionString)` |
+| An EF Core model | `Queryeables.EntityFramework` | `q.UseEntityFramework(sp => new AppDbContext(options))` |
+| MongoDB | `Queryeables.MongoDB` | `q.UseMongoDB(connectionString, "app")` |
+| A Queryeables server to reach | `Queryeables.MagicOnion.Client` | `q.UseMagicOnion("https://server:5001")` |
+| A server to build | `Queryeables.MagicOnion.Server` and a provider | `.AddMagicOnionServer(s => s.ExposeGenerated(policy))`, `app.MapQueryeables()` |
+| Entities shared by a client and a server | `Queryeables` in the shared library | the attributes, nothing else |
 
-// A moment later, cache.Entities contains Ana: SQLite reported the insert.
-```
-
-## 5. Go remote
-
-`dotnet new queryeables-client-server -n Shop` makes the three projects below; the [tutorial](tutorial.md#4-go-remote)
-walks through them. Keep the entities in a shared library, then:
-
-- **server** (ASP.NET Core): `Queryeables.MagicOnion.Server`, `q.UseSqlite(...).AddGeneratedEntities().AddMagicOnionServer(s => s.Expose<Person>(policy).Expose<Contact>(policy))`;
-- **client**: `Queryeables.MagicOnion.Client`, `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`.
-
-The client code does not change. See [Remote access](guides/remote-access.md).
+Three names cover the everyday work: the **repository** (`IPersonRepository`, a parent with its children), the **cache**
+(`IPersonCache`) and the **query** (`stores.Query<Person>()`). The others are in the [glossary](glossary.md).

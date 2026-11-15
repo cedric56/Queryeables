@@ -10,21 +10,19 @@ dotnet add package Queryeables.MagicOnion.Server
 ## Set up
 
 ```csharp
-// MagicOnion finds the service by this class.
-public sealed class AppLayerService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
-
-builder.Services.AddMagicOnion();
 builder.Services.UseQueryeables(q => q
     .UseSqlite("Data Source=server.db")
     .AddGeneratedEntities()                                    // the graph services: children saved with their parent
     .AddMagicOnionServer(server => server
-        .Expose<Person>(EntityAccessPolicies.Authenticated)
-        .Expose<Contact>(EntityAccessPolicies.Authenticated)
-        .Expose<Product>(EntityAccessPolicies.ReadOnly)));
+        .Expose<Product>(EntityAccessPolicies.ReadOnly)        // one type, its own policy
+        .ExposeGenerated(EntityAccessPolicies.Authenticated)));   // every other entity the generator knows
 
 var app = builder.Build();
-app.MapMagicOnionService();
+app.MapQueryeables();
 ```
+
+`AddMagicOnionServer` registers MagicOnion and the JSON entity serializer of the clients; `MapQueryeables()` maps the
+service. A server that declares its own class deriving from `MagicOnionService` keeps working with `MapMagicOnionService()`.
 
 Only exposed types can be reached, each with its policy: `Authenticated`, `ReadOnly`, `AllowAll` (tests and closed networks
 only), or your own rule with `EntityAccessPolicies.From(request => ...)`. Each call runs with the user authenticated by

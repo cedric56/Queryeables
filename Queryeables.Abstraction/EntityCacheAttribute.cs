@@ -7,4 +7,9 @@ namespace Queryeables.Abstraction;
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public sealed class EntityCacheAttribute : Attribute
 {
+    /// <summary>
+    /// Load the cache when the application starts (a hosted service, or <c>StartQueryeablesAsync</c> without a host),
+    /// rather than on the first <c>LoadAsync</c> of the application.
+    /// </summary>
+    public bool Preload { get; set; }
 }

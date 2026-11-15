@@ -8,6 +8,16 @@ may change the API.
 First public version.
 
 ### Changed
+- A simpler first hour (review of November 15). Breaking:
+  - **Table names**: Dommel stores name a table after its class (`Person`), not Dommel's plural (`Persons`); `[Table]` still
+    names it. For a database made with the plural: `q.PluralizeTableNames()`.
+  - **Entities on the wire are JSON** (`JsonEntitySerializer`), with MagicOnion too: no `[MessagePackObject]` nor
+    `[IgnoreMember]` on the classes, and a shared library needs only the `Queryeables` package. To keep MessagePack, pass
+    `MessagePackEntitySerializer.Default` to `UseMagicOnion` and `MessagePackEntitySerializer.Server` to
+    `AddMagicOnionServer`. `MagicOnionTransport.Stores` takes the serializer.
+  - **The builder methods of the providers are in the namespace `Queryeables`** (`UseSqlite`, `UseNpgsql`, `UseDommel`,
+    `UseMongoDB`, `UseEntityFramework`, `UseMagicOnion`, `AddMagicOnionServer`), in classes named after the provider.
+  - `EntityCache` takes the application's `LocalWrites` (an optional parameter more).
 - `IMagicOnionLayer` has a method more (`ExecuteAsync`), `FilterOperator` values more (the extended form, appended), and
   `IEntityStore`, `IEntityTransport` and `IEntityGraph` members more, with default implementations. A generated
   `{Parent}Graph.Create` takes an optional `IServiceProvider` (the graphs of the child types).
@@ -33,6 +43,34 @@ First public version.
   a name identifier nor a name) cannot send idempotent writes.
 
 ### Added
+- Getting started without detours:
+  - `QueryeablesHost.CreateAsync(q => ...)`: the services of a console or desktop application, built and started in one call;
+    `provider.StartQueryeablesAsync()`, or the host, runs the startup work (`IQueryeablesStartupTask`).
+  - `q.CreateTables()`: the missing tables of the entities, created at startup from their classes (SQLite, PostgreSQL, SQL
+    Server, MySQL; `DommelSchema`). For a first application: no migration tool.
+  - Global usings: the package adds its namespaces to a project with `ImplicitUsings`, and brings
+    `Microsoft.Extensions.DependencyInjection` (`<QueryeablesImplicitUsings>false</QueryeablesImplicitUsings>` turns it off).
+  - A navigation or a graph collection is not a column without `[NotMapped]` (Dommel maps simple types only): the examples
+    drop it.
+- Every day:
+  - What the application writes is in its caches when the write (or its transaction) returns (`LocalWrites`,
+    `LocalWritesDecorator` around every store): no waiting for the notification, on a remote client either.
+  - `[EntityCache(Preload = true)]`, or `q.Preload<T, TKey>()`: the cache is loaded at startup.
+  - `I{Entity}Cache`, generated for each `[EntityCache]`: the cache without the type of its key.
+  - `GetAsync(key)` on the repositories: a parent with its children in one call.
+  - `store.SaveAsync(entity)` without a key selector; `q.ThrowOnFailure()` for repositories that throw.
+  - `JsonEntitySerializer`, delivered (cycles cut, `[JsonIgnore]` honored; a `JsonSerializerContext` for Native AOT).
+- Client and server:
+  - `AddMagicOnionServer` registers MagicOnion; `app.MapQueryeables()` maps the service, delivered (`QueryeablesService`):
+    no class to declare. A server with its own class keeps working.
+  - `server.ExposeGenerated(policy)`: every entity the generator knows, with one policy; `Expose<T>` keeps a type's own.
+  - `q.WaitForServer()`: a client waits at startup for its server.
+  - Offline: `o.AllGeneratedEntities()`, and `o.Entity<T>(where)` without the key.
+  - The generator declares every entity it knows with its key (`q.AddEntity<T, TKey>`, `IEntityType`): what the above read.
+- Code fixes in the editor for QRY001 (add the key), QRY003, QRY004, QRY006 (add the foreign key), QRY005, QRY007 and QRY008
+  (give the property the right type): `Queryeables.Generated.CodeFixes`, in the package next to the generator.
+- Docs: a getting started of thirty lines with a table of the packages, a glossary, templates without Kestrel code, SQL or
+  helpers (`appsettings.json` holds the development endpoint).
 - Every relation of an application of management, from the attributes:
   - graphs of any depth (a child type with `[EntityGraph]` children of its own is saved, removed and loaded with them;
     a tree of one type too), one to one (`[EntityGraph]` on an entity, `NullDeletes`), many to many

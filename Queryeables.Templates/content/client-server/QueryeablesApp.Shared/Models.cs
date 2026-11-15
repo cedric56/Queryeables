@@ -1,16 +1,10 @@
-using MessagePack;
-using Queryeables.Abstraction;
-using System.ComponentModel.DataAnnotations.Schema;
-
 namespace QueryeablesApp.Shared;
 
 /// <summary>
-/// A person and its contacts. [EntityCache]: an in-memory cache that follows the table. [MessagePackObject]: the entities
-/// travel as MessagePack between the client and the server.
+/// A person and its contacts, shared by the server and the client: no attribute of the transport (the entities travel as
+/// JSON). [EntityCache]: an in-memory cache that follows the table.
 /// </summary>
 [EntityCache]
-[Table("Person")]
-[MessagePackObject(keyAsPropertyName: true)]                     // Dommel pluralizes table names by default
 public class Person
 {
     public long Id { get; set; }
@@ -18,15 +12,12 @@ public class Person
     public string Name { get; set; } = "";
 
     /// <summary>Saved, loaded and removed with the person. Null: not loaded (saving leaves them as they are).</summary>
-    [NotMapped]
     [EntityGraph(ParentNavigation = nameof(Contact.Owner))]
     public List<Contact>? Contacts { get; set; }
 
     public override string ToString() => Name;
 }
 
-[Table("Contact")]
-[MessagePackObject(keyAsPropertyName: true)]
 public class Contact
 {
     public long Id { get; set; }
@@ -35,6 +26,5 @@ public class Contact
 
     public string Kind { get; set; } = "";
 
-    [NotMapped, IgnoreMember]                      // not a column, and not sent back (it would loop)
-    public Person? Owner { get; set; }
+    public Person? Owner { get; set; }             // a navigation: not a column, written once on the wire
 }

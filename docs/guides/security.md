@@ -25,8 +25,8 @@ or a Guid).
 
 ### A value that never leaves the server
 
-Hide it with the attribute **of the serializer the server uses**: `[IgnoreMember]` for MessagePack (MagicOnion), `[JsonIgnore]`
-for System.Text.Json. MessagePack ignores `[JsonIgnore]`: a server that would send a property marked for another serializer
+Hide it with the attribute **of the serializer the server uses**: `[JsonIgnore]` for JSON (the default of MagicOnion),
+`[IgnoreMember]` for MessagePack. MessagePack ignores `[JsonIgnore]`: a server that would send a property marked for another serializer
 refuses to serve the type (`NotSupported`, and the reason in its log) instead of sending the value. An update keeps the
 stored value of a hidden property: the client never had it, so what it sends back is not its decision. A custom
 `IEntitySerializer` says what it leaves out with `Omits(PropertyInfo)`.
@@ -41,7 +41,7 @@ checked before the service's transaction: its service decides.
 public class Account
 {
     public long Id { get; set; }
-    [IgnoreMember] public string PasswordHash { get; set; } = "";     // MessagePack; [JsonIgnore] with System.Text.Json
+    [JsonIgnore] public string PasswordHash { get; set; } = "";       // JSON; [IgnoreMember] with MessagePack
     [NotQueryable] public string InternalNote { get; set; } = "";
     [ServerOwned] public string? Role { get; set; }
 }

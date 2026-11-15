@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Queryeables.MagicOnion" Version="QUERYEABLES_VERSION" />
+    <PackageReference Include="Queryeables" Version="QUERYEABLES_VERSION" />
   </ItemGroup>
 
 </Project>

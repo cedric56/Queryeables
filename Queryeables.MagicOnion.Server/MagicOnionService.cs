@@ -14,18 +14,12 @@ namespace Queryeables.MagicOnion.Server;
 /// </summary>
 /// <example>
 /// <code>
-/// // In the server application: MagicOnion finds the service by this class.
-/// public sealed class AppMagicOnionService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
-///
-/// builder.Services.AddMagicOnion();
 /// builder.Services.UseQueryeables(q => q
 ///     .UseSqlite("Data Source=app.db")
 ///     .AddGeneratedEntities()
-///     .AddEntityServer(MessagePackEntitySerializer.Default, server => server
-///         .Expose&lt;Person&gt;(EntityAccessPolicies.Authenticated)
-///         .Expose&lt;Contact&gt;(EntityAccessPolicies.Authenticated)));
+///     .AddMagicOnionServer(server => server.ExposeGenerated(EntityAccessPolicies.Authenticated)));
 ///
-/// app.MapMagicOnionService();
+/// app.MapQueryeables();       // maps QueryeablesService, which derives from this class
 /// </code>
 /// </example>
 public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)

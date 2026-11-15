@@ -15,6 +15,8 @@ namespace Queryeables;
 public sealed class EntityServerBuilder
 {
     private readonly List<Func<IServiceProvider, EntityHandler>> _handlers = [];
+    private readonly HashSet<Type> _exposed = [];
+    private (IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, int MaxReadSize)? _generated;
 
     internal EntityServerBuilder()
     {
@@ -54,21 +56,53 @@ public sealed class EntityServerBuilder
         where TEntity : class
     {
         ArgumentNullException.ThrowIfNull(policy);
-        _handlers.Add(sp =>
-        {
-            var aggregate = sp.GetService<IAggregateRepository<TEntity>>();
-
-            // Without its graph repository, the server would save the parent and silently drop the children it received.
-            if (aggregate is null && HasEntityGraph(typeof(TEntity)))
-                throw new InvalidOperationException(
-                    $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IAggregateRepository<{typeof(TEntity).Name}> is registered " +
-                    "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
-                    "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
-
-            return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate, rows,
-                maxReadSize);
-        });
+        _exposed.Add(typeof(TEntity));
+        _handlers.Add(sp => Handler(sp, policy, validate, maxPageSize, rows, maxReadSize));
         return this;
+    }
+
+    /// <summary>
+    /// Exposes every entity type the generator knows (<c>AddGeneratedEntities()</c>: caches, graphs and their children,
+    /// references) with <paramref name="policy"/>, except those exposed one by one (<see cref="Expose{TEntity}"/>, before or
+    /// after), which keep their own policy and row filter.
+    /// </summary>
+    /// <inheritdoc cref="Expose{TEntity}" path="/param[@name='policy' or @name='validate' or @name='maxPageSize' or @name='maxReadSize']"/>
+    public EntityServerBuilder ExposeGenerated(IEntityAccessPolicy policy, bool validate = true, int maxPageSize = 1000,
+        int maxReadSize = EntityHandler.DefaultMaxReadSize)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        _generated = (policy, validate, maxPageSize, maxReadSize);
+        return this;
+    }
+
+    private static EntityHandler<TEntity> Handler<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(IServiceProvider sp,
+        IEntityAccessPolicy policy, bool validate, int maxPageSize, RowLevelSecurity<TEntity>? rows, int maxReadSize)
+        where TEntity : class
+    {
+        var aggregate = sp.GetService<IAggregateRepository<TEntity>>();
+
+        // Without its graph repository, the server would save the parent and silently drop the children it received.
+        if (aggregate is null && HasEntityGraph(typeof(TEntity)))
+            throw new InvalidOperationException(
+                $"{typeof(TEntity).Name} has [EntityGraph] collections, but no IAggregateRepository<{typeof(TEntity).Name}> is registered " +
+                "on the server: its children would not be saved. Call AddGeneratedEntities() in UseQueryeables (from a project " +
+                "that references the one declaring the entities), or AddGraph<TParent, TKey>(...).");
+
+        return new EntityHandler<TEntity>(sp.GetRequiredService<IEntityStoreFactory>(), policy, validate, maxPageSize, aggregate, rows,
+            maxReadSize);
+    }
+
+    /// <summary>Creates the handler of each generated entity type not exposed one by one.</summary>
+    private sealed class GeneratedHandlers(IServiceProvider services, (IEntityAccessPolicy Policy, bool Validate, int MaxPageSize, int MaxReadSize) options)
+        : IEntityTypeVisitor
+    {
+        public List<EntityHandler> Handlers { get; } = [];
+
+        public void Visit<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(EntityType<TEntity, TKey> type)
+            where TEntity : class
+            where TKey : notnull
+            => Handlers.Add(Handler<TEntity>(services, options.Policy, options.Validate, options.MaxPageSize, null, options.MaxReadSize));
     }
 
     private static bool HasEntityGraph([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type)
@@ -80,6 +114,19 @@ public sealed class EntityServerBuilder
         var registry = new EntityHandlerRegistry();
         foreach (var handler in _handlers)
             registry.Register(handler(services));
+        if (_generated is { } generated)
+        {
+            var types = services.GetServices<IEntityType>().Where(t => !_exposed.Contains(t.Type)).ToList();
+            if (types.Count == 0 && _exposed.Count == 0)
+                throw new InvalidOperationException(
+                    "ExposeGenerated found no entity: call AddGeneratedEntities() in UseQueryeables, from a project that references " +
+                    "the one declaring the entities.");
+            var visitor = new GeneratedHandlers(services, generated);
+            foreach (var type in types)
+                type.Accept(visitor);
+            foreach (var handler in visitor.Handlers)
+                registry.Register(handler);
+        }
         return registry;
     }
 }

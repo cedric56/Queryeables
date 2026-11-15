@@ -14,7 +14,7 @@
 
 **One data-access API for .NET, local or remote: your entities, their caches and their children, the same code everywhere.**
 
-A view model or a service asks for `IPersonRepository` or `IEntityCache<Person, long>`. It never knows whether the data comes
+A view model or a service asks for `IPersonRepository` or `IPersonCache`. It never knows whether the data comes
 from SQLite through Dommel, from SQL Server through EF Core, or from a server across the network.
 
 **What it is not:** not an ORM (it runs on top of Dommel or EF Core, which you keep for complex queries), not a query
@@ -24,7 +24,7 @@ notifications between clients.
 
 > **Status:** early. Packages are not published on NuGet yet, and the API may still change. To try it now, build them
 > from the sources into a local package source: three commands, in
-> [getting started](docs/getting-started.md#before-the-packages-are-published).
+> [contributing](CONTRIBUTING.md#trying-the-packages-before-they-are-published).
 
 ```bash
 dotnet new install Queryeables.Templates
@@ -59,18 +59,20 @@ public class Contact
 
 services.UseQueryeables(q => q
     .UseSqlite("Data Source=app.db")                     // the provider
-    .AddGeneratedEntities());                            // what the attributes describe, written by the source generator
+    .AddGeneratedEntities()                              // what the attributes describe, written by the source generator
+    .CreateTables());                                    // the tables Person and Contact, when missing
 ```
 
 ```csharp
-public sealed class PersonsViewModel(IPersonRepository persons, IEntityCache<Person, long> cache)
+public sealed class PersonsViewModel(IPersonRepository persons, IPersonCache cache)
 {
-    public IReadOnlyCollection<Person> All => cache.Entities;                       // kept up to date by the database
+    public IReadOnlyCollection<Person> All => cache.Entities;                       // up to date: saves, and the database
     public Task<EntityResult> SaveAsync(Person person) => persons.SaveAsync(person);    // the person and its contacts, one transaction
+    public Task<Person?> OpenAsync(long id) => persons.GetAsync(id);                // with its contacts
 }
 ```
 
-Two attributes and one registration call. To use a remote server instead, the client changes one line:
+Two attributes and one registration call, no `using` (the package adds its namespaces). To use a remote server instead, the client changes one line:
 `UseMagicOnion("https://server:5001")` instead of `UseSqlite(...)`. The [sample](Samples/Queryeables.Sample/Program.cs)
 runs this end to end on SQLite, then the same service as a remote client of an in-process server.
 
@@ -143,13 +145,13 @@ flowchart LR
 builder.Services.UseQueryeables(q => q
     .UseSqlite("Data Source=server.db")
     .AddGeneratedEntities()
-    .AddMagicOnionServer(server => server
-        .Expose<Person>(EntityAccessPolicies.Authenticated)
-        .Expose<Contact>(EntityAccessPolicies.Authenticated)));
+    .AddMagicOnionServer(server => server.ExposeGenerated(EntityAccessPolicies.Authenticated)));
+// ...
+app.MapQueryeables();
 ```
 
 **Client**: `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`. Keep the entities in a shared library:
-`AddGeneratedEntities()` registers them on both sides.
+`AddGeneratedEntities()` registers them on both sides, and they travel as JSON, without attributes.
 
 ## Queries
 
@@ -171,7 +173,7 @@ store. See [stores and transactions](docs/guides/stores-and-transactions.md#comp
 await using var store = stores.Create();      // IEntityStoreFactory, registered by the provider
 EntityResult result = await store.RunInTransactionAsync(async s =>
 {
-    await s.SaveAsync(order, o => o.Id);       // insert when the key is 0, update otherwise
+    await s.SaveAsync(order);                  // insert when the key is 0, update otherwise
     await s.UpdateAsync(customer);
 });
 
@@ -229,7 +231,7 @@ own code, not about every provider at run time:
 | Setup | Trimming | Full Native AOT |
 | --- | --- | --- |
 | Remote client, caches, graphs, offline mode | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
-| MagicOnion transport (`UseMagicOnion`) | Yes | With the MagicOnion and MessagePack source generators and `[MessagePackObject]` entities; not run in CI |
+| MagicOnion transport (`UseMagicOnion`) | Yes, with a `JsonEntitySerializer` on a `JsonSerializerContext` | Same, with the MagicOnion source generator; not run in CI. The default JSON serializer reads the types by reflection |
 | Dommel / Dapper (`UseSqlite`, `UseNpgsql`, `UseDommel`) | Yes | No: Dapper emits IL at run time |
 | EF Core (`UseEntityFramework`) | Yes | No: marked as requiring dynamic code, like EF Core itself |
 | MongoDB (`UseMongoDB`) | No | No: the driver maps by reflection; marked like EF Core |

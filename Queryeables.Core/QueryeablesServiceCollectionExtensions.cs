@@ -24,6 +24,9 @@ public static class QueryeablesServiceCollectionExtensions
 
         services.TryAddSingleton<ChangeFeedRegistry>();
         services.TryAddSingleton<IChangeSession, ChangeSession>();
+        services.TryAddSingleton<QueryeablesStartup>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, QueryeablesStartup>(
+            sp => sp.GetRequiredService<QueryeablesStartup>()));
 
         var builder = new QueryeablesBuilder(services);
         configure(builder);

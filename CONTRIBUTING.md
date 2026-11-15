@@ -37,6 +37,21 @@ Some tests need a server. Without its variable they are reported as skipped, not
 | `QUERYEABLES_POSTGRES` | PostgreSQL | `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=<password> postgres:17`, then `Host=localhost;Username=postgres;Password=<password>` |
 | `QUERYEABLES_MONGODB` | MongoDB, as a replica set (transactions, change streams) | see [Queryeables.MongoDB](Queryeables.MongoDB/README.md#transactions), then `mongodb://localhost:27017/?replicaSet=rs0&directConnection=true` |
 
+## Trying the packages before they are published
+
+The packages are not on NuGet yet. Build them once from the sources, into a folder that serves as a package source:
+
+```bash
+git clone https://github.com/cedric56/Queryeables
+cd Queryeables
+dotnet pack -c Release -o ~/queryeables-packages -p:Version=0.1.0-local
+dotnet nuget add source ~/queryeables-packages --name queryeables-local
+```
+
+(In PowerShell, `$HOME\queryeables-packages`.) Then add `--prerelease` to `dotnet add package`, or install the templates
+from that folder (`dotnet new install ~/queryeables-packages/Queryeables.Templates.0.1.0-local.nupkg`). After a `git pull`,
+pack again with a higher version (`0.1.0-local.2`): NuGet keeps a version it has already seen in its cache.
+
 ## Rules of the code
 
 - `Queryeables.Abstraction` has no package reference.

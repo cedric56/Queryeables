@@ -5,10 +5,12 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using Queryeables.Abstraction;
 using System.Diagnostics.CodeAnalysis;
+using Queryeables.MongoDB;
 
-namespace Queryeables.MongoDB;
+namespace Queryeables;
 
-public static class QueryeablesBuilderExtensions
+/// <summary>The MongoDB provider of <see cref="QueryeablesBuilder"/>: in the namespace of the builder, found without a using.</summary>
+public static class MongoDBQueryeablesBuilderExtensions
 {
     /// <summary>Stores on MongoDB: <see cref="MongoEntityStore"/>, one collection per entity type.</summary>
     /// <param name="connectionString">For example <c>mongodb://localhost:27017/?replicaSet=rs0</c>; transactions and change

@@ -8,9 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Brings the Queryeables package, its source generator, Dommel and Microsoft.Data.Sqlite. -->
+    <!-- Brings the Queryeables package (its source generator, its global usings), Dommel and Microsoft.Data.Sqlite. -->
     <PackageReference Include="Queryeables.Sqlite" Version="QUERYEABLES_VERSION" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

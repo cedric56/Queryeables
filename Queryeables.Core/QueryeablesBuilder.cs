@@ -18,8 +18,13 @@ public sealed class QueryeablesBuilder
     private Func<IServiceProvider, IEntityStoreFactory>? _stores;
     private bool _syncConventions;
     private OfflineModeOptions? _offline;
+    private readonly List<IEntityType> _entities = [];
 
-    internal QueryeablesBuilder(IServiceCollection services) => Services = services;
+    internal QueryeablesBuilder(IServiceCollection services)
+    {
+        Services = services;
+        Services.TryAddSingleton(Options);
+    }
 
     public IServiceCollection Services { get; }
 
@@ -61,9 +66,8 @@ public sealed class QueryeablesBuilder
     /// <code>
     /// q.UseMagicOnion(url).AddGeneratedEntities()
     ///  .WithOfflineMode(o => o
-    ///      .UseStorage(new BrowserOfflineStorage())       // WebAssembly; FileOfflineStorage elsewhere
-    ///      .Entity&lt;Person, long&gt;(p => p.Id)
-    ///      .Entity&lt;Contact, long&gt;(c => c.Id));
+    ///      .UseStorage(new IndexedDbOfflineStorage())     // WebAssembly; SqliteOfflineStorage elsewhere
+    ///      .AllGeneratedEntities());
     /// </code>
     /// </example>
     public QueryeablesBuilder WithOfflineMode(Action<OfflineModeOptions> configure)
@@ -122,7 +126,8 @@ public sealed class QueryeablesBuilder
             sp.GetRequiredService<IEntityStoreFactory>(),
             key,
             sp.GetRequiredService<IChangeFeed<TEntity>>(),
-            IsInteger(typeof(TKey)) ? EntityKey.Parse<TKey> : null));
+            IsInteger(typeof(TKey)) ? EntityKey.Parse<TKey> : null,
+            sp.GetService<LocalWrites>()));
         return this;
     }
 
@@ -139,9 +144,99 @@ public sealed class QueryeablesBuilder
         Services.TryAddSingleton(graph);
         Services.TryAddSingleton<IAggregateRepository<TParent>>(sp => new GraphRepository<TParent, TKey>(
             sp.GetRequiredService<IEntityStoreFactory>(),
-            sp.GetRequiredService<EntityGraph<TParent, TKey>>()));
+            sp.GetRequiredService<EntityGraph<TParent, TKey>>())
+        {
+            ThrowOnFailure = sp.GetService<QueryeablesOptions>()?.ThrowOnFailure == true,
+        });
         return this;
     }
+
+    /// <summary>
+    /// The entity types of the application, with their keys: those <c>AddGeneratedEntities()</c> knows (caches, graphs and
+    /// their children, references), and those added by <see cref="AddEntity{TEntity, TKey}"/>. What applies to every
+    /// entity reads them: <c>ExposeGenerated</c> on a server, <c>AllGeneratedEntities</c> offline, <c>CreateTables</c>.
+    /// </summary>
+    public IReadOnlyList<IEntityType> Entities => _entities;
+
+    /// <summary>Declares an entity type and its key (also registered as an <see cref="IEntityType"/> service). The first declaration wins.</summary>
+    public QueryeablesBuilder AddEntity<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TKey>(Expression<Func<TEntity, TKey>> key)
+        where TEntity : class
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (_entities.Any(e => e.Type == typeof(TEntity)))
+            return this;
+        var type = new EntityType<TEntity, TKey>(key);
+        _entities.Add(type);
+        Services.AddSingleton<IEntityType>(type);
+        return this;
+    }
+
+    /// <summary>
+    /// Loads the cache of <typeparamref name="TEntity"/> when the application starts (<see cref="IQueryeablesStartupTask"/>):
+    /// what <c>[EntityCache(Preload = true)]</c> does.
+    /// </summary>
+    public QueryeablesBuilder Preload<TEntity, TKey>()
+        where TEntity : class
+        where TKey : notnull
+    {
+        Services.AddSingleton<IQueryeablesStartupTask>(new QueryeablesStartupTask(100,
+            (sp, ct) => sp.GetRequiredService<IEntityCache<TEntity, TKey>>().LoadAsync(ct)));
+        return this;
+    }
+
+    /// <summary>
+    /// The repositories throw an <see cref="EntityStoreException"/> instead of returning a failed <see cref="EntityResult"/>:
+    /// for an application that prefers exceptions. The stores throw already.
+    /// </summary>
+    public QueryeablesBuilder ThrowOnFailure()
+    {
+        Options.ThrowOnFailure = true;
+        return this;
+    }
+
+    /// <summary>
+    /// On a remote client, waits at startup (<see cref="IQueryeablesStartupTask"/>) until the server answers: a client
+    /// started with its server (a development session, a container) does not fail on its first call.
+    /// </summary>
+    /// <param name="timeout">How long to wait; 30 seconds by default. Beyond, the startup fails with a <see cref="TimeoutException"/>.</param>
+    public QueryeablesBuilder WaitForServer(TimeSpan? timeout = null)
+    {
+        var limit = timeout ?? TimeSpan.FromSeconds(30);
+        Services.AddSingleton<IQueryeablesStartupTask>(new QueryeablesStartupTask(-100, async (sp, ct) =>
+        {
+            var transport = sp.GetRequiredService<IEntityTransport>();
+            var type = sp.GetServices<IEntityType>().Select(t => EntityName.Of(t.Type)).FirstOrDefault() ?? "Ping";
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(limit);
+            while (true)
+            {
+                try
+                {
+                    await transport.SelectPagedAsync(type, [], false, 1, 1, deadline.Token);
+                    return;                     // any answer, even an error, comes from the server
+                }
+                catch (Exception) when (!ct.IsCancellationRequested)
+                {
+                    if (deadline.IsCancellationRequested)
+                        throw new TimeoutException($"The server did not answer within {limit.TotalSeconds:0} seconds.");
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(500), deadline.Token);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        throw new TimeoutException($"The server did not answer within {limit.TotalSeconds:0} seconds.");
+                    }
+                }
+            }
+        }));
+        return this;
+    }
+
+    /// <summary>The options the generated code reads (registered as a singleton).</summary>
+    internal QueryeablesOptions Options { get; } = new();
 
     private static bool IsInteger(Type type)
         => Type.GetTypeCode(Nullable.GetUnderlyingType(type) ?? type) is TypeCode.Int64 or TypeCode.Int32 or TypeCode.Int16
@@ -159,13 +254,19 @@ public sealed class QueryeablesBuilder
         var stores = _stores;
         var syncConventions = _syncConventions;
         var offline = _offline is not null;
+        Services.TryAddSingleton<LocalWrites>();
         Services.Replace(ServiceDescriptor.Singleton<IEntityStoreFactory>(sp =>
         {
             var provider = stores(sp);
             var factory = syncConventions
                 ? new EntityStoreFactory(() => provider.Create().WithSyncConventions(), provider.IsRemote)
                 : provider;
-            return offline ? new OfflineStoreFactory(factory, sp.GetRequiredService<OfflineMode>()) : factory;
+            if (offline)
+                factory = new OfflineStoreFactory(factory, sp.GetRequiredService<OfflineMode>());
+            // The writes of this application reach its caches at once.
+            var writes = sp.GetRequiredService<LocalWrites>();
+            var reported = factory;
+            return new EntityStoreFactory(() => new LocalWritesDecorator(reported.Create(), writes), reported.IsRemote);
         }));
     }
 
@@ -175,4 +276,11 @@ public sealed class QueryeablesBuilder
 
         public Task ClearUserDataAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
+}
+
+/// <summary>What the generated code reads of the configuration.</summary>
+public sealed class QueryeablesOptions
+{
+    /// <inheritdoc cref="QueryeablesBuilder.ThrowOnFailure"/>
+    public bool ThrowOnFailure { get; set; }
 }

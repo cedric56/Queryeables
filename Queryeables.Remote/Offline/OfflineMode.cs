@@ -111,6 +111,9 @@ public sealed class OfflineMode : IUserScopedData, IAsyncDisposable
         return this;
     }
 
+    /// <summary>Whether <paramref name="type"/> is available offline (added).</summary>
+    internal bool Knows(Type type) => _types.ContainsKey(type);
+
     /// <summary>Reads the stored state: the mode, the local copy, the queue. Call it once at startup; later calls do nothing.</summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {

@@ -19,7 +19,8 @@ You do not reference it directly: [`Queryeables.MagicOnion.Client`](https://gith
 
 ## Entities
 
-Entities travel as MessagePack: mark them `[MessagePackObject]` with a `[Key(n)]` on every persisted property, including
-the key and inherited ones, and `[IgnoreMember]` on navigation properties (a child pointing back to its parent would loop).
-Graph collections are carried (`[Key(n)]` on `Contacts`): the server saves them with the parent. Under Native AOT, use the
-MessagePack and MagicOnion source generators.
+Entities travel as JSON (`JsonEntitySerializer`, the default of `UseMagicOnion` and `AddMagicOnionServer`): plain classes,
+a navigation back to the parent written once. To keep MessagePack, pass `MessagePackEntitySerializer.Default` (client) and
+`MessagePackEntitySerializer.Server` (server), and mark the entities `[MessagePackObject]` with `[IgnoreMember]` on the
+navigations. Under Native AOT, give a `JsonEntitySerializer` on a `JsonSerializerContext`, or use the MessagePack source
+generator.

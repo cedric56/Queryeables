@@ -118,7 +118,7 @@ public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
     }
 
     private static IEntityStore Client(EntityRequestDispatcher dispatcher)
-        => MagicOnionTransport.Stores(new InProcessLayer(dispatcher)).Create();
+        => MagicOnionTransport.Stores(new InProcessLayer(dispatcher), MessagePackEntitySerializer.Default).Create();
 
     [Fact]
     public async Task Server_caps_the_page_size()

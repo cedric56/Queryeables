@@ -90,21 +90,27 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// with SQLite, the rowid is the key only for an <c>INTEGER PRIMARY KEY</c> table.
     /// When absent, each change triggers a synchronization (or a full reload without [LastModified]).
     /// </param>
+    /// <param name="localWrites">
+    /// The writes of this application, applied at once (see <see cref="LocalWrites"/>): what it saves is in the cache when
+    /// the save returns, without waiting for the database's notification.
+    /// </param>
     public EntityCache(
         IEntityStoreFactory stores,
         Expression<Func<TEntity, TKey>> key,
         IChangeFeed<TEntity>? monitor = null,
-        Func<string, TKey>? parseKey = null)
-        : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, key, monitor, parseKey)
+        Func<string, TKey>? parseKey = null,
+        LocalWrites? localWrites = null)
+        : this((stores ?? throw new ArgumentNullException(nameof(stores))).Create, key, monitor, parseKey, localWrites)
     {
     }
 
-    /// <inheritdoc cref="EntityCache{TEntity, TKey}(IEntityStoreFactory, Expression{Func{TEntity, TKey}}, IChangeFeed{TEntity}?, Func{string, TKey}?)"/>
+    /// <inheritdoc cref="EntityCache{TEntity, TKey}(IEntityStoreFactory, Expression{Func{TEntity, TKey}}, IChangeFeed{TEntity}?, Func{string, TKey}?, LocalWrites?)"/>
     public EntityCache(
         Func<IEntityStore> storeFactory,
         Expression<Func<TEntity, TKey>> key,
         IChangeFeed<TEntity>? monitor = null,
-        Func<string, TKey>? parseKey = null)
+        Func<string, TKey>? parseKey = null,
+        LocalWrites? localWrites = null)
     {
         _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
         _keyExpression = key ?? throw new ArgumentNullException(nameof(key));
@@ -117,6 +123,22 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         if (_monitor != null)
             _monitor.ChangeReceived += OnChangeReceived;
+        _localWrites = localWrites?.Subscribe<TEntity>(OnLocalWrite);
+    }
+
+    private readonly IDisposable? _localWrites;
+
+    /// <summary>A write of this application: in the cache at once (its notification, when it comes, reads it again).</summary>
+    private void OnLocalWrite(TEntity entity, ChangeType type)
+    {
+        if (type != ChangeType.Delete)
+        {
+            Track(entity);
+            return;
+        }
+        lock (_writeLock)
+            _byKey.TryRemove(_key(entity), out _);
+        RaiseEntitiesChanged();
     }
 
     /// <summary>Snapshot of the current state: safe to enumerate while the cache updates.</summary>
@@ -253,6 +275,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         _disposed = true;
         if (_monitor != null)
             _monitor.ChangeReceived -= OnChangeReceived;
+        _localWrites?.Dispose();
     }
 
     // ---------- Loading and synchronization (called under _refreshLock) ----------

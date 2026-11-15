@@ -16,6 +16,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +38,7 @@
   <!-- The source generator, run on the test entities like in an application, and called directly by the generator tests. -->
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Generated\Queryeables.Generated.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\Queryeables.Generated.CodeFixes\Queryeables.Generated.CodeFixes.csproj" />
   </ItemGroup>
 
   <ItemGroup>

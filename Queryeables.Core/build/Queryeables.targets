@@ -1,0 +1,14 @@
+<Project>
+  <!--
+    The namespaces of Queryeables as global usings, in a project with <ImplicitUsings>enable</ImplicitUsings>: no using to
+    write for the builder, the providers (their methods are in Queryeables), the stores, the caches, the generated
+    repositories and the service collection. Turn it off with <QueryeablesImplicitUsings>false</QueryeablesImplicitUsings>.
+  -->
+  <ItemGroup Condition="'$(ImplicitUsings)' == 'enable' And '$(QueryeablesImplicitUsings)' != 'false' And '$(Language)' == 'C#'">
+    <Using Include="Queryeables" />
+    <Using Include="Queryeables.Abstraction" />
+    <Using Include="Queryeables.Remote" />
+    <Using Include="Queryeables.Generated" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+</Project>

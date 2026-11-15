@@ -18,7 +18,9 @@
     <readme>README.md</readme>
     <dependencies>
       <group targetFramework="net10.0">
+        <dependency id="Microsoft.Extensions.DependencyInjection" version="10.0.14" />
         <dependency id="Microsoft.Extensions.DependencyInjection.Abstractions" version="10.0.14" />
+        <dependency id="Microsoft.Extensions.Hosting.Abstractions" version="10.0.14" />
         <dependency id="Microsoft.Extensions.Logging.Abstractions" version="10.0.14" />
       </group>
     </dependencies>
@@ -37,7 +39,13 @@
     <file src="bin/$configuration$/net10.0/Queryeables.Core.pdb" target="lib/net10.0" />
     <file src="bin/$configuration$/net10.0/Queryeables.Core.xml" target="lib/net10.0" />
 
+    <!-- The global usings (see the file), for the projects that reference the package and those that reference them. -->
+    <file src="build/Queryeables.targets" target="build/Queryeables.targets" />
+    <file src="build/Queryeables.targets" target="buildTransitive/Queryeables.targets" />
+
     <!-- The source generator: an analyzer, it adds nothing to the references of the project. -->
     <file src="../Queryeables.Generated/bin/$configuration$/netstandard2.0/Queryeables.Generated.dll" target="analyzers/dotnet/cs" />
+    <!-- Its code fixes, for the editor (Visual Studio, Rider, VS Code): a separate assembly, on the Workspaces API. -->
+    <file src="../Queryeables.Generated.CodeFixes/bin/$configuration$/netstandard2.0/Queryeables.Generated.CodeFixes.dll" target="analyzers/dotnet/cs" />
   </files>
 </package>

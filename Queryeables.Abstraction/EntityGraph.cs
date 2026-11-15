@@ -66,6 +66,11 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
     /// <summary>Key of the parent.</summary>
     public TKey KeyOf(TParent parent) => _key(parent);
 
+    /// <summary><c>p =&gt; p.Key == key</c>: the parent of that key, in a form every store translates.</summary>
+    public Expression<Func<TParent, bool>> KeyEquals(TKey key)
+        => Expression.Lambda<Func<TParent, bool>>(
+            Expression.Equal(_keyExpression.Body, Expression.Constant(key, typeof(TKey))), _keyExpression.Parameters);
+
     /// <summary>True when the parent's key still has its default value: it is not in the database yet.</summary>
     public bool IsNew(TParent parent) => IsDefault(_key(parent));
 

@@ -1,104 +1,50 @@
-using Microsoft.Extensions.DependencyInjection;
-using Queryeables;
-using Queryeables.Abstraction;
-using Queryeables.Dommel;
-using Queryeables.Generated;
-using Queryeables.Remote;
-using Queryeables.Sqlite;
 using Sample;
-using System.Data.Common;
-using System.Text.Json;
 
-// The whole setup: a provider, then what the attributes describe. AddEntityServer also makes this application a server
-// for remote clients (last part of the sample).
-var connectionString = $"Data Source={Path.Combine(Path.GetTempPath(), "queryeables-sample.db")}";
-var serializer = new JsonEntitySerializer();
-var services = new ServiceCollection();
-services.UseQueryeables(q => q
-    .UseSqlite(connectionString)
+// The whole setup: a provider, what the attributes describe, the tables. AddEntityServer also makes this application a
+// server for remote clients (last part of the sample).
+var file = Path.Combine(Path.GetTempPath(), "queryeables-sample.db");
+File.Delete(file);
+await using var app = await QueryeablesHost.CreateAsync(q => q
+    .UseSqlite($"Data Source={file}")
     .AddGeneratedEntities()
-    .AddEntityServer(serializer, server => server
-        .Expose<Person>(EntityAccessPolicies.AllowAll)       // in-process only: use Authenticated on a network
-        .Expose<Contact>(EntityAccessPolicies.AllowAll)));
+    .CreateTables()
+    .AddEntityServer(JsonEntitySerializer.Default, server => server
+        .ExposeGenerated(EntityAccessPolicies.AllowAll)));    // in-process only: use Authenticated on a network
 
-await using var provider = services.BuildServiceProvider();
-
-await DommelEntityStore.EnsureSchemaAsync(provider.GetRequiredService<DbProviderFactory>(), connectionString, """
-    DROP TABLE IF EXISTS Contact;
-    DROP TABLE IF EXISTS Person;
-    CREATE TABLE Person  (Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT NOT NULL);
-    CREATE TABLE Contact (Id INTEGER PRIMARY KEY AUTOINCREMENT, OwnerId INTEGER NOT NULL, PersonId INTEGER NULL, Kind TEXT NOT NULL);
-    """);
-
-// The cache follows the database: SQLite reports every change made through Queryeables.
-var persons = provider.GetRequiredService<IEntityCache<Person, long>>();
+// The cache follows the database, and what this application saves is in it as soon as the save returns.
+var persons = app.GetRequiredService<IPersonCache>();
 await persons.LoadAsync();
 
-// The generated service saves a person with its contacts, in one transaction.
-var service = provider.GetRequiredService<IPersonRepository>();
+// The generated repository saves a person with its contacts, in one transaction.
+var service = app.GetRequiredService<IPersonRepository>();
 var bob = new Person { Name = "Bob" };
-Check(await service.SaveAsync(bob));
+await service.SaveAsync(bob).OrThrow();
 
 var ana = new Person { Name = "Ana", Contacts = [new Contact { Kind = "friend", PersonId = bob.Id }, new Contact { Kind = "colleague" }] };
-Check(await service.SaveAsync(ana));
-
-await WaitForAsync(() => persons.Entities.Count == 2);
+await service.SaveAsync(ana).OrThrow();
 Console.WriteLine($"Cache: {string.Join(", ", persons.Entities.OrderBy(p => p.Id))}");
 
-// Loading sets the navigation properties: the owner, and the other person found in the cache.
-var loaded = new Person { Id = ana.Id, Name = ana.Name };
-await service.LoadContactsAsync(loaded);
-foreach (var contact in loaded.Contacts ?? [])
+// Reading sets the navigation properties: the owner, and the other person found in the cache.
+var loaded = await service.GetAsync(ana.Id);
+foreach (var contact in loaded?.Contacts ?? [])
     Console.WriteLine($"{contact.Owner} -> {contact.Kind}: {contact.Person?.Name ?? "(nobody)"}");
 
 // Removing deletes the contacts, then the person.
-Check(await service.RemoveAsync(ana));
-await WaitForAsync(() => persons.Entities.Count == 1);
+await service.RemoveAsync(ana).OrThrow();
 Console.WriteLine($"Cache after removal: {string.Join(", ", persons.Entities)}");
 
 // The same code, remote. The client's provider talks to the server instead of SQLite: here through the dispatcher in
 // process; in an application through MagicOnion, with q.UseMagicOnion(url). The server saves the contacts.
-var dispatcher = provider.GetRequiredService<EntityRequestDispatcher>();
-var clientServices = new ServiceCollection();
-clientServices.UseQueryeables(q => q
-    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
+var dispatcher = app.GetRequiredService<EntityRequestDispatcher>();
+await using var client = await QueryeablesHost.CreateAsync(q => q
+    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), JsonEntitySerializer.Default))
     .AddGeneratedEntities());
-await using var client = clientServices.BuildServiceProvider();
 
 var remoteService = client.GetRequiredService<IPersonRepository>();
 var carl = new Person { Name = "Carl", Contacts = [new Contact { Kind = "neighbour", PersonId = bob.Id }] };
-Check(await remoteService.SaveAsync(carl));
-await WaitForAsync(() => persons.Entities.Count == 2);       // the server's cache saw it
+await remoteService.SaveAsync(carl).OrThrow();
 Console.WriteLine($"Remote save: {carl} #{carl.Id}, contact #{carl.Contacts![0].Id} owned by #{carl.Contacts[0].OwnerId}");
+Console.WriteLine($"Seen by the server's cache: {persons.Find(carl.Id) is not null}");
 
-var remoteCarl = new Person { Id = carl.Id, Name = carl.Name };
-await remoteService.LoadContactsAsync(remoteCarl);
-Console.WriteLine($"Remote load: {remoteCarl} -> {string.Join(", ", (remoteCarl.Contacts ?? []).Select(c => c.Kind))}");
-
-static void Check(EntityResult result)
-{
-    if (!result.Successful)
-        throw new InvalidOperationException($"{result.ErrorCode}: {result.Exception}");
-}
-
-// The cache updates in the background, just after the commit.
-static async Task WaitForAsync(Func<bool> condition)
-{
-    for (var i = 0; i < 50 && !condition(); i++)
-        await Task.Delay(20);
-    if (!condition())
-        throw new InvalidOperationException("The cache did not follow the database.");
-}
-
-/// <summary>Entities as JSON on the wire. MagicOnion uses MessagePack (MessagePackEntitySerializer) instead.</summary>
-internal sealed class JsonEntitySerializer : IEntitySerializer
-{
-    public byte[] Serialize<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value);
-
-    public T? Deserialize<T>(byte[] data) => JsonSerializer.Deserialize<T>(data);
-
-    /// <summary>System.Text.Json leaves out <c>[JsonIgnore]</c>: an update keeps the stored value of such a property.</summary>
-    public bool Omits(System.Reflection.PropertyInfo property)
-        => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>(property)
-            is { Condition: System.Text.Json.Serialization.JsonIgnoreCondition.Always };
-}
+var remoteCarl = await remoteService.GetAsync(carl.Id);
+Console.WriteLine($"Remote load: {remoteCarl} -> {string.Join(", ", (remoteCarl?.Contacts ?? []).Select(c => c.Kind))}");

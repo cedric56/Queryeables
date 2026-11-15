@@ -43,6 +43,23 @@ public sealed class GeneratorDiagnosticsTests
     private const string Usings = "using System.Collections.Generic; using Queryeables.Abstraction;\n";
 
     [Fact]
+    public void A_cache_gets_its_own_interface_and_a_preloaded_cache_is_registered_for_startup()
+    {
+        var (generator, compilation, sources) = Run(Usings + """
+            namespace Shop;
+            [EntityCache(Preload = true)]
+            public class Tag { public long Id { get; set; } public string Name { get; set; } = ""; }
+            """);
+
+        Assert.Empty(generator.Ids);
+        Assert.Empty(compilation.Ids);
+        Assert.Contains(sources, s => s.Contains("public partial interface ITagCache", StringComparison.Ordinal));
+        var registration = Assert.Single(sources, s => s.Contains("AddGeneratedEntities", StringComparison.Ordinal));
+        Assert.Contains("builder.Preload<global::Shop.Tag, long>();", registration);
+        Assert.Contains("builder.AddEntity<global::Shop.Tag, long>(e => e.Id);", registration);
+    }
+
+    [Fact]
     public void A_valid_graph_compiles_without_diagnostics()
     {
         var (generator, compilation, sources) = Run(Usings + """

@@ -7,7 +7,7 @@ call to its own stores.
 
 | Layer | Client | Server |
 | --- | --- | --- |
-| Your code | `IPersonRepository`, `IEntityCache<Person, long>` | (the same entities) |
+| Your code | `IPersonRepository`, `IPersonCache` | (the same entities) |
 | Remote core (`Queryeables`) | `RemoteEntityStore` | `EntityRequestDispatcher`, `EntityHandler<T>` |
 | Transport | `IEntityTransport` | forwards to the dispatcher |
 | MagicOnion | `Queryeables.MagicOnion.Client` | `Queryeables.MagicOnion.Server` |
@@ -18,21 +18,18 @@ dispatcher on the server. `dispatcher.AsTransport()` connects both in process, w
 ## Server
 
 ```csharp
-public sealed class AppLayerService(EntityRequestDispatcher dispatcher) : MagicOnionService(dispatcher);
-
-builder.Services.AddMagicOnion();
 builder.Services.UseQueryeables(q => q
     .UseSqlite(builder.Configuration.GetConnectionString("App")!)
     .AddGeneratedEntities()
     .AddMagicOnionServer(server => server
-        .Expose<Person>(EntityAccessPolicies.Authenticated)
-        .Expose<Contact>(EntityAccessPolicies.Authenticated)
-        .Expose<Product>(EntityAccessPolicies.ReadOnly)));
+        .Expose<Product>(EntityAccessPolicies.ReadOnly)                 // its own policy (and row filter)
+        .ExposeGenerated(EntityAccessPolicies.Authenticated)));         // every other generated entity
 
-app.MapMagicOnionService();
+app.MapQueryeables();
 ```
 
-For each call, the server checks the policy of the type, validates the entity (DataAnnotations) for inserts and updates,
+`AddMagicOnionServer` registers MagicOnion; `MapQueryeables()` maps the Queryeables service (an application that declares
+its own class deriving from `MagicOnionService` can keep it, mapped by `MapMagicOnionService()`). For each call, the server checks the policy of the type, validates the entity (DataAnnotations) for inserts and updates,
 then uses its stores. A type with a graph repository is saved with its children.
 
 ## Client
@@ -40,7 +37,8 @@ then uses its stores. A type with a graph repository is saved with its children.
 ```csharp
 services.UseQueryeables(q => q
     .UseMagicOnion("https://server:5001")
-    .AddGeneratedEntities());
+    .AddGeneratedEntities()
+    .WaitForServer());              // at startup, waits (30 s) for a server that is still starting
 ```
 
 - **Predicates** become conditions: a property compared with a value in the simple form every server reads; the rest
@@ -57,11 +55,16 @@ services.UseQueryeables(q => q
 
 ## Entities on the wire
 
-MagicOnion uses MessagePack: `[MessagePackObject(keyAsPropertyName: true)]` on each entity (the template's choice: every
-public property is carried under its name, inherited ones included), or `[MessagePackObject]` with `[Key(n)]` on each
-carried property (smaller messages; never reuse a number). `[IgnoreMember]` on navigation properties, and on what must
-never leave the server: MessagePack ignores `[JsonIgnore]` (see [security](security.md#a-value-that-never-leaves-the-server)).
-Keep the entities in a library referenced by the client and the server: `AddGeneratedEntities()` registers them on both sides.
+The entities travel as JSON (`JsonEntitySerializer`): plain classes, no attribute of the transport. A navigation back to
+the parent is written once (a cycle is cut). `[JsonIgnore]` keeps a property on the server (see
+[security](security.md#a-value-that-never-leaves-the-server)). Keep the entities in a library referenced by the client and
+the server, with the `Queryeables` package only: `AddGeneratedEntities()` registers them on both sides.
+
+- **Native AOT**: the default serializer reads the types by reflection. Pass a `JsonEntitySerializer` built on a
+  source-generated `JsonSerializerContext` on both sides: `q.UseMagicOnion(url, new JsonEntitySerializer(AppJson.Default.Options))`
+  and `AddMagicOnionServer(serializer, ...)`.
+- **MessagePack**, as before: `MessagePackEntitySerializer.Default` on the client and `MessagePackEntitySerializer.Server` on
+  the server, with `[MessagePackObject]` on the entities and `[IgnoreMember]` on navigations and hidden values.
 
 ## Limits
 

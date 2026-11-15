@@ -14,9 +14,13 @@ builder.Services.UseQueryeables(q => q
     .AddGeneratedEntities()
     .WithOfflineMode(o => o
         .UseStorage(new IndexedDbOfflineStorage()) // WebAssembly (Queryeables.Browser); SqliteOfflineStorage on desktop
-        .Entity<Person, long>(p => p.Id, where: p => p.OwnerId == session.UserId)   // only what this user needs
-        .Entity<Contact, long>(c => c.Id)));       // the children of a graph too
+        .AllGeneratedEntities()                    // every entity the generator knows, with its key
+        .Entity<Person>(p => p.OwnerId == session.UserId)));   // only what this user needs of one of them
 ```
+
+`AllGeneratedEntities()` makes every entity of `AddGeneratedEntities()` available offline (the children of a graph
+included); `Entity<T>(where)` adds one, or sets its filter, without repeating its key. A type the generator does not know
+takes its key: `Entity<T, TKey>(e => e.Id, where)`.
 
 `where` limits the copy to the rows the user works on; without it, every row the server gives is copied. Its captured
 values are read at each download: when they change (another user signs in), the copy is taken again in full.
@@ -33,7 +37,7 @@ await offline.InitializeAsync();
 ```
 
 `WithOfflineMode` puts an `OfflineStoreFactory` in front of the provider's factory. Services, caches and queries keep
-asking for `IEntityStoreFactory`, `IPersonRepository` or `IEntityCache<Person, long>`: they do not change.
+asking for `IEntityStoreFactory`, `IPersonRepository` or `IPersonCache`: they do not change.
 
 ## What the user is told
 

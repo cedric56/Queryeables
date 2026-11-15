@@ -14,13 +14,17 @@ internal sealed record LocationInfo(string FilePath, TextSpan Span, LinePosition
     public Location ToLocation() => Location.Create(FilePath, Span, LineSpan);
 }
 
-internal sealed record DiagnosticInfo(string Id, string Message, LocationInfo? Location);
+/// <param name="Fix">What the code fix does, when there is one (see EntityGenerator.FixKey).</param>
+internal sealed record DiagnosticInfo(string Id, string Message, LocationInfo? Location, string? Fix = null);
 
 /// <summary>A property: its C# name and its fully qualified type.</summary>
 internal sealed record PropertyModel(string Name, string Type, bool IsNullableValue, string? UnderlyingType);
 
-/// <summary>A class marked [EntityCache], or the target of a lookup navigation.</summary>
-internal sealed record CacheModel(string TypeName, PropertyModel Key);
+/// <summary>
+/// A class marked [EntityCache] (<c>Declared</c>: it gets its own I{Name}Cache), or the target of a lookup navigation.
+/// </summary>
+internal sealed record CacheModel(string TypeName, PropertyModel Key, bool Declared = false, bool Preload = false,
+    string? Namespace = null, string? Name = null);
 
 /// <summary>
 /// One relation of a parent. <c>Kind</c>: <c>Many</c> (a collection of children), <c>One</c> (one child), <c>Through</c>

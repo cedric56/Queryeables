@@ -1,11 +1,7 @@
-using Queryeables.Abstraction;
-using System.ComponentModel.DataAnnotations.Schema;
-
 namespace QueryeablesApp;
 
-/// <summary>A person and its contacts. [EntityCache]: an in-memory cache that follows the table.</summary>
-[EntityCache]
-[Table("Person")]                     // Dommel pluralizes table names by default
+/// <summary>A person and its contacts: a table each (Person, Contact). [EntityCache]: an in-memory cache that follows the table.</summary>
+[EntityCache(Preload = true)]
 public class Person
 {
     public long Id { get; set; }
@@ -13,14 +9,12 @@ public class Person
     public string Name { get; set; } = "";
 
     /// <summary>Saved, loaded and removed with the person. Null: not loaded (saving leaves them as they are).</summary>
-    [NotMapped]
     [EntityGraph(ParentNavigation = nameof(Contact.Owner))]
     public List<Contact>? Contacts { get; set; }
 
     public override string ToString() => Name;
 }
 
-[Table("Contact")]
 public class Contact
 {
     public long Id { get; set; }
@@ -29,6 +23,5 @@ public class Contact
 
     public string Kind { get; set; } = "";
 
-    [NotMapped]                                    // not a column
-    public Person? Owner { get; set; }
+    public Person? Owner { get; set; }             // a navigation, not a column
 }

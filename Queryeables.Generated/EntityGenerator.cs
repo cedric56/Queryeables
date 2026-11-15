@@ -138,12 +138,25 @@ public sealed class EntityGenerator : IIncrementalGenerator
             var cacheModels = cacheResults.Where(r => r.Cache is not null).Select(r => r.Cache!)
                 .Concat(graphs.SelectMany(g => g.Relations).Where(r => r.Lookup is not null).Select(r => r.Lookup!))
                 .GroupBy(c => c.TypeName, StringComparer.Ordinal)
-                .Select(g => g.First())
+                .Select(g => g.FirstOrDefault(c => c.Declared) ?? g.First())
                 .OrderBy(c => c.TypeName, StringComparer.Ordinal)
                 .ToArray();
 
+            foreach (var cache in cacheModels.Where(c => c.Declared))
+                spc.AddSource(HintName("Cache", cache.TypeName), WriteCache(cache));
+
+            // Every entity known here, with its key: the caches, the parents of the graphs and their children, the
+            // targets of the references (the links of a many-to-many are not entities of their own).
+            var entities = cacheModels.Select(c => (c.TypeName, c.Key))
+                .Concat(graphs.Select(g => (g.ParentTypeName, g.Key)))
+                .Concat(graphs.SelectMany(g => g.Relations).Select(r => (r.ChildType, r.ChildKey)))
+                .GroupBy(e => e.Item1, StringComparer.Ordinal)
+                .Select(g => g.First())
+                .OrderBy(e => e.Item1, StringComparer.Ordinal)
+                .ToArray();
+
             var ownModule = cacheModels.Length > 0 || graphs.Length > 0 ? target.Module : null;
-            spc.AddSource("Queryeables.GeneratedEntities.g.cs", WriteRegistration(cacheModels, graphs, ownModule, target.ReferencedModules));
+            spc.AddSource("Queryeables.GeneratedEntities.g.cs", WriteRegistration(cacheModels, graphs, entities, ownModule, target.ReferencedModules));
         });
     }
 
@@ -157,8 +170,11 @@ public sealed class EntityGenerator : IIncrementalGenerator
         var key = FindKey(type);
         return key is null
             ? new CacheResult(null, Diagnostic("QRY001",
-                $"{type.Name} has no key: add an Id property or mark the key with [Key].", context.TargetNode.GetLocation()))
-            : new CacheResult(new CacheModel(TypeName(type), key), null);
+                $"{type.Name} has no key: add an Id property or mark the key with [Key].", context.TargetNode.GetLocation(), AddKey(type)))
+            : new CacheResult(new CacheModel(TypeName(type), key, Declared: true,
+                Preload: context.Attributes.FirstOrDefault()?.NamedArguments.FirstOrDefault(a => a.Key == "Preload").Value.Value is true,
+                Namespace: type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() : null,
+                Name: type.Name), null);
     }
 
     private static RelationResult ReadRelation(GeneratorAttributeSyntaxContext context)
@@ -183,9 +199,16 @@ public sealed class EntityGenerator : IIncrementalGenerator
             return Result(null, null);
         }
 
+        // A diagnostic with what its code fix does (see the Fix helpers).
+        RelationResult FailWith(string id, string message, string? fix)
+        {
+            diagnostics.Add(Diagnostic(id, message, location, fix));
+            return Result(null, null);
+        }
+
         var parentKey = FindKey(parent);
         if (parentKey is null)
-            return Fail("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].");
+            return FailWith("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].", AddKey(parent));
 
         var compilation = context.SemanticModel.Compilation;
         var attribute = context.Attributes.First();
@@ -221,7 +244,7 @@ public sealed class EntityGenerator : IIncrementalGenerator
 
         var childKeys = FindKeys(child);
         if (childKeys.Length == 0)
-            return Fail("QRY001", $"{child.Name} has no key: add an Id property or mark the key with [Key].");
+            return FailWith("QRY001", $"{child.Name} has no key: add an Id property or mark the key with [Key].", AddKey(child));
         var childKey = childKeys[0];
 
         var foreignKeyName = Named(attribute, "ForeignKey");
@@ -235,16 +258,18 @@ public sealed class EntityGenerator : IIncrementalGenerator
             : FindProperty(child, "Id" + parent.Name) ?? FindProperty(child, parent.Name + "Id");
         if (foreignKey is null)
         {
-            return Fail(foreignKeyName is null ? "QRY003" : "QRY004", foreignKeyName is null
+            return FailWith(foreignKeyName is null ? "QRY003" : "QRY004", foreignKeyName is null
                 ? $"The foreign key of {child.Name} toward {parent.Name} was not found (looked for Id{parent.Name} and " +
                   $"{parent.Name}Id): set ForeignKey on [EntityGraph]."
-                : $"ForeignKey = \"{foreignKeyName}\": {child.Name} has no writable property {foreignKeyName}.");
+                : $"ForeignKey = \"{foreignKeyName}\": {child.Name} has no writable property {foreignKeyName}.",
+                AddProperty(child, foreignKeyName ?? parent.Name + "Id", parentKey.Type));
         }
 
         if (!SameKeyType(foreignKey.Type, parentKey.Type, parentKey.UnderlyingType))
         {
-            return Fail("QRY005",
-                $"{child.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {parent.Name} is {parentKey.Type}.");
+            return FailWith("QRY005",
+                $"{child.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {parent.Name} is {parentKey.Type}.",
+                ChangeType(child, foreignKey.Name, parentKey.Type));
         }
 
         if (parentNavigation is not null)
@@ -256,10 +281,11 @@ public sealed class EntityGenerator : IIncrementalGenerator
             // The parent is assigned to it: it must accept the parent (its type, a base type or an interface of it).
             if (!compilation.ClassifyConversion(parent, navigation.Type).IsImplicit)
             {
-                return Fail("QRY008",
+                return FailWith("QRY008",
                     $"ParentNavigation = \"{parentNavigation}\": {child.Name}.{parentNavigation} is {Display(navigation.Type)}, it cannot hold the " +
                     $"parent {parent.Name}. For a navigation to another entity found in its cache, use LookupNavigation = \"{parentNavigation}\" " +
-                    "with LookupForeignKey (its key), and ForeignKey for the key of the parent.");
+                    "with LookupForeignKey (its key), and ForeignKey for the key of the parent.",
+                    ChangeType(child, parentNavigation, TypeName(parent) + "?"));
             }
         }
 
@@ -280,10 +306,11 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 : FindProperty(child, "Id" + lookupNavigation, writable: false) ?? FindProperty(child, lookupNavigation + "Id", writable: false);
             if (lookupForeignKeySymbol is null)
             {
-                return Fail(lookupForeignKeyName is null ? "QRY006" : "QRY004", lookupForeignKeyName is null
+                return FailWith(lookupForeignKeyName is null ? "QRY006" : "QRY004", lookupForeignKeyName is null
                     ? $"The key of the navigation {child.Name}.{lookupNavigation} was not found (looked for Id{lookupNavigation} and " +
                       $"{lookupNavigation}Id): set LookupForeignKey on [EntityGraph]."
-                    : $"LookupForeignKey = \"{lookupForeignKeyName}\": {child.Name} has no property {lookupForeignKeyName}.");
+                    : $"LookupForeignKey = \"{lookupForeignKeyName}\": {child.Name} has no property {lookupForeignKeyName}.",
+                    AddProperty(child, lookupForeignKeyName ?? lookupNavigation + "Id", lookupKey.Type));
             }
 
             // nameof(Product.Id) gives "Id": the key of the child itself, not the key of the product it points to.
@@ -296,8 +323,9 @@ public sealed class EntityGenerator : IIncrementalGenerator
 
             if (!SameKeyType(lookupForeignKeySymbol.Type, lookupKey.Type, lookupKey.UnderlyingType))
             {
-                return Fail("QRY007",
-                    $"{child.Name}.{lookupForeignKeySymbol.Name} is {Display(lookupForeignKeySymbol.Type)}, but the key of {lookupType.Name} is {lookupKey.Type}.");
+                return FailWith("QRY007",
+                    $"{child.Name}.{lookupForeignKeySymbol.Name} is {Display(lookupForeignKeySymbol.Type)}, but the key of {lookupType.Name} is {lookupKey.Type}.",
+                    ChangeType(child, lookupForeignKeySymbol.Name, lookupKey.Type));
             }
 
             lookupForeignKey = Property(lookupForeignKeySymbol);
@@ -391,15 +419,22 @@ public sealed class EntityGenerator : IIncrementalGenerator
             return Result(null, null);
         }
 
+        // A diagnostic with what its code fix does (see the Fix helpers).
+        RelationResult FailWith(string id, string message, string? fix)
+        {
+            diagnostics.Add(Diagnostic(id, message, location, fix));
+            return Result(null, null);
+        }
+
         var parentKey = FindKey(parent);
         if (parentKey is null)
-            return Fail("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].");
+            return FailWith("QRY001", $"{parent.Name} has no key: add an Id property or mark the key with [Key].", AddKey(parent));
         if (property.Type is not INamedTypeSymbol { TypeKind: TypeKind.Class, SpecialType: SpecialType.None } target
             || ElementType(target) is not null || property.SetMethod is null)
             return Fail("QRY002", $"[EntityReference] on {parent.Name}.{property.Name}: the property must be an entity, with a setter.");
         var targetKey = FindKey(target);
         if (targetKey is null)
-            return Fail("QRY001", $"{target.Name} has no key: add an Id property or mark the key with [Key].");
+            return FailWith("QRY001", $"{target.Name} has no key: add an Id property or mark the key with [Key].", AddKey(target));
 
         var foreignKeyName = Named(context.Attributes.First(), "ForeignKey");
         var foreignKey = foreignKeyName is not null
@@ -413,7 +448,8 @@ public sealed class EntityGenerator : IIncrementalGenerator
                 : $"ForeignKey = \"{foreignKeyName}\": {parent.Name} has no property {foreignKeyName}.");
         }
         if (!SameKeyType(foreignKey.Type, targetKey.Type, targetKey.UnderlyingType))
-            return Fail("QRY007", $"{parent.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {target.Name} is {targetKey.Type}.");
+            return FailWith("QRY007", $"{parent.Name}.{foreignKey.Name} is {Display(foreignKey.Type)}, but the key of {target.Name} is {targetKey.Type}.",
+                ChangeType(parent, foreignKey.Name, targetKey.Type));
 
         return Result(parentKey, new RelationModel("Reference", property.Name, TypeName(target), targetKey, "t." + Escape(targetKey.Name),
             Property(foreignKey), null, null, null, null));
@@ -736,6 +772,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
         sb.Append("public partial interface I").Append(graph.Repository).Append(" : ").Append(Abstraction)
           .Append(".IAggregateRepository<").Append(parent).AppendLine(">");
         sb.AppendLine("{");
+        sb.Append("    /// <summary>The ").Append(graph.ParentName).AppendLine(" of this key with its children (every relation, at every level); null when it does not exist.</summary>");
+        sb.Append("    global::System.Threading.Tasks.Task<").Append(parent).Append("?> GetAsync(").Append(key)
+          .AppendLine(" key, global::System.Threading.CancellationToken ct = default);");
+        sb.AppendLine();
         sb.AppendLine("    /// <summary>Reads the children of the entity into its collections.</summary>");
         sb.Append("    global::System.Threading.Tasks.Task LoadChildrenAsync(").Append(parent)
           .AppendLine(" entity, global::System.Threading.CancellationToken ct = default);");
@@ -772,6 +812,50 @@ public sealed class EntityGenerator : IIncrementalGenerator
     }
 
     // ---------------------------------------------------------------------
+    // Writing the cache of an [EntityCache] type: I{Name}Cache, without repeating the type of the key
+    // ---------------------------------------------------------------------
+
+    private static string CacheQualified(CacheModel cache, string name)
+        => cache.Namespace is null ? "global::" + name : "global::" + cache.Namespace + "." + name;
+
+    private static string WriteCache(CacheModel cache)
+    {
+        var inner = CacheType(cache);
+        var entity = cache.TypeName;
+        var key = cache.Key.Type;
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        if (cache.Namespace is not null)
+            sb.Append("namespace ").Append(cache.Namespace).AppendLine(";");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>The in-memory cache of <see cref=\"" + Cref(entity) + "\"/>, without repeating the type of its key.</summary>");
+        sb.Append("public partial interface I").Append(cache.Name).Append("Cache : ").AppendLine(inner);
+        sb.AppendLine("{");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.Append("internal sealed class ").Append(cache.Name).Append("Cache(").Append(inner).Append(" inner) : I").Append(cache.Name).AppendLine("Cache");
+        sb.AppendLine("{");
+        sb.Append("    public global::System.Collections.Generic.IReadOnlyCollection<").Append(entity).AppendLine("> Entities => inner.Entities;");
+        sb.AppendLine();
+        sb.AppendLine("    public event global::System.EventHandler? EntitiesChanged");
+        sb.AppendLine("    {");
+        sb.AppendLine("        add => inner.EntitiesChanged += value;");
+        sb.AppendLine("        remove => inner.EntitiesChanged -= value;");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    public global::System.Threading.Tasks.Task LoadAsync(global::System.Threading.CancellationToken ct = default) => inner.LoadAsync(ct);");
+        sb.AppendLine();
+        sb.Append("    public ").Append(entity).Append("? Find(").Append(key).AppendLine(" key) => inner.Find(key);");
+        sb.AppendLine();
+        sb.Append("    public void Track(").Append(entity).AppendLine(" entity) => inner.Track(entity);");
+        sb.AppendLine();
+        sb.AppendLine("    public global::System.Threading.Tasks.Task SyncAsync(global::System.Threading.CancellationToken ct = default) => inner.SyncAsync(ct);");
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    // ---------------------------------------------------------------------
     // Writing the registration
     // ---------------------------------------------------------------------
 
@@ -786,8 +870,8 @@ public sealed class EntityGenerator : IIncrementalGenerator
         return name.ToString();
     }
 
-    private static string WriteRegistration(CacheModel[] caches, GraphModel[] graphs, string? ownModule,
-        EquatableArray<string> referencedModules)
+    private static string WriteRegistration(CacheModel[] caches, GraphModel[] graphs, (string Type, PropertyModel Key)[] entities,
+        string? ownModule, EquatableArray<string> referencedModules)
     {
         const string Di = "global::Microsoft.Extensions.DependencyInjection";
         const string Builder = "global::Queryeables.QueryeablesBuilder";
@@ -834,10 +918,24 @@ public sealed class EntityGenerator : IIncrementalGenerator
         var outer = sb;
         sb = body;
 
+        foreach (var (type, key) in entities)
+        {
+            sb.Append("        builder.AddEntity<").Append(type).Append(", ").Append(key.Type)
+              .Append(">(e => e.").Append(Escape(key.Name)).AppendLine(");");
+        }
+
         foreach (var cache in caches)
         {
             sb.Append("        builder.AddCache<").Append(cache.TypeName).Append(", ").Append(cache.Key.Type)
               .Append(">(e => e.").Append(Escape(cache.Key.Name)).AppendLine(");");
+            if (!cache.Declared)
+                continue;
+            var cacheInterface = CacheQualified(cache, "I" + cache.Name + "Cache");
+            sb.Append("        ").Append(Di).Append(".Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<")
+              .Append(cacheInterface).Append(">(services, sp => new ").Append(CacheQualified(cache, cache.Name + "Cache")).Append('(')
+              .Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<").Append(CacheType(cache)).AppendLine(">(sp)));");
+            if (cache.Preload)
+                sb.Append("        builder.Preload<").Append(cache.TypeName).Append(", ").Append(cache.Key.Type).AppendLine(">();");
         }
 
         foreach (var graph in graphs)
@@ -859,7 +957,10 @@ public sealed class EntityGenerator : IIncrementalGenerator
             sb.Append("            ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
               .Append(Abstraction).AppendLine(".IEntityStoreFactory>(sp),");
             sb.Append("            ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
-              .Append(Abstraction).Append(".EntityGraph<").Append(parent).Append(", ").Append(key).AppendLine(">>(sp)));");
+              .Append(Abstraction).Append(".EntityGraph<").Append(parent).Append(", ").Append(key).AppendLine(">>(sp))");
+            sb.Append("        {").AppendLine();
+            sb.Append("            ThrowOnFailure = ").Append(Di).Append(".ServiceProviderServiceExtensions.GetService<global::Queryeables.QueryeablesOptions>(sp)?.ThrowOnFailure == true,").AppendLine();
+            sb.AppendLine("        });");
             sb.Append("        ").Append(Di).Append(".Extensions.ServiceCollectionDescriptorExtensions.Replace(services, ")
               .Append(Di).Append(".ServiceDescriptor.Singleton<").Append(Abstraction).Append(".IAggregateRepository<").Append(parent)
               .Append(">>(sp => ").Append(Di).Append(".ServiceProviderServiceExtensions.GetRequiredService<")
@@ -954,10 +1055,32 @@ public sealed class EntityGenerator : IIncrementalGenerator
         return name.Append(".g.cs").ToString();
     }
 
-    private static DiagnosticInfo Diagnostic(string id, string message, Location? location)
-        => new(id, message, LocationInfo.From(location));
+    private static DiagnosticInfo Diagnostic(string id, string message, Location? location, string? fix = null)
+        => new(id, message, LocationInfo.From(location), fix);
 
     private static void Report(SourceProductionContext context, DiagnosticInfo diagnostic)
         => context.ReportDiagnostic(Microsoft.CodeAnalysis.Diagnostic.Create(
-            DescriptorOf(diagnostic.Id), diagnostic.Location?.ToLocation(), diagnostic.Message));
+            DescriptorOf(diagnostic.Id), diagnostic.Location?.ToLocation(),
+            diagnostic.Fix is null ? null : System.Collections.Immutable.ImmutableDictionary<string, string?>.Empty.Add(FixKey, diagnostic.Fix),
+            diagnostic.Message));
+
+    // ---------------------------------------------------------------------
+    // Code fixes: what the diagnostic tells the fix provider (Queryeables.Generated.CodeFixes), in its properties:
+    // "AddKey|type", "AddProperty|type|name|propertyType", "ChangeType|type|name|propertyType". Null for a nested type.
+    // ---------------------------------------------------------------------
+
+    internal const string FixKey = "QueryeablesFix";
+
+    private static string? MetadataName(INamedTypeSymbol type)
+        => type.ContainingType is not null ? null
+            : type.ContainingNamespace.IsGlobalNamespace ? type.MetadataName
+            : type.ContainingNamespace.ToDisplayString() + "." + type.MetadataName;
+
+    private static string? AddKey(INamedTypeSymbol type) => MetadataName(type) is { } name ? "AddKey|" + name : null;
+
+    private static string? AddProperty(INamedTypeSymbol type, string property, string propertyType)
+        => MetadataName(type) is { } name ? $"AddProperty|{name}|{property}|{propertyType}" : null;
+
+    private static string? ChangeType(INamedTypeSymbol type, string property, string propertyType)
+        => MetadataName(type) is { } name ? $"ChangeType|{name}|{property}|{propertyType}" : null;
 }

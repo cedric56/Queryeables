@@ -1,19 +1,28 @@
 # Caches and synchronization
 
 `IEntityCache<T, TKey>` is an in-memory copy of a table: `Entities` (a snapshot, safe to enumerate), `Find(key)`, and
-`EntitiesChanged`. `[EntityCache]` on the class registers it with its change feed; by hand, `q.AddCache<T, TKey>(e => e.Id)`.
+`EntitiesChanged`. `[EntityCache]` on the class registers it with its change feed, and as `I{Type}Cache` (`IPersonCache`):
+the same cache, without the type of the key. By hand, `q.AddCache<T, TKey>(e => e.Id)`.
 
 ```csharp
-var cache = provider.GetRequiredService<IEntityCache<Person, long>>();
-await cache.LoadAsync();                       // once, at startup
+var cache = provider.GetRequiredService<IPersonCache>();
+await cache.LoadAsync();                       // once, at startup; or [EntityCache(Preload = true)]
 cache.EntitiesChanged += (_, _) => Refresh(cache.Entities);
 ```
+
+`[EntityCache(Preload = true)]` loads it when the application starts: by the host (a hosted service), or by
+`QueryeablesHost.CreateAsync` / `provider.StartQueryeablesAsync()` in an application without a host.
 
 > **For reference data, not for large tables.** A cache holds every row of its table in memory, on every client. Use it
 > for lists a user picks from (countries, products, users of a team), not for orders or logs. Remotely, a load larger than
 > the server's `maxReadSize` (10,000 rows by default) fails: query those tables by page instead.
 
 ## How it follows the database
+
+What this application writes through its stores (a repository, `InsertAsync`, `UpdateAsync`, `DeleteAsync`, a patch) is in
+its caches as soon as the write returns, or as soon as its transaction commits (nothing on a rollback): no notification to
+wait for, even on a remote client, which never gets its own back. Writes of many rows at once (`UpdateWhereAsync`,
+`DeleteWhereAsync`) and the writes of others come through the notifications.
 
 Each notification of the change feed (`IChangeFeed<T>`) updates the cache:
 

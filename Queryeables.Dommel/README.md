@@ -26,16 +26,20 @@ services.UseQueryeables(q => q
 - **Generated keys written back** into the entity after an insert, like EF Core.
 - **Optimistic concurrency**: an `int`/`long` property marked `[ConcurrencyCheck]` is checked and incremented by
   `UPDATE ... WHERE Version = @expected`; a stale entity is a `Conflict`, a vanished one returns false.
-- **`[NotMapped]` honored** (`NotMappedPropertyResolver`): navigation properties and graph collections are not columns.
+- **Only columns are mapped**: navigation properties and graph collections are left out without an attribute (Dommel maps
+  simple types only); `[NotMapped]` leaves out a simple property too (`NotMappedPropertyResolver`).
   The resolver is global to Dommel: pass `ignoreNotMapped: false` if you have your own, and wrap it.
 - **Fast reads**: captured variables are passed as constants (Dommel would compile a lambda for each one), and
   `e => e.Column == value` (a key, a foreign key: what caches and graphs read) runs SQL built once per type and column.
 - **Sorted pages and projections**: sorted and projected in memory after the filtered read (EF Core does both in the
   database).
 - **SQL logging** (`DbLogConnection`): every command with its parameters, at the level you choose. For development.
-- `DommelEntityStore.EnsureSchemaAsync(factory, connectionString, script)` runs a creation script.
+- `q.CreateTables()` creates the missing tables of the application's entities at startup, from their classes (SQLite,
+  PostgreSQL, SQL Server, MySQL; `DommelSchema.CreateScript` gives the script): for a first application, not a migration
+  tool. `DommelEntityStore.EnsureSchemaAsync(factory, connectionString, script)` runs a script of your own.
 
 ## Table names
 
-Dommel pluralizes table names (`Person` → `Persons`). Name the table with `[Table("Person")]` when it is singular. Change
-feeds use the same attribute; without it, they answer to the type name and to Dommel's plural.
+A table is named after its class (`Person`), or by `[Table("people")]`. Dommel's own default, the plural (`Persons`,
+`Categories`), is still there for a database made that way: `q.PluralizeTableNames()`. Change feeds and PostgreSQL triggers
+answer to the class name and to the plural.

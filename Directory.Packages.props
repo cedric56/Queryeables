@@ -41,6 +41,7 @@
   <!-- Generated -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" PrivateAssets="all" />
   </ItemGroup>
   <!-- Tests and benchmarks -->
   <ItemGroup>

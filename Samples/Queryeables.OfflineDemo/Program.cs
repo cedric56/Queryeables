@@ -8,14 +8,13 @@ using Queryeables.Sqlite;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data.Common;
-using System.Text.Json;
 
 // One server and two clients, Alice and Bob, in one process: the server is called in process instead of through
 // MagicOnion, and each client has a network cable that can be pulled. Everything else is what an application runs:
 // SQLite on the server, caches that follow it, the offline mode with its copy in a SQLite file, conflicts.
 
 var folder = Directory.CreateTempSubdirectory("queryeables-offline-demo").FullName;
-var serializer = new JsonEntitySerializer();
+var serializer = JsonEntitySerializer.Default;         // the entities as JSON, as through MagicOnion
 
 // ---------- Server ----------
 var serverConnection = $"Data Source={Path.Combine(folder, "server.db")}";
@@ -276,17 +275,4 @@ internal static class StoreExtensions
         await using (store)
             await work(store);
     }
-}
-
-/// <summary>Entities as JSON on the wire. MagicOnion uses MessagePack (MessagePackEntitySerializer) instead.</summary>
-internal sealed class JsonEntitySerializer : IEntitySerializer
-{
-    public byte[] Serialize<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value);
-
-    public T? Deserialize<T>(byte[] data) => JsonSerializer.Deserialize<T>(data);
-
-    /// <summary>System.Text.Json leaves out <c>[JsonIgnore]</c>: an update keeps the stored value of such a property.</summary>
-    public bool Omits(System.Reflection.PropertyInfo property)
-        => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>(property)
-            is { Condition: System.Text.Json.Serialization.JsonIgnoreCondition.Always };
 }

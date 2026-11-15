@@ -43,6 +43,29 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
 
     public EntityGraph<TParent, TKey> Graph { get; }
 
+    /// <summary>Throw an <see cref="EntityStoreException"/> instead of returning a failed <see cref="EntityResult"/>.</summary>
+    public bool ThrowOnFailure { get; init; }
+
+    /// <summary>
+    /// The parent of key <paramref name="key"/> with its children (every relation, at every level); null when it does not
+    /// exist.
+    /// </summary>
+    public virtual async Task<TParent?> GetAsync(TKey key, CancellationToken ct = default)
+    {
+        await using var store = _storeFactory();
+        var parent = await store.FirstOrDefaultAsync(Graph.KeyEquals(key), ct);
+        if (parent is not null)
+            await Graph.LoadAsync(store, parent, ct);
+        return parent;
+    }
+
+    private EntityResult Checked(EntityResult result)
+    {
+        if (ThrowOnFailure)
+            result.ThrowIfFailed();
+        return result;
+    }
+
     IEntityGraph<TParent> IGraphRepository<TParent>.Graph => Graph;
 
     public virtual async Task<EntityResult> SaveAsync(TParent entity, CancellationToken ct = default)
@@ -67,7 +90,7 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
         // What is stored now is what the next save compares with.
         if (result.Successful)
             Graph.Remember(entity);
-        return result;
+        return Checked(result);
     }
 
     public virtual async Task<EntityResult> RemoveAsync(TParent entity, CancellationToken ct = default)
@@ -76,13 +99,13 @@ public class GraphRepository<[DynamicallyAccessedMembers(EntityMembers.Required)
         await using var store = _storeFactory();
 
         if (_childrenSavedByServer)
-            return await EntityResult.RunAsync(async () =>
+            return Checked(await EntityResult.RunAsync(async () =>
             {
                 if (!await store.DeleteAsync(entity, ct))
                     throw new EntityStoreException(EntityErrorCode.NotFound, $"{typeof(TParent).Name} not found: nothing was deleted.");
-            });
+            }));
 
-        return await store.RunInTransactionAsync(s => Graph.RemoveAsync(s, entity, ct), ct);
+        return Checked(await store.RunInTransactionAsync(s => Graph.RemoveAsync(s, entity, ct), ct));
     }
 
     /// <summary>Reads the children of <paramref name="entity"/> into its collections (see <see cref="EntityGraph{TParent, TKey}.LoadAsync(IEntityStore, TParent, CancellationToken)"/>).</summary>

@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics.CodeAnalysis;
+using Queryeables.EntityFramework;
 
-namespace Queryeables.EntityFramework;
+namespace Queryeables;
 
-public static class QueryeablesBuilderExtensions
+/// <summary>The EntityFramework provider of <see cref="QueryeablesBuilder"/>: in the namespace of the builder, found without a using.</summary>
+public static class EntityFrameworkQueryeablesBuilderExtensions
 {
     /// <summary>Stores with Entity Framework Core: each store owns a new context, disposed with the store.</summary>
     /// <param name="createContext">Creates a context, for example <c>sp => new AppDbContext(options)</c>.</param>

@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging;
 using Queryeables.Dommel;
+using Queryeables.Sqlite;
 
-namespace Queryeables.Sqlite;
+namespace Queryeables;
 
-public static class QueryeablesBuilderExtensions
+/// <summary>The Sqlite provider of <see cref="QueryeablesBuilder"/>: in the namespace of the builder, found without a using.</summary>
+public static class SqliteQueryeablesBuilderExtensions
 {
     /// <summary>
     /// Stores with Dommel on SQLite. Every row changed through these stores is reported to the change feeds

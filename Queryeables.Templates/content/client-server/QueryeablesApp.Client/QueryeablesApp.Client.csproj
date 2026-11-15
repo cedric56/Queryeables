@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <PackageReference Include="Queryeables.MagicOnion.Client" Version="QUERYEABLES_VERSION" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>

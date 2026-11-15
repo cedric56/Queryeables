@@ -126,6 +126,32 @@ public static class EntityStoreExtensions
     }
 
     /// <summary>
+    /// Inserts the entity when its key (the property marked [Key], otherwise Id) still has its default value (0,
+    /// Guid.Empty, null), updates it otherwise. Throws <see cref="EntityStoreException"/> (NotFound) when an updated entity
+    /// no longer exists.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The type has no key.</exception>
+    /// <example><code>await store.SaveAsync(person);</code></example>
+    public static Task SaveAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(this IEntityStore store,
+        TEntity entity, CancellationToken ct = default) where TEntity : class
+    {
+        var keys = SyncMetadata.Keys(typeof(TEntity));
+        if (keys.Count == 0)
+            throw new NotSupportedException($"{typeof(TEntity).Name} has no key: add an Id property or mark the key with [Key].");
+        return store.SaveAsync(entity, e => keys.All(k => IsDefaultKey(k.GetValue(e))), ct);
+    }
+
+    /// <summary>A key not given yet: null, 0, Guid.Empty, an empty text.</summary>
+    private static bool IsDefaultKey(object? value) => value switch
+    {
+        null => true,
+        string text => text.Length == 0,
+        Guid guid => guid == Guid.Empty,
+        IConvertible number when value.GetType().IsPrimitive || value is decimal => Convert.ToDecimal(number, System.Globalization.CultureInfo.InvariantCulture) == 0,
+        _ => false,
+    };
+
+    /// <summary>
     /// Inserts the entity when <paramref name="isNew"/> says so, updates it otherwise. Throws
     /// <see cref="EntityStoreException"/> (NotFound) when an updated entity no longer exists.
     /// </summary>
