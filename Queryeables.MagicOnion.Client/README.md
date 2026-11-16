@@ -17,8 +17,13 @@ services.UseQueryeables(q => q
 ```
 
 `IEntityStoreFactory` then creates `RemoteEntityStore` instances (`IsRemote` is true): the caches of the client are replicas
-of what the server publishes (the rows its user may read), kept up to date by its notifications. The client writes through
-services of the application (`provider.Create<IPeopleService>(url)` on a MagicOnion service of the server).
+of what the server publishes (the rows its user may read), kept up to date by its notifications and queried in memory.
+Any other query, and every write, throws `NotSupported`. The client writes through the services of the application:
+
+```csharp
+var people = app.Create<IPeopleService>("https://server:5001");   // a MagicOnion service of the server
+await people.AddAsync("Ana", ["friend"]);                         // the replicas follow by the notification
+```
 
 The channel goes over HTTP/2 (`SocketsHttpHandler`), and through the gRPC WebSocket bridge in the browser (the server
 must enable the bridge). The server certificate is validated by the system on every platform, Android included. Pass
@@ -35,9 +40,8 @@ var unsubscribe = await monitor.AddStreamingHub("https://server:5001", provider.
 await unsubscribe();
 ```
 
-The server's changes reach the change feed, hence the caches; this client's own changes are not echoed back. When the server is
+The server's changes reach the change feed, hence the caches, this client's own writes included. When the server is
 unreachable, the error is logged and nothing is subscribed: call it again later. The hub does not reconnect by itself:
 after a reconnection, call `cache.SyncAsync()` to catch up.
 
-`MagicOnionClientExtensions.CreateChannel(url)` and `provider.Create<TService>(url)` create channels and clients for your
-own MagicOnion services.
+`MagicOnionClientExtensions.CreateChannel(url)` creates a channel for your own MagicOnion clients.

@@ -17,7 +17,7 @@ var unsubscribe = await monitor.AddSignalR("https://server:5001/hubs/person", pr
 await unsubscribe();
 ```
 
-The server's changes are published on the change feed, hence the caches; this client's own changes are not echoed back.
+The server's changes are published on the change feed, hence the caches, this client's own writes included.
 Unlike the MagicOnion hub, the connection retries and reconnects by itself (`FiveSecondsReconnectPolicy` by default, or
 your own `IRetryPolicy`). After a reconnection, call `cache.SyncAsync()` to catch up with the changes missed meanwhile.
 The server certificate is validated by the system on every platform. `validateCertificate` replaces that decision (a

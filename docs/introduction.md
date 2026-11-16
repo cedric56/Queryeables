@@ -28,7 +28,7 @@ q.UseMagicOnion("https://server:5001")  // the same application, against a share
 ## When to choose Queryeables
 
 - A desktop or mobile application that starts with a local database and may later share its data through a server.
-- Several clients that must see each other's changes (caches that follow the database, notifications that skip their author).
+- Several clients that must see each other's changes (caches that follow the database, replicas kept up to date by the server).
 - Parent-child aggregates (an order and its lines, a person and its contacts) saved as one unit, locally or remotely.
 - A server that exposes entities to clients without writing one endpoint per entity, with an access policy per type.
 

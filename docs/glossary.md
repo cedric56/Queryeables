@@ -6,7 +6,7 @@ The names an application meets, from the most common to the least.
 | --- | --- | --- |
 | **Repository** (`I{Parent}Repository`) | A parent with its children: `SaveAsync` (one transaction), `GetAsync(key)` (with its children), `RemoveAsync`. Generated from `[EntityGraph]`; a `GraphRepository` underneath. | [Entity graphs](guides/entity-graphs.md) |
 | **Cache** (`I{Entity}Cache`) | The rows of a type in memory, kept up to date: by the writes of the application at once, by the database's notifications for the others. Generated from `[EntityCache]`; `IEntityCache<TEntity, TKey>` underneath. | [Caches](guides/caches-and-sync.md) |
-| **Query** (`stores.Query<T>()`) | A read with filters, sorts, pages and projections, run by the database or the server. | [Stores](guides/stores-and-transactions.md#composed-queries) |
+| **Query** (`stores.Query<T>()`) | A read with filters, sorts, pages and projections, run by the database. | [Stores](guides/stores-and-transactions.md#reading) |
 | **Store** (`IEntityStore`) | One connection: CRUD, transactions. Created by the store factory, disposed by its user; the repositories and caches use it for you. | [Stores](guides/stores-and-transactions.md) |
 | **Store factory** (`IEntityStoreFactory`) | What creates the stores: registered by the provider (`UseSqlite`, `UseMagicOnion`...). | [Stores](guides/stores-and-transactions.md) |
 | **EntityResult** | The outcome of a write: `Successful`, or an error kind (`Validation`, `Conflict`, `NotFound`, `Forbidden`...). `.OrThrow()` makes it an exception; `ThrowOnFailure()` makes the repositories throw. | [Stores](guides/stores-and-transactions.md) |

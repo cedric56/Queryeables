@@ -6,7 +6,7 @@
 dotnet new install Queryeables.Templates
 
 dotnet new queryeables-console -n MyApp          # SQLite, a cache that follows the table, a person and its contacts
-dotnet new queryeables-client-server -n Shop     # Shop.Server (MagicOnion), Shop.Client, Shop.Shared (the entities)
+dotnet new queryeables-client-server -n Shop     # Shop.Server (MagicOnion), Shop.Client (replicas), Shop.Shared (entities, IPeopleService)
 ```
 
 `--QueryeablesVersion 0.1.0` picks the version of the Queryeables packages (the latest one by default, previews included).

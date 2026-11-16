@@ -1,45 +1,45 @@
 # Queryeables.Remote
 
-Remote access for [Queryeables](https://github.com/cedric56/Queryeables), independent of any transport: a server publishes its
-entity types, each client keeps a replica of the rows its user may read. This project is not published on its own: it ships
-inside the [`Queryeables`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Core/README.md) package.
-
-## Client
-
-`RemoteEntityStore` is an `IEntityStore` that talks to an **`IEntityTransport`** (entities as bytes, written by an
-**`IEntitySerializer`**), for the caches of the client, its replicas:
-
-```csharp
-var stores = RemoteEntityStore.Factory(remote, serializer);   // IsRemote = true
-```
-
-- Every row the user may read (`GetAllAsync`), the rows changed since a date (`SelectChangesAsync`), and a row by its key
-  (`e => e.Id == id`): what a cache loads, then reads again when the server notifies a change.
-- Anything else, and every write, throws `EntityStoreException` (`NotSupported`) before any call: a client queries its
-  replica in memory and writes through a service of the application.
+The replica core of [Queryeables](https://github.com/cedric56/Queryeables), independent of any transport: a server
+publishes its entity types, each client keeps a read-only replica of the rows its user may read. This project is not
+published on its own: it ships inside the [`Queryeables`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Core/README.md) package.
 
 ## Server
 
 `EntityRequestDispatcher` receives the calls and routes them to the exposed types (`EntityHandler<T>`), each with its access
-policy (`IEntityAccessPolicy`) and row filter (`RowLevelSecurity<T>`). A replica holds at most `maxReadSize` rows: beyond, the
-read is refused, not cut.
+policy (`IEntityAccessPolicy`) and row filter (`RowLevelSecurity<T>`):
 
 ```csharp
 q.AddEntityServer(serializer, server => server
-    .Expose<Person>(EntityAccessPolicies.Authenticated)
+    .Expose<Order>(EntityAccessPolicies.Authenticated,
+        rows: RowLevelSecurity.For<Order, long>(o => o.Id, user => o => o.OwnerId == OwnerOf(user)))
     .Expose<Product>(EntityAccessPolicies.AllowAll));
 ```
 
-`dispatcher.AsTransport(context)` connects both sides in-process: for tests, or an application that hosts its own server.
+A handler serves three reads: every row the user may read, the rows changed since a date (types with `[LastModified]`),
+and a row by its key. The row filter applies to all three. A read of more than `maxReadSize` rows (10,000 by default) is
+refused, not cut. A policy decides per type and per user (`EntityAccessRequest(EntityType, User)`):
+`EntityAccessPolicies.Authenticated`, `AllowAll`, `From(rule)`, `FromAsync(rule)`.
 
-## Extension points
+## Client
 
-What a server serves is the handler of each type: `EntityServerBuilder.Handlers` (an `IEntityHandlerFactory`) replaces the
-read-only `EntityHandler<T>`. On the client, `QueryeablesBuilder.DecorateStores` wraps the stores.
+`RemoteEntityStore` is the `IEntityStore` of the caches of a client, their replicas. It talks to an `IEntityTransport`,
+with the entities as bytes written by an `IEntitySerializer` (`JsonEntitySerializer` by default):
+
+```csharp
+var stores = RemoteEntityStore.Factory(transport, serializer);   // IsRemote = true
+```
+
+It reads every row (`GetAllAsync`), the changes (`SelectChangesAsync`) and a row by key (`e => e.Id == id`). Any other
+read, and every write, throws `EntityStoreException` (`NotSupported`) before any call: a client queries its replica in
+memory, and writes through a service of the application.
+
+`dispatcher.AsTransport(context)` connects both sides in process: for tests, or an application that hosts its own server.
 
 ## Writing a transport
 
-Implement `IEntityTransport` on the client, and forward each call to `EntityRequestDispatcher` on the server with an
-`EntityRequestContext` (the authenticated user, the notification connection). `TransportResult` carries the data or the
-error kind; `RemoteDiagnostics` times and traces the calls. [`Queryeables.MagicOnion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion/README.md)
-is the MagicOnion transport.
+Implement the three methods of `IEntityTransport` on the client (`GetAllAsync`, `SelectAsync` with the key condition,
+`GetChangesAsync`), and forward each call to `EntityRequestDispatcher` on the server with an `EntityRequestContext` (the
+authenticated user). `TransportResult` carries the data or the error kind; `RemoteDiagnostics` times and traces the calls.
+[`Queryeables.MagicOnion`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.MagicOnion/README.md) is the
+MagicOnion transport.

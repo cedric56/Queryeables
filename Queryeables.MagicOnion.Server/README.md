@@ -48,7 +48,8 @@ builder.Services.AddSingleton<ChangeHubConnections<Person>>();
 ```
 
 `ChangeHubConnections<T>` listens to the change feed of `T` (registered by `AddGeneratedEntities()` for cached types, or by
-`q.AddChangeFeed<T>()`) and broadcasts every change to the subscribed clients, except the one that made it. The hub refuses
+`q.AddChangeFeed<T>()`) and broadcasts every change to the subscribed clients, the author of a write included: each replica
+reads the row again, under its own row filter. The hub refuses
 anonymous subscriptions: put `[Authorize]` on the hub class and authenticate the server. For public data only, register
 `new ChangeHubOptions { AllowAnonymous = true }` as a singleton.
 
@@ -56,4 +57,4 @@ anonymous subscriptions: put `[Authorize]` on the hub class and authenticate the
 
 - Never use `EntityAccessPolicies.AllowAll` on a public network.
 - Keep connection strings and certificate passwords out of the source code (user secrets, environment variables).
-- No SQL and no expression is received: only "property, operator, value" conditions, at most 1000 per request.
+- No SQL, no expression and no filter is received: only the three reads of a replica, the key compared for equality.

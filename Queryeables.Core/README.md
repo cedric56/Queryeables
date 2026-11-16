@@ -1,11 +1,11 @@
 # Queryeables
 
-The core package of [Queryeables](https://github.com/cedric56/Queryeables): one data-access API for .NET, local or remote.
-It holds the contracts (`IEntityStore`, `EntityResult`, caches, graphs), the remote-access core, the `UseQueryeables` setup
-and the source generator. It has no database and no transport: add a provider package to use it. Targets **.NET 10**.
+The core package of [Queryeables](https://github.com/cedric56/Queryeables). It holds the contracts (`IEntityStore`,
+`EntityResult`, caches, graphs), the replica core (server and client), the `UseQueryeables` setup and the source
+generator. It has no database and no transport: add a provider package to use it. Targets **.NET 10**.
 
 ```bash
-dotnet add package Queryeables.Sqlite   # or Queryeables.Dommel, .PostgreSql, .EntityFramework, .MagicOnion.Client
+dotnet add package Queryeables.Sqlite   # or .Dommel, .PostgreSql, .MongoDB, .EntityFramework, .Datasync, .MagicOnion.Client
 ```
 
 Every provider brings this package: you rarely reference it directly, except to write your own store.
@@ -21,18 +21,18 @@ services.UseQueryeables(q => q
 
 | Builder method | What it registers |
 | --- | --- |
-| `UseStores(sp => store, isRemote)` | Your own `IEntityStore`, through an `IEntityStoreFactory` |
+| `UseStores(sp => store, isRemote)` | Your own `IEntityStore`, through an `IEntityStoreFactory` (or `UseStores(sp => factory)`) |
 | `WithSyncConventions()` | `SyncConventionsDecorator` around every store |
 | `AddGeneratedEntities()` | The caches, graphs and services written by the generator, for this project and the projects it references |
 | `AddChangeFeed<T>(table)` | `IChangeFeed<T>`, fed by the database changes (table name from `[Table]` by default) |
 | `AddCache<T, TKey>(e => e.Id)` | `IEntityCache<T, TKey>` and its change feed |
 | `AddGraph<TParent, TKey>(sp => graph)` | An `EntityGraph` and its `IAggregateRepository<TParent>` service |
-| `AddEntityServer(serializer, s => s.Expose<T>(policy))` | The server side of remote access (`EntityRequestDispatcher`): replicas for the clients; `s.ExposeGenerated(policy)` exposes every generated entity |
-| `DecorateStores((sp, factory) => ...)` | Wraps the stores of the provider (logging, a local copy in front of the server...) |
+| `AddEntityServer(serializer, s => s.Expose<T>(policy, rows))` | The server of the replicas (`EntityRequestDispatcher`); `s.ExposeGenerated(policy)` exposes every generated entity. The transports call it (`AddMagicOnionServer`) |
+| `DecorateStores((sp, factory) => ...)` | Wraps the stores of the provider (logging, retries, metrics...) |
 | `AddEntity<T, TKey>(e => e.Id)` | Declares an entity and its key (`IEntityType`): the generator does it for every entity it knows |
 | `CreateTables()` (Dommel providers) | Creates the missing tables at startup |
 | `Preload<T, TKey>()` | Loads a cache at startup: `[EntityCache(Preload = true)]` |
-| `WaitForServer(timeout)` | A remote client waits at startup for its server |
+| `WaitForServer(timeout)` | A replica client waits at startup for its server |
 | `ThrowOnFailure()` | The repositories throw instead of returning a failed `EntityResult` |
 
 `UseQueryeables` also registers `ChangeFeedRegistry`, `IChangeSession` and `LocalWrites` (the writes of the application,
@@ -47,7 +47,7 @@ turns it off.
 
 ## Stores
 
-`IEntityStore` is one unit of work (one connection, one `DbContext`, one remote session). Ask the `IEntityStoreFactory`
+`IEntityStore` is one unit of work (one connection, one `DbContext`, one MongoDB session). Ask the `IEntityStoreFactory`
 for one, and dispose it:
 
 ```csharp
@@ -65,6 +65,9 @@ EntityResult result = await store.RunInTransactionAsync(async s =>
 Extensions: `SaveAsync`, `GetAsync` (throws NotFound), `InsertManyAsync`, `UpdateManyAsync`, `DeleteManyAsync`,
 `SyncChildrenAsync`. Transactions never throw, except on cancellation: they return a `EntityResult` with an `ErrorCode`
 (`Validation`, `Conflict`, `NotFound`, `Forbidden`...). `.OrThrow()` turns a failure into an `EntityStoreException`.
+
+The store of a replica client (`RemoteEntityStore`, `IsRemote` true) reads only every row, the changes and a row by key;
+the rest throws `NotSupported`. Query the cache in memory, and write through a service of the server.
 
 ## Entities
 
@@ -92,6 +95,12 @@ shared library are registered by `AddGeneratedEntities()` in every project that 
 | `[SoftDelete]` | Delete flags the row; reads hide it; synchronizing clients see the deletion |
 | `[ConcurrencyCheck]` | An `int`/`long` version: a stale update or delete is a `Conflict` |
 | `[RemoteName]` | The name of the type on the wire |
+
+## Change of user, refresh
+
+`provider.ChangeUserAsync()` empties every cache before loading the next user's rows: nothing of the previous user is
+shown meanwhile. `provider.RefreshCachesAsync()` makes the loaded caches catch up with their store after a change made
+behind the change feeds (a Datasync pull, an import).
 
 ## Your own store
 
