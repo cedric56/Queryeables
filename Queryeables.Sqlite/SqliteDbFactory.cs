@@ -110,7 +110,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         {
             string tableName = table;
             // The client that initiated the write is read now, during the write.
-            var change = new Change(ToChangeType(type), tableName, rowid, ChangeContext.ConnectionId);
+            var change = new Change(ToChangeType(type), tableName, rowid);
 
             if (_notifyOnCommit)
             {
@@ -170,7 +170,7 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
                 // The rowid is the key of an INTEGER PRIMARY KEY table only. Otherwise ("Id INT PRIMARY KEY", a text key...)
                 // the change is reported without a key: the caches of the table synchronize instead of reading another row.
                 var key = RowIdIsKey(change.Table) ? EntityKey.Format(change.RowId) : string.Empty;
-                _registry.Publish(change.Type, change.Table, key, change.ConnectionId);
+                _registry.Publish(change.Type, change.Table, key);
             }
             catch (Exception ex)
             {
@@ -228,5 +228,5 @@ public class SqliteDbFactory : DbFactory<SqliteConnection>
         _ => ChangeType.None
     };
 
-    private readonly record struct Change(ChangeType Type, string Table, long RowId, string? ConnectionId);
+    private readonly record struct Change(ChangeType Type, string Table, long RowId);
 }

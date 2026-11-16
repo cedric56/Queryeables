@@ -18,24 +18,27 @@ public sealed class BenchmarkLayerService(EntityRequestDispatcher dispatcher) : 
 
 /// <summary>
 /// A real Queryeables server, in this process but across a real connection: Kestrel on 127.0.0.1 (a free port), gRPC over
-/// HTTP/2, MagicOnion and MessagePack, as an application deploys it, the network latency of a loopback excepted.
+/// HTTP/2 and MagicOnion, the entities in the format chosen, as an application deploys it, the network latency of a loopback excepted.
 /// </summary>
 public sealed class LoopbackServer : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly List<IDisposable> _channels = [];
 
-    private LoopbackServer(WebApplication app, string url)
+    private readonly WireFormat _format;
+
+    private LoopbackServer(WebApplication app, string url, WireFormat format)
     {
         _app = app;
         Url = url;
+        _format = format;
     }
 
     /// <summary>Where the server listens, such as <c>http://127.0.0.1:53124</c>.</summary>
     public string Url { get; }
 
-    /// <summary>Starts a server that exposes <see cref="Item"/> from <paramref name="stores"/>, to everyone.</summary>
-    public static async Task<LoopbackServer> StartAsync(IEntityStoreFactory stores)
+    /// <summary>Starts a server that exposes <see cref="Item"/> from <paramref name="stores"/>, to everyone, in <paramref name="format"/>.</summary>
+    public static async Task<LoopbackServer> StartAsync(IEntityStoreFactory stores, WireFormat format)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -44,13 +47,13 @@ public sealed class LoopbackServer : IAsyncDisposable
         builder.Services.AddMagicOnion();
         builder.Services.UseQueryeables(q => q
             .UseStores(_ => stores)
-            // MessagePack, as the client below: the default (JSON) would answer in a format the client cannot read.
-            .AddMagicOnionServer(MessagePackEntitySerializer.Server, server => server.Expose<Item>(EntityAccessPolicies.AllowAll)));
+            // The same format as the client below: a client cannot read another.
+            .AddMagicOnionServer(format.Serializer(server: true), server => server.Expose<Item>(EntityAccessPolicies.AllowAll)));
 
         var app = builder.Build();
         app.MapMagicOnionService(typeof(BenchmarkLayerService));
         await app.StartAsync();
-        return new LoopbackServer(app, app.Urls.First());
+        return new LoopbackServer(app, app.Urls.First(), format);
     }
 
     /// <summary>A client of this server, on a channel of its own: what <c>q.UseMagicOnion(url)</c> registers.</summary>
@@ -59,7 +62,7 @@ public sealed class LoopbackServer : IAsyncDisposable
         var channel = MagicOnionClientExtensions.CreateChannel(Url);
         _channels.Add(channel);
         var transport = new MagicOnionTransport(MagicOnionClient.Create<IMagicOnionLayer>(channel));
-        return RemoteEntityStore.Factory(transport, MessagePackEntitySerializer.Default);
+        return RemoteEntityStore.Factory(transport, _format.Serializer());
     }
 
     public async ValueTask DisposeAsync()

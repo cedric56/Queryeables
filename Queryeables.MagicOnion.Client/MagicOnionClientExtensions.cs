@@ -102,13 +102,7 @@ public static class MagicOnionClientExtensions
 
         var channel = CreateChannel(url,validateCertificate: validateCertificate);
         IChangeHub<TObject>? hub = null;
-        var receiver = new ChangeHubReceiver<TObject>(monitor, session,
-            send: record =>
-            {
-                hub?.OnChangeReceived(ChangeMessage.From(record));
-                return Task.CompletedTask;
-            },
-            onError: ex => logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name));
+        var receiver = new ChangeHubReceiver<TObject>(monitor);
 
         try
         {

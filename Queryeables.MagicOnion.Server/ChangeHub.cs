@@ -39,16 +39,6 @@ public class ChangeHub<TObject>(ChangeHubConnections<TObject> repository) :
             await group.RemoveAsync(Context);
     }
 
-    /// <summary>
-    /// A client reports a change: relayed to the other clients only when the server allows it
-    /// (<see cref="ChangeHubOptions.RelayClientChanges"/>), checked and limited; otherwise ignored.
-    /// </summary>
-    public void OnChangeReceived(ChangeMessage e)
-    {
-        ArgumentNullException.ThrowIfNull(e);
-        repository.Raise(e.ToChange<TObject>(), Context.ContextId);
-    }
-
     protected override ValueTask OnDisconnected()
     {
         repository.Unregister(Context.ContextId);

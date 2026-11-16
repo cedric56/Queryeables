@@ -10,8 +10,8 @@ published on its own: it ships inside the [`Queryeables`](https://github.com/ced
 | Graphs | `EntityGraph`, `EntityGraph<TParent, TKey>`, `GraphRepository<TParent, TKey>`, `IAggregateRepository<T>`, `[EntityGraph]` |
 | Caches | `IEntityCache<T, TKey>`, `EntityCache<T, TKey>`, `[EntityCache]`, `IUserScopedData`, `ISynchronizableCache` |
 | Synchronization | `[LastModified]`, `[SoftDelete]`, `SyncConventionsDecorator`, `SyncMetadata`, `ConcurrencyToken` |
-| Change notifications | `IChangeFeed<T>`, `ChangeFeed<T>`, `ChangeFeedRegistry`, `EntityChange<T>`, `EntityKey`, `ChangeContext`, `IChangeSession` |
-| Transports | `ChangeBroadcaster<T>` (server), `ChangeRelay<T>` (client): shared by MagicOnion and SignalR |
+| Change notifications | `IChangeFeed<T>`, `ChangeFeed<T>`, `ChangeFeedRegistry`, `EntityChange<T>`, `EntityKey`, `IChangeSession` |
+| Transports | `ChangeBroadcaster<T>` (server side of the change hubs): shared by MagicOnion and SignalR |
 | Helpers | `CollectionExtensions.Update`: aligns a collection with a selection, in place |
 
 Rule of this project: no `PackageReference`. Everything here builds on the base class library only, and is trimming

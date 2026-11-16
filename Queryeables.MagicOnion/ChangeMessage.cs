@@ -16,14 +16,11 @@ public sealed class ChangeMessage
     [Key(1)]
     public ChangeType ChangeType { get; set; }
 
-    [Key(2)]
-    public List<string>? Connections { get; set; }
-
     public static ChangeMessage From<T>(EntityChange<T> record) where T : class
     {
         ArgumentNullException.ThrowIfNull(record);
-        return new() { EntityKey = record.EntityKey, ChangeType = record.ChangeType, Connections = record.Connections };
+        return new() { EntityKey = record.EntityKey, ChangeType = record.ChangeType };
     }
 
-    public EntityChange<T> ToChange<T>() where T : class => new(EntityKey, ChangeType, Connections);
+    public EntityChange<T> ToChange<T>() where T : class => new(EntityKey, ChangeType);
 }

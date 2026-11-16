@@ -17,12 +17,14 @@ Always run in `Release`, on a machine doing nothing else, and compare numbers on
 | --- | --- |
 | `StoreBenchmarks` | What does `IEntityStore` cost over Dommel and over hand-written SQL with Dapper? One row by key, 1000 rows, an insert and a delete (the store version runs them in a transaction that returns a `EntityResult`). The baseline is Dommel called directly |
 | `CacheBenchmarks` | What does a cache save? `Find` against a database read by key, the cost of a snapshot (`Entities`), and of a full reload, for 1 000 and 100 000 rows |
-| `RemoteBenchmarks` | What does the remote layer cost without the network? The reads of a replica: MessagePack, access policy and dispatcher, in process, against the local store. Add your network round trip to these numbers |
-| `NetworkBenchmarks` | What does a real connection add? The same calls on the database, through the remote layer in process, and through gRPC to a server on 127.0.0.1 (Kestrel, HTTP/2, MagicOnion, MessagePack), plus 16 reads at once on one connection |
+| `SerializerBenchmarks` | What does each format cost? JSON (the default) and MessagePack, writing and reading one item and 1 000; the size of each message is printed at setup |
+| `RemoteBenchmarks` | What does the remote layer cost without the network? The reads of a replica: the serializer, access policy and dispatcher, in process, against the local store, in JSON and in MessagePack. Add your network round trip to these numbers |
+| `NetworkBenchmarks` | What does a real connection add? The same calls on the database, through the remote layer in process, and through gRPC to a server on 127.0.0.1 (Kestrel, HTTP/2, MagicOnion), in JSON and in MessagePack, plus 16 reads at once on one connection |
 
-The remote benchmarks use MessagePack, not JSON, the default serializer since November 2026. JSON messages are larger
-and slower to read and write: expect a higher cost per call and per row on `Remote_*` and `Grpc_*` with the default, the
-more so for many rows. Choose MessagePack where that matters (see [remote access](guides/remote-access.md#entities-on-the-wire)).
+Each remote benchmark runs once per format (the `Format` column): JSON, the default of `UseMagicOnion(url)` and
+`AddMagicOnionServer(...)`, and MessagePack, chosen on both sides (see
+[remote access](guides/remote-access.md#entities-on-the-wire)). Compare the two rows of a method to see what the format
+costs per call and per row.
 
 Every class runs `MemoryDiagnoser`: read the `Allocated` column next to the time.
 
@@ -32,6 +34,9 @@ Every class runs `MemoryDiagnoser`: read the `Allocated` column next to the time
   transactions, the `EntityResult`; the database work is the same.
 - **Cache**: `Cache_Find` against `Store_FirstOrDefault` is what a cached lookup saves per read. `Cache_Load` is the
   price of a full reload, paid at startup and after a change on a type without an integer key and without `[LastModified]`.
+- **Format**: `SerializerBenchmarks` gives the time, the allocations and the size of each format; `Remote_*` and `Grpc_*`
+  in JSON against MessagePack, what the format changes in a real call. A load (`GetAll`) shows the difference more than a
+  row read by key.
 - **Remote**: `Remote_*` minus `Local_*` is the serialization and dispatch cost per call: what a replica pays to load
   (`GetAll`) and to read a row again on a notification (`FirstOrDefault` by key).
 - **Network**: `Grpc_*` minus `InProcess_*` is what HTTP/2, gRPC and MagicOnion cost per call on a loopback, the network
@@ -88,4 +93,5 @@ What remains above Dapper (about 1.4 KB) is what the store adds by design: the s
 factory, the async methods of the interface, the named parameter. On a database across a network, a round trip costs
 300 to 2 000 µs.
 
-Results are published with each release in the release notes.
+No result for the formats yet: run `--filter "*SerializerBenchmarks*" "*RemoteBenchmarks*"` and add them here with the
+machine and the date. Results are published with each release in the release notes.

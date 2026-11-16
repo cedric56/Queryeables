@@ -1,7 +1,7 @@
 ﻿namespace Queryeables.Abstraction;
 
 /// <summary>
-/// A row change: which entity, what kind of change, and which clients already know about it.
+/// A row change: which entity, and what kind of change.
 /// Serializer-agnostic: each transport (MagicOnion, SignalR...) maps it to its own wire message.
 /// </summary>
 public class EntityChange<T> where T : class
@@ -12,15 +12,14 @@ public class EntityChange<T> where T : class
     }
 
     /// <param name="entityKey">Entity key, formatted with <see cref="Queryeables.Abstraction.EntityKey.Format"/>.</param>
-    public EntityChange(string entityKey, ChangeType changeType, List<string>? connections = null)
+    public EntityChange(string entityKey, ChangeType changeType)
     {
         EntityKey = entityKey;
         ChangeType = changeType;
-        Connections = connections;
     }
 
-    public EntityChange(long rowId, ChangeType changeType, List<string>? connections = null)
-        : this(Queryeables.Abstraction.EntityKey.Format(rowId), changeType, connections)
+    public EntityChange(long rowId, ChangeType changeType)
+        : this(Queryeables.Abstraction.EntityKey.Format(rowId), changeType)
     {
     }
 
@@ -29,21 +28,5 @@ public class EntityChange<T> where T : class
 
     public ChangeType ChangeType { get; set; }
 
-    /// <summary>Connections already aware of the change (typically its author): they are not notified again.</summary>
-    public List<string>? Connections { get; set; }
-
-    public override string ToString()
-        => $"{typeof(T).Name} : {EntityKey} {ChangeType} {string.Join(",", Connections ?? [])}";
-
-    public void Add(string? connectionId)
-    {
-        if (!string.IsNullOrWhiteSpace(connectionId))
-        {
-            Connections ??= [];
-            Connections.Add(connectionId);
-        }
-    }
-
-    public bool Contains(string? connectionId)
-        => !string.IsNullOrWhiteSpace(connectionId) && (Connections ?? []).Contains(connectionId);
+    public override string ToString() => $"{typeof(T).Name} : {EntityKey} {ChangeType}";
 }

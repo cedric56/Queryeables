@@ -13,7 +13,7 @@ public interface IChangeFeed
     /// Reports that a row changed. The change feed ignores the tables it does not care about.
     /// </summary>
     /// <param name="entityKey">Row key, in the <see cref="EntityKey.Format"/> format.</param>
-    void Publish(ChangeType type, string table, string entityKey, string? connectionId);
+    void Publish(ChangeType type, string table, string entityKey);
 
     /// <summary>
     /// Reports that some changes may have been missed (a change source that reconnected): subscribers synchronize. A
@@ -44,7 +44,7 @@ public interface IChangeFeed<TEntity> : IChangeFeed where TEntity : class
 
 /// <summary>
 /// Standard implementation. Server side, the change source calls
-/// <see cref="Publish(ChangeType, string, string, string?)"/>; client side, the hub receiver calls
+/// <see cref="Publish(ChangeType, string, string)"/>; client side, the hub receiver calls
 /// <see cref="Publish(EntityChange{TEntity})"/>.
 /// </summary>
 public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : class
@@ -103,16 +103,15 @@ public sealed class ChangeFeed<TEntity> : IChangeFeed<TEntity> where TEntity : c
         ChangeReceived?.Invoke(this, record);
     }
 
-    public void PublishResync() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.Update, []));
+    public void PublishResync() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.Update));
 
-    public void PublishReload() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.None, []));
+    public void PublishReload() => Publish(new EntityChange<TEntity>(string.Empty, ChangeType.None));
 
-    public void Publish(ChangeType type, string table, string entityKey, string? connectionId)
+    public void Publish(ChangeType type, string table, string entityKey)
     {
         if (!Array.Exists(_names, name => string.Equals(table, name, StringComparison.OrdinalIgnoreCase)))
             return;
 
-        List<string> connections = string.IsNullOrWhiteSpace(connectionId) ? [] : [connectionId];
-        Publish(new EntityChange<TEntity>(entityKey, type, connections));
+        Publish(new EntityChange<TEntity>(entityKey, type));
     }
 }

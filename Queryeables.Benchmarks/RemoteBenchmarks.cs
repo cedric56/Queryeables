@@ -1,13 +1,12 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
-using Queryeables.MagicOnion;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
 
 /// <summary>
-/// What the remote layer costs without the network: the reads of a replica (every row, a row by key), MessagePack, access policy
-/// and the server dispatcher, all in process (<see cref="EntityRequestDispatcher.AsTransport"/>). Add the round trip of your
+/// What the remote layer costs without the network: the reads of a replica (every row, a row by key), the serializer (JSON,
+/// the default, and MessagePack), access policy and the server dispatcher, all in process (<see cref="EntityRequestDispatcher.AsTransport"/>). Add the round trip of your
 /// network to these numbers for a real deployment.
 /// </summary>
 [MemoryDiagnoser]
@@ -20,14 +19,17 @@ public class RemoteBenchmarks
     [Params(1000)]
     public int Rows { get; set; }
 
+    [Params(WireFormat.Json, WireFormat.MessagePack)]
+    public WireFormat Format { get; set; }
+
     [GlobalSetup]
     public async Task SetupAsync()
     {
         _database = await BenchmarkDatabase.CreateAsync("remote-benchmarks", Rows);
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default);
-        _remote = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        var dispatcher = new EntityRequestDispatcher(registry, Format.Serializer(server: true));
+        _remote = RemoteEntityStore.Factory(dispatcher.AsTransport(), Format.Serializer());
         _id = Rows / 2;
     }
 

@@ -4,7 +4,7 @@ namespace Queryeables.Abstraction;
 
 /// <summary>
 /// Set of active change feeds. The change source (SQLite hook, trigger...) only calls
-/// <see cref="Publish(ChangeType, string, string, string?)"/>, and each change feed filters the tables it cares about.
+/// <see cref="Publish(ChangeType, string, string)"/>, and each change feed filters the tables it cares about.
 /// </summary>
 /// <example>
 /// <code>
@@ -26,19 +26,14 @@ public sealed class ChangeFeedRegistry
 
     public IReadOnlyList<IChangeFeed> GetAll() => _monitors.Keys.ToArray();
 
-    /// <param name="connectionId">
-    /// Client that initiated the change. Defaults to <see cref="ChangeContext.ConnectionId"/>,
-    /// set by the server during the write.
-    /// </param>
-    public void Publish(ChangeType type, string table, string entityKey, string? connectionId = null)
+    public void Publish(ChangeType type, string table, string entityKey)
     {
-        connectionId ??= ChangeContext.ConnectionId;
         if (QueryeablesDiagnostics.ChangesPublished.Enabled)
             QueryeablesDiagnostics.ChangesPublished.Add(1,
                 new KeyValuePair<string, object?>(QueryeablesDiagnostics.TableTag, table),
                 new KeyValuePair<string, object?>(QueryeablesDiagnostics.ChangeTag, type.ToString()));
         foreach (var monitor in _monitors.Keys)
-            monitor.Publish(type, table, entityKey, connectionId);
+            monitor.Publish(type, table, entityKey);
     }
 
     /// <summary>Tells every change feed that changes may have been missed (see <see cref="IChangeFeed.PublishResync"/>).</summary>
@@ -56,10 +51,10 @@ public sealed class ChangeFeedRegistry
     }
 
     /// <summary>Overload for a numeric key, for example the SQLite rowid.</summary>
-    public void Publish(ChangeType type, string table, long rowId, string? connectionId = null)
-        => Publish(type, table, EntityKey.Format(rowId), connectionId);
+    public void Publish(ChangeType type, string table, long rowId)
+        => Publish(type, table, EntityKey.Format(rowId));
 
     /// <summary>Overload for any key (Guid, string, tuple for a composite key...).</summary>
-    public void Publish<TKey>(ChangeType type, string table, TKey key, string? connectionId = null) where TKey : notnull
-        => Publish(type, table, EntityKey.Format(key), connectionId);
+    public void Publish<TKey>(ChangeType type, string table, TKey key) where TKey : notnull
+        => Publish(type, table, EntityKey.Format(key));
 }

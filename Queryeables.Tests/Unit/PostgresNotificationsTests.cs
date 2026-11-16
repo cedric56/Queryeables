@@ -15,6 +15,17 @@ public sealed class PgItem
 public class PostgresNotificationsTests
 {
     [Fact]
+    public void A_trigger_name_PostgreSQL_would_cut_is_shortened_with_a_hash()
+    {
+        var a = PostgresNotifications.TriggerName("queryeables_notify_" + new string('x', 60) + "_orders");
+        var b = PostgresNotifications.TriggerName("queryeables_notify_" + new string('x', 60) + "_orderz");
+
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(a) <= 63);
+        Assert.NotEqual(a, b);
+        Assert.Equal("queryeables_notify_Clients", PostgresNotifications.TriggerName("queryeables_notify_Clients"));
+    }
+
+    [Fact]
     public void A_notification_is_read()
     {
         Assert.Equal((ChangeType.Insert, (string?)"public", "PgItem", "42"),
@@ -85,9 +96,9 @@ public class PostgresNotificationsTests
         var keys = new List<string>();
         feed.ChangeReceived += (_, c) => keys.Add(c.EntityKey);
 
-        feed.Publish(ChangeType.Update, "Categories", "1", null);        // Dommel's default name
-        feed.Publish(ChangeType.Update, "Category", "2", null);          // the type name, as before
-        feed.Publish(ChangeType.Update, "Products", "3", null);
+        feed.Publish(ChangeType.Update, "Categories", "1");        // Dommel's default name
+        feed.Publish(ChangeType.Update, "Category", "2");          // the type name, as before
+        feed.Publish(ChangeType.Update, "Products", "3");
 
         Assert.Equal(["1", "2"], keys);
     }

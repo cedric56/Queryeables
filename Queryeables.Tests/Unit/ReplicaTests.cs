@@ -149,7 +149,7 @@ public class ReplicaTests
         var services = new ServiceCollection();
         services.UseQueryeables(q => q.UseStores(_ => Stores)
             .AddCache<TestClient, long>(c => c.Id)
-            .AddCache<SOrder, long>(o => o.Id));
+            .AddCache<Invoice, long>(o => o.Id));
         await using var provider = services.BuildServiceProvider();
         var clients = provider.GetRequiredService<IEntityCache<TestClient, long>>();
         await clients.LoadAsync();
@@ -159,6 +159,6 @@ public class ReplicaTests
         await provider.RefreshCachesAsync();
 
         Assert.Equal(2, clients.Entities.Count);
-        Assert.Empty(provider.GetRequiredService<IEntityCache<SOrder, long>>().Entities);
+        Assert.Empty(provider.GetRequiredService<IEntityCache<Invoice, long>>().Entities);
     }
 }

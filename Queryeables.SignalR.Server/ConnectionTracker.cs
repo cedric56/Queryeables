@@ -14,9 +14,8 @@ public sealed class ConnectionTracker<TObject>(
     IChangeFeed<TObject> monitor,
     ChangeFeedRegistry? registry = null,
     ILogger<ConnectionTracker<TObject>>? logger = null,
-    ChangeHubOptions? options = null,
-    ConnectionOwners? owners = null)
-    : ChangeBroadcaster<TObject>(monitor, registry, options, owners) where TObject : class
+    ChangeHubOptions? options = null)
+    : ChangeBroadcaster<TObject>(monitor, registry, options) where TObject : class
 {
     public void Add(string connectionId, ClaimsPrincipal? user = null)
     {
@@ -30,10 +29,10 @@ public sealed class ConnectionTracker<TObject>(
             logger?.LogInformation("Client disconnected: {ConnectionId}", connectionId);
     }
 
-    protected override Task SendAsync(EntityChange<TObject> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+    protected override Task SendAsync(EntityChange<TObject> record, CancellationToken ct)
     {
         logger?.LogDebug("Broadcasting {Record}", record);
-        return hubContext.Clients.AllExcept(excludedConnections).SendAsync(SignalRContract.DbChanged, SignalRChange.From(record), ct);
+        return hubContext.Clients.All.SendAsync(SignalRContract.DbChanged, SignalRChange.From(record), ct);
     }
 
     // Clients(...) names the connections: none of another server (backplane), none arrived after the check.

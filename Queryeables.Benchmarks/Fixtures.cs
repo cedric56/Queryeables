@@ -3,6 +3,8 @@ using MessagePack;
 using Microsoft.Data.Sqlite;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
+using Queryeables.MagicOnion;
+using Queryeables.Remote;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Data.Common;
 
@@ -16,6 +18,23 @@ public sealed partial class Item
     [Key(0)] public long Id { get; set; }
     [Key(1)] public string Name { get; set; } = string.Empty;
     [Key(2)] public int Quantity { get; set; }
+}
+
+/// <summary>The formats of the entities on the wire: JSON, the default of the transports, and MessagePack.</summary>
+public enum WireFormat
+{
+    Json,
+    MessagePack,
+}
+
+public static class WireFormats
+{
+    /// <summary>The serializer of a client, or of a server (MessagePack reads untrusted data there).</summary>
+    public static IEntitySerializer Serializer(this WireFormat format, bool server = false) => format switch
+    {
+        WireFormat.Json => JsonEntitySerializer.Default,
+        _ => server ? MessagePackEntitySerializer.Server : MessagePackEntitySerializer.Default,
+    };
 }
 
 /// <summary>

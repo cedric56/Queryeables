@@ -13,5 +13,4 @@ public interface IChangeHub<TObject> :
 {
     Task<Guid> AddReceiverAsync();
     Task RemoveAsync();
-    void OnChangeReceived(ChangeMessage e);
 }

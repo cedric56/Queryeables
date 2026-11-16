@@ -25,6 +25,14 @@ First public version.
   key, `GetChangesAsync`); its writes, batches and `WriteOnce`, the MagicOnion write messages (`BatchOperationMessage`,
   `RemoteRequestMessage`, `SortKeyMessage`), the in-memory idempotency of the dispatcher, `GraphWriteGuard`,
   `[ServerOwned]` and `[NotQueryable]` are removed. `Expose<T>(policy, rows, maxReadSize)` replaces the write options.
+- Benchmarks: `SerializerBenchmarks` (JSON and MessagePack, time, allocations and size), and `RemoteBenchmarks` and
+  `NetworkBenchmarks` run in both formats (`Format`), JSON being the default.
+- Tests named after what they test: the files of the reviews (audits, evening review, hardening) are split by subject.
+- **The change hubs only broadcast.** No write names its author any more, so a change reaches every subscriber, the
+  author included. `ChangeContext`, `ConnectionOwners`, `UserKey`, `ChangeRelay<T>`, `EntityChange<T>.Connections`,
+  the `connectionId` of `ChangeFeedRegistry.Publish`, the client-reported changes (`OnChangeReceived`,
+  `ChangeHubOptions.RelayClientChanges`, `MaxClientChangesPerSecond`, `MaxKeyLength`) are removed;
+  `ChangeBroadcaster<T>.SendAsync(record, ct)` sends to all, `SendToAsync` is abstract. The wire messages lose their key 2.
 - **Access policies decide on reads only**: `EntityAccessRequest(EntityType, User)`; `EntityOperation`,
   `EntityAccessPolicies.ReadOnly` and `ChecksEntities` are removed. `EntityRequestContext` keeps only the user.
 - The client-server template writes through a MagicOnion service of its own (`IPeopleService`) and reads a replica.

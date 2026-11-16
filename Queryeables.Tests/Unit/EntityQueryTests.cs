@@ -11,22 +11,22 @@ public class EntityQueryTests
     {
         using var store = new MemoryStore(_database);
         foreach (var (label, owner) in new[] { ("a", 1L), ("b", 2L), ("c", 2L), ("d", 3L), ("e", 3L), ("f", 3L), ("g", 4L) })
-            store.InsertAsync(new AuditContact { Label = label, PersonId = owner }).GetAwaiter().GetResult();
+            store.InsertAsync(new MemberContact { Label = label, PersonId = owner }).GetAwaiter().GetResult();
     }
 
     private IEntityStoreFactory Local() => new EntityStoreFactory(() => new MemoryStore(_database));
 
-    private static IEnumerable<AuditContact> All()
+    private static IEnumerable<MemberContact> All()
         => new[] { ("a", 1L), ("b", 2L), ("c", 2L), ("d", 3L), ("e", 3L), ("f", 3L), ("g", 4L) }
-            .Select((x, i) => new AuditContact { Id = i + 1, Label = x.Item1, PersonId = x.Item2 });
+            .Select((x, i) => new MemberContact { Id = i + 1, Label = x.Item1, PersonId = x.Item2 });
 
     /// <summary>The same query through LINQ to Objects: the expected result.</summary>
-    private async Task AssertLikeLinqAsync(Func<EntityQuery<AuditContact>, EntityQuery<AuditContact>> query,
-        Func<IEnumerable<AuditContact>, IEnumerable<AuditContact>> linq)
+    private async Task AssertLikeLinqAsync(Func<EntityQuery<MemberContact>, EntityQuery<MemberContact>> query,
+        Func<IEnumerable<MemberContact>, IEnumerable<MemberContact>> linq)
     {
         var expected = linq(All()).Select(c => c.Label).ToList();
         foreach (var stores in new[] { Local() })
-            Assert.Equal(expected, (await query(stores.Query<AuditContact>()).ToListAsync()).Select(c => c.Label));
+            Assert.Equal(expected, (await query(stores.Query<MemberContact>()).ToListAsync()).Select(c => c.Label));
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class EntityQueryTests
     {
         foreach (var stores in new[] { Local() })
         {
-            var query = stores.Query<AuditContact>().Where(c => c.PersonId == 3).OrderByDescending(c => c.Label);
+            var query = stores.Query<MemberContact>().Where(c => c.PersonId == 3).OrderByDescending(c => c.Label);
 
             Assert.Equal(new[] { "F", "E" }, await query.Take(2).Select(c => c.Label.ToUpperInvariant()).ToListAsync());
             Assert.Equal(new[] { "d", "e", "f" }, (await query.Select(c => c.Label).ToListAsync()).OrderBy(l => l));
@@ -86,7 +86,7 @@ public class EntityQueryTests
     public async Task A_query_on_an_open_store_and_shared_base_queries()
     {
         await using var store = new MemoryStore(_database);
-        var owners2 = store.Query<AuditContact>().Where(c => c.PersonId == 2);
+        var owners2 = store.Query<MemberContact>().Where(c => c.PersonId == 2);
 
         var both = await owners2.ToListAsync();
         var onlyC = await owners2.Where(c => c.Label == "c").ToListAsync();

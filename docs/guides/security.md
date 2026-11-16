@@ -93,12 +93,8 @@ Hubs broadcast keys of changed rows. Protect them like the data: `[Authorize]` o
 `.RequireAuthorization()` on the SignalR `MapHub`. They refuse anonymous connections by default; for public data only,
 `services.AddSingleton(new ChangeHubOptions { AllowAnonymous = true })`.
 
-What a client sends a hub is not trusted:
+A client sends a hub nothing but its subscription: only the server's database is a source of changes.
 
-- The changes a client reports are not relayed: only the server's database is a source. A client with a database of its
-  own, shared with others, needs `services.AddSingleton(new ChangeHubOptions { RelayClientChanges = true })`; its changes
-  are then checked (a row, never "reload everything"; a key of at most 256 characters) and limited (20 per second per
-  connection).
 - The queue of changes is bounded (10,000). When clients cannot keep up, it is emptied and one "synchronize" is sent:
   each cache catches up from the database, and memory stays bounded.
 

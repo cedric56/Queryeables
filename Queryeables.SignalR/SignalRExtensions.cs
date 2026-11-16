@@ -11,8 +11,7 @@ namespace Queryeables.SignalR;
 public static class SignalRExtensions
 {
     /// <summary>
-    /// Connects a change feed to a SignalR hub:
-    /// changes received from the hub are published on the change feed, and local changes are sent to the hub.
+    /// Connects a change feed to a SignalR hub: the changes received from the hub are published on the change feed.
     /// </summary>
     /// <param name="session">Receives the connection id, which changes on every reconnection.</param>
     /// <param name="registry">When provided, the change feed is added to it to receive the local database changes.</param>
@@ -64,17 +63,11 @@ public static class SignalRExtensions
             .WithAutomaticReconnect(policy)
             .Build();
 
-        // Logic shared by the transports: ignore our own changes, never send back those received from the hub.
-        var relay = new ChangeRelay<TObject>(monitor,
-            connectionId: () => hub.State == HubConnectionState.Connected ? hub.ConnectionId : null,
-            send: record => hub.InvokeAsync(SignalRContract.OnChangeReceived, SignalRChange.From(record), stop.Token),
-            onError: ex =>
-            {
-                if (!stop.IsCancellationRequested)
-                    logger?.LogWarning(ex, "Could not send the {Type} change to the hub.", typeof(TObject).Name);
-            });
-
-        hub.On<SignalRChange>(SignalRContract.DbChanged, message => relay.Receive(message.ToChange<TObject>()));
+        hub.On<SignalRChange>(SignalRContract.DbChanged, message =>
+        {
+            if (!stop.IsCancellationRequested)
+                monitor.Publish(message.ToChange<TObject>());
+        });
 
         registry?.Add(monitor);
         hub.Reconnected += OnReconnected;
@@ -88,7 +81,6 @@ public static class SignalRExtensions
         async Task UnsubscribeAsync()
         {
             stop.Cancel();
-            relay.Dispose();
             hub.Reconnected -= OnReconnected;
             registry?.Remove(monitor);
             session.RemoveSession(typeof(TObject));

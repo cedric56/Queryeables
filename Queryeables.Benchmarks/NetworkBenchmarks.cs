@@ -1,6 +1,5 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
-using Queryeables.MagicOnion;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
@@ -24,17 +23,21 @@ public class NetworkBenchmarks
     [Params(1000)]
     public int Rows { get; set; }
 
+    /// <summary>The format of the entities on the wire, on both the in-process and the gRPC paths.</summary>
+    [Params(WireFormat.Json, WireFormat.MessagePack)]
+    public WireFormat Format { get; set; }
+
     [GlobalSetup]
     public async Task SetupAsync()
     {
         _database = await BenchmarkDatabase.CreateAsync("network-benchmarks", Rows);
-        _server = await LoopbackServer.StartAsync(_database.Stores);
+        _server = await LoopbackServer.StartAsync(_database.Stores, Format);
         _grpc = _server.Client();
 
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default);
-        _inProcess = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        var dispatcher = new EntityRequestDispatcher(registry, Format.Serializer(server: true));
+        _inProcess = RemoteEntityStore.Factory(dispatcher.AsTransport(), Format.Serializer());
         _id = Rows / 2;
 
         // The first call opens the HTTP/2 connection: not measured.

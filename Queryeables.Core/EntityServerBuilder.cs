@@ -113,7 +113,6 @@ public static class EntityServerExtensions
 
         builder.Services.TryAddSingleton(serializer);
         builder.Services.TryAddSingleton<IEntityHandlerRegistry>(server.Build);
-        builder.Services.TryAddSingleton<ConnectionOwners>();
         builder.Services.TryAddSingleton(sp => new EntityRequestDispatcher(
             sp.GetRequiredService<IEntityHandlerRegistry>(),
             sp.GetRequiredService<IEntitySerializer>())

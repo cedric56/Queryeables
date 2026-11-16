@@ -59,23 +59,6 @@ public class ConcurrencyTests
     }
 
     [Fact]
-    public void A_reconnected_client_ignores_its_own_changes_under_its_new_id()
-    {
-        var monitor = new ChangeFeed<TestClient>();
-        var received = new List<string>();
-        monitor.ChangeReceived += (_, record) => received.Add(record.EntityKey);
-        var connectionId = "first";
-        using var relay = new ChangeRelay<TestClient>(monitor, () => connectionId);
-
-        relay.Receive(new EntityChange<TestClient>("1", ChangeType.Update, ["first"]));    // its own change: ignored
-        connectionId = "second";                                                       // reconnected, new id
-        relay.Receive(new EntityChange<TestClient>("2", ChangeType.Update, ["second"]));   // its own change: ignored
-        relay.Receive(new EntityChange<TestClient>("3", ChangeType.Update, ["first"]));    // made under the old id: received
-
-        Assert.Equal(new[] { "3" }, received);
-    }
-
-    [Fact]
     public async Task Disposing_a_broadcaster_does_not_wait_for_a_stuck_client()
     {
         var monitor = new ChangeFeed<TestClient>();
@@ -93,11 +76,14 @@ public class ConcurrencyTests
     {
         public ConcurrentQueue<string> Sent { get; } = new();
 
-        protected override Task SendAsync(EntityChange<TestClient> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+        protected override Task SendAsync(EntityChange<TestClient> record, CancellationToken ct)
         {
             Sent.Enqueue(record.EntityKey);
             return Task.CompletedTask;
         }
+
+        protected override Task SendToAsync(EntityChange<TestClient> record, IReadOnlyList<string> recipients, CancellationToken ct)
+            => SendAsync(record, ct);
     }
 
     /// <summary>A client that never acknowledges: the send only ends when it is cancelled.</summary>
@@ -107,10 +93,13 @@ public class ConcurrencyTests
 
         protected override TimeSpan DrainTimeout => TimeSpan.FromMilliseconds(200);
 
-        protected override async Task SendAsync(EntityChange<TestClient> record, IReadOnlyList<string> excludedConnections, CancellationToken ct)
+        protected override async Task SendAsync(EntityChange<TestClient> record, CancellationToken ct)
         {
             Started.TrySetResult();
             await Task.Delay(Timeout.Infinite, ct);
         }
+
+        protected override Task SendToAsync(EntityChange<TestClient> record, IReadOnlyList<string> recipients, CancellationToken ct)
+            => SendAsync(record, ct);
     }
 }

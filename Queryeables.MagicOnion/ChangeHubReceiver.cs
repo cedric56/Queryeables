@@ -1,27 +1,19 @@
-﻿using Queryeables.Abstraction;
+using Queryeables.Abstraction;
 
 namespace Queryeables.MagicOnion;
 
-/// <summary>
-/// Receives changes from the MagicOnion hub and publishes them on the local change feed, except this client's own
-/// changes (see <see cref="ChangeRelay{TObject}"/>).
-/// </summary>
-/// <param name="send">
-/// If provided, local changes are sent to the hub, for example
-/// <c>r => { hub.OnChangeReceived(ChangeMessage.From(r)); return Task.CompletedTask; }</c>.
-/// </param>
-public sealed partial class ChangeHubReceiver<TObject>(
-    IChangeFeed<TObject> monitor,
-    IChangeSession session,
-    Func<EntityChange<TObject>, Task>? send = null,
-    Action<Exception>? onError = null)
-    : IChangeHubReceiver<TObject>, IDisposable where TObject : class
+/// <summary>Receives the changes of the MagicOnion hub and publishes them on the local change feed.</summary>
+public sealed partial class ChangeHubReceiver<TObject>(IChangeFeed<TObject> monitor) : IChangeHubReceiver<TObject>, IDisposable
+    where TObject : class
 {
-    private readonly ChangeRelay<TObject> _relay = new(monitor,
-        () => session.TryGetSession(typeof(TObject), out var current) ? current.session : null,
-        send, onError);
+    private int _disposed;
 
-    public void OnChanged(ChangeMessage record) => _relay.Receive(record.ToChange<TObject>());
+    public void OnChanged(ChangeMessage record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (Volatile.Read(ref _disposed) == 0)
+            monitor.Publish(record.ToChange<TObject>());
+    }
 
-    public void Dispose() => _relay.Dispose();
+    public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
 }

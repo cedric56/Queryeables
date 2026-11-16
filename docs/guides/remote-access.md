@@ -84,7 +84,7 @@ the server, with the `Queryeables` package only: `AddGeneratedEntities()` regist
 - **MessagePack**, as before: `MessagePackEntitySerializer.Default` on the client and `MessagePackEntitySerializer.Server` on
   the server, with `[MessagePackObject]` on the entities and `[IgnoreMember]` on navigations and hidden values. Smaller
   messages and faster to read and write than JSON: worth it for many rows or a slow network (the
-  [benchmarks](../benchmarks.md) measure MessagePack). An entity that still hides a value with `[IgnoreMember]` only, served
+  [benchmarks](../benchmarks.md) measure both). An entity that still hides a value with `[IgnoreMember]` only, served
   in JSON, stops the server at startup (`MapQueryeables`): give it `[JsonIgnore]` too, or keep MessagePack.
 
 ## Limits

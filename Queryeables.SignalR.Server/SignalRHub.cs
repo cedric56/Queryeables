@@ -29,15 +29,4 @@ public class SignalRHub<TObject>(ConnectionTracker<TObject> tracker) : Hub where
         tracker.Remove(Context.ConnectionId);
         return base.OnDisconnectedAsync(exception);
     }
-
-    /// <summary>
-    /// A client reports a change: relayed to the other clients only when the server allows it
-    /// (<see cref="ChangeHubOptions.RelayClientChanges"/>), checked and limited; otherwise ignored.
-    /// </summary>
-    [HubMethodName(SignalRContract.OnChangeReceived)]
-    public void OnChangeReceived(SignalRChange message)
-    {
-        ArgumentNullException.ThrowIfNull(message);
-        tracker.RelayFromClient(message.ToChange<TObject>(), Context.ConnectionId);
-    }
 }
