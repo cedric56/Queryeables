@@ -1,14 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using Queryeables.Abstraction;
-using Queryeables.Offline;
 using Queryeables.Remote;
 using System.Security.Claims;
 
 namespace Queryeables.Tests.Unit;
 
 /// <summary>
-/// The core without Queryeables.Offline: a server publishes replicas (the rows each user may read, the changes, rows by key),
-/// a client reads them and nothing else. Then the extension points the offline package plugs into.
+/// The remote core: a server publishes replicas (the rows each user may read, the changes, rows by key),
+/// a client reads them and nothing else. Then the extension points of the core.
 /// </summary>
 public class ReplicaTests
 {
@@ -26,7 +25,7 @@ public class ReplicaTests
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.Authenticated,
             RowLevelSecurity.For<TestClient, long>(c => c.Id, _ => c => c.Active)));
-        return new EntityRequestDispatcher(registry, _serializer, Stores);
+        return new EntityRequestDispatcher(registry, _serializer);
     }
 
     private async Task SeedAsync()
@@ -65,17 +64,14 @@ public class ReplicaTests
     }
 
     [Fact]
-    public async Task A_replica_server_refuses_writes_and_filters_a_client_sends_anyway()
+    public async Task A_replica_server_refuses_conditions_other_than_the_key()
     {
         await SeedAsync();
         var transport = Server().AsTransport(As("ana"));
 
-        var insert = await transport.InsertAsync(EntityName.Of<TestClient>(), _serializer.Serialize(new TestClient { Name = "Eve" }), null);
-        var filter = await transport.SelectAsync(EntityName.Of<TestClient>(), [new FilterCondition("Name", FilterOperator.StartsWith, "B")], false);
+        var filter = await transport.SelectAsync(EntityName.Of<TestClient>(), [new FilterCondition("Name", FilterOperator.Equal, "Bob")]);
 
-        Assert.Equal(EntityErrorCode.NotSupported, insert.ErrorCode);
         Assert.Equal(EntityErrorCode.InvalidRequest, filter.ErrorCode);
-        Assert.Equal(2, _database.All<TestClient>().Count);
     }
 
     [Fact]
@@ -108,7 +104,7 @@ public class ReplicaTests
         await SeedAsync();
         var registry = new EntityHandlerRegistry();
         registry.Register(new EntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll, maxReadSize: 1));
-        await using var store = new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(), _serializer);
+        await using var store = new RemoteEntityStore(new EntityRequestDispatcher(registry, _serializer).AsTransport(), _serializer);
 
         var refused = await Assert.ThrowsAsync<EntityStoreException>(() => store.GetAllAsync<TestClient>());
 
@@ -116,18 +112,6 @@ public class ReplicaTests
     }
 
     // ---------- The extension points ----------
-
-    [Fact]
-    public void The_core_assemblies_never_name_the_offline_package()
-    {
-        Type[] core = [typeof(IEntityStore), typeof(EntityRequestDispatcher), typeof(QueryeablesBuilder)];
-        foreach (var assembly in core.Select(t => t.Assembly))
-        {
-            var offline = typeof(OfflineMode).Assembly.GetName().Name;
-            Assert.DoesNotContain(offline, assembly.GetReferencedAssemblies().Select(name => name.Name));
-            Assert.Empty(assembly.GetTypes().Where(type => type.Namespace?.StartsWith("Queryeables.Offline", StringComparison.Ordinal) == true));
-        }
-    }
 
     [Fact]
     public async Task DecorateStores_wraps_the_stores_before_the_caches_are_told()
@@ -147,42 +131,34 @@ public class ReplicaTests
     }
 
     [Fact]
-    public async Task A_server_serves_replicas_unless_writes_are_allowed()
+    public async Task AddEntityServer_publishes_the_exposed_types()
     {
-        async Task<TransportResult> InsertThrough(Action<EntityServerBuilder> expose)
-        {
-            var services = new ServiceCollection();
-            services.UseQueryeables(q => q.UseStores(_ => Stores).AddEntityServer(_serializer, expose));
-            await using var provider = services.BuildServiceProvider();
-            return await provider.GetRequiredService<EntityRequestDispatcher>().AsTransport()
-                .InsertAsync(EntityName.Of<TestClient>(), _serializer.Serialize(new TestClient { Name = "Eve" }), null);
-        }
+        await SeedAsync();
+        var services = new ServiceCollection();
+        services.UseQueryeables(q => q.UseStores(_ => Stores)
+            .AddEntityServer(_serializer, server => server.Expose<TestClient>(EntityAccessPolicies.AllowAll)));
+        await using var provider = services.BuildServiceProvider();
+        await using var store = new RemoteEntityStore(provider.GetRequiredService<EntityRequestDispatcher>().AsTransport(), _serializer);
 
-        var replica = await InsertThrough(server => server.Expose<TestClient>(EntityAccessPolicies.AllowAll));
-        var writable = await InsertThrough(server => server.AllowWrites().Expose<TestClient>(EntityAccessPolicies.AllowAll));
-
-        Assert.Equal(EntityErrorCode.NotSupported, replica.ErrorCode);
-        Assert.True(writable.Successful, writable.Exception);
-        Assert.Single(_database.All<TestClient>());
+        Assert.Equal(2, (await store.GetAllAsync<TestClient>()).Count);
     }
 
     [Fact]
-    public async Task UseRemoteWrites_makes_a_remote_client_write_through_the_server()
+    public async Task RefreshCachesAsync_brings_the_loaded_caches_up_to_date_and_leaves_the_others_unloaded()
     {
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(Stores, EntityAccessPolicies.AllowAll));
-        var transport = new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport();
         var services = new ServiceCollection();
-        services.AddSingleton(transport);
-        services.UseQueryeables(q => q
-            .UseStores(_ => RemoteEntityStore.Factory(transport, _serializer))
-            .UseRemoteWrites());
-        services.AddSingleton<IEntitySerializer>(_serializer);
+        services.UseQueryeables(q => q.UseStores(_ => Stores)
+            .AddCache<TestClient, long>(c => c.Id)
+            .AddCache<SOrder, long>(o => o.Id));
         await using var provider = services.BuildServiceProvider();
+        var clients = provider.GetRequiredService<IEntityCache<TestClient, long>>();
+        await clients.LoadAsync();
 
-        await using (var store = provider.GetRequiredService<IEntityStoreFactory>().Create())
-            await store.InsertAsync(new TestClient { Name = "Ana" });
+        await SeedAsync();                                                      // behind the change feeds: a synchronization
+        Assert.Empty(clients.Entities);
+        await provider.RefreshCachesAsync();
 
-        Assert.Equal("Ana", Assert.Single(_database.All<TestClient>()).Name);
+        Assert.Equal(2, clients.Entities.Count);
+        Assert.Empty(provider.GetRequiredService<IEntityCache<SOrder, long>>().Entities);
     }
 }

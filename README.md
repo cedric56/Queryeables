@@ -110,9 +110,9 @@ dotnet add package Queryeables.Sqlite   # or .PostgreSql, .MongoDB, .Dommel, .En
   kept up to date by the server's notifications, queried in memory. The remote core speaks to an `IEntityTransport`, and
   MagicOnion is one transport among others. No query and no write from the client: it calls your services.
   See [remote access](docs/guides/remote-access.md).
-- **Offline mode**, a package of its own (`Queryeables.Offline`, experimental): clients that write through the server, and
-  keep working on a local copy without it (IndexedDB in the browser, SQLite on desktop and mobile); the user chooses when
-  to synchronize. See [offline mode](docs/guides/offline-mode.md) and the [two-client demo](Samples/Queryeables.OfflineDemo/Program.cs).
+- **Offline with Datasync**: no offline mode of its own. A client that works without the server keeps a local database
+  synchronized by the [Datasync Community Toolkit](https://github.com/CommunityToolkit/Datasync); Queryeables works on it
+  (`Queryeables.Datasync`). See [offline with Datasync](docs/guides/offline-with-datasync.md).
 - **Per-user data**: row-level security on the server, and `ChangeUserAsync()` on the client, which forgets the caches
   and the offline copy of the previous user before anything is loaded for the next.
 - **Change notifications** from SQLite or SQL Server, relayed to clients over MagicOnion or SignalR, without echoing a
@@ -156,8 +156,7 @@ app.MapQueryeables();
 ```
 
 **Client**: `q.UseMagicOnion("https://server:5001").AddGeneratedEntities()`: its caches (`IPersonCache`) are replicas of
-what the server publishes. It writes through your services; or, with `Queryeables.Offline`, through the exposed types
-(`server.AllowWrites()`, `q.UseRemoteWrites()`). Keep the entities in a shared library: `AddGeneratedEntities()` registers
+what the server publishes. It writes through your services. Keep the entities in a shared library: `AddGeneratedEntities()` registers
 them on both sides, and they travel as JSON, without attributes.
 
 ## Queries
@@ -171,8 +170,7 @@ var page = await stores.Query<Person>()
     .ToListAsync();
 ```
 
-Filtered, sorted and paged by the database (by the server for a client of `Queryeables.Offline`; a replica is queried in
-memory). See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
+Filtered, sorted and paged by the database (a replica is queried in memory). See [stores and transactions](docs/guides/stores-and-transactions.md#composed-queries).
 
 ## Transactions and EntityResult
 
@@ -214,17 +212,14 @@ application framework (ABP), or complex queries (EF Core or Dapper directly, nex
 | [`Queryeables.MagicOnion`](Queryeables.MagicOnion/README.md) | MagicOnion messages and serializer, shared by client and server |
 | [`Queryeables.MagicOnion.Client`](Queryeables.MagicOnion.Client/README.md) | `UseMagicOnion`, change hub subscription |
 | [`Queryeables.MagicOnion.Server`](Queryeables.MagicOnion.Server/README.md) | `AddMagicOnionServer`, the MagicOnion service and change hub |
-| [`Queryeables.Offline`](Queryeables.Offline/README.md) | Experimental. The offline mode, and the generic remote writes and filters it needs (`AllowWrites` on the server, `UseRemoteWrites` on the client) |
-| [`Queryeables.Offline.Sqlite`](Queryeables.Offline.Sqlite/README.md) | `SqliteOfflineStorage`: the offline copy in a SQLite file |
-| [`Queryeables.Offline.Browser`](Queryeables.Offline.Browser/README.md) | `IndexedDbOfflineStorage`: the offline copy in IndexedDB, for Blazor WebAssembly |
+| [`Queryeables.Datasync`](Queryeables.Datasync/README.md) | Queryeables on the local database of a Datasync client: offline, synchronized by Datasync |
 | [`Queryeables.SignalR`](Queryeables.SignalR/README.md), [`.SignalR.Server`](Queryeables.SignalR.Server/README.md) | Change notifications over SignalR |
-| [`Queryeables.Replication`](Queryeables.Replication/README.md) | A durable server for the Routeables Remote Protocol (offline-first replication with merge): its log and documents in any store, projected to your entities |
 | [`Queryeables.Templates`](Queryeables.Templates/README.md) | `dotnet new queryeables-console`, `queryeables-client-server` |
 
 ## Security
 
 - **Never expose `EntityAccessPolicies.AllowAll` on a public network.** Configure ASP.NET Core authentication and use
-  `Authenticated`, `ReadOnly`, or `EntityAccessPolicies.From(request => ...)`.
+  `Authenticated`, `AllowAll`, or `EntityAccessPolicies.From(request => ...)`.
 - Keep connection strings and certificate passwords out of the source code.
 - No SQL and no code goes over the wire: a filter is a list of conditions and computations from a fixed set, whose names
   the server binds to the queryable properties of the types it exposes; a filter through a relation reads the related
@@ -239,7 +234,7 @@ own code, not about every provider at run time:
 
 | Setup | Trimming | Full Native AOT |
 | --- | --- | --- |
-| Remote client (replicas, and the writes of `Queryeables.Offline`), caches, graphs, offline mode | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
+| Remote client (replicas), caches, graphs | Yes | Yes: proven in CI by `Queryeables.AotSmoke` (in-process transport) |
 | MagicOnion transport (`UseMagicOnion`) | Yes, with a `JsonEntitySerializer` on a `JsonSerializerContext` | Same, with the MagicOnion source generator; not run in CI. The default JSON serializer reads the types by reflection |
 | Dommel / Dapper (`UseSqlite`, `UseNpgsql`, `UseDommel`) | Yes | No: Dapper emits IL at run time |
 | EF Core (`UseEntityFramework`) | Yes | No: marked as requiring dynamic code, like EF Core itself |
@@ -252,7 +247,6 @@ See [Native AOT](docs/guides/aot.md).
 ```bash
 dotnet test Queryeables.slnx
 dotnet run --project Samples/Queryeables.Sample
-dotnet run --project Samples/Queryeables.OfflineDemo     # two clients, a network cut, a conflict
 dotnet run -c Release --project Queryeables.Benchmarks -- --filter "*"
 dotnet pack Queryeables.slnx -c Release -o ./artifacts -p:Version=0.1.0
 ```

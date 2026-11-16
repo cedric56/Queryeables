@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Security.Claims;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Offline;
 
 namespace Queryeables.Tests.Unit;
 
@@ -15,40 +14,6 @@ public class CodeReviewAuditTests
     private IEntityStoreFactory Stores => new EntityStoreFactory(() => new MemoryStore(_database));
 
     // ---------- The offline queue survives two stops in a row ----------
-
-    private sealed class StoppingStorage(MemoryOfflineStorage inner) : IOfflineStorage
-    {
-        public bool StopBeforeIndex { get; set; }
-
-        public ValueTask<byte[]?> ReadAsync(string key, CancellationToken ct = default) => inner.ReadAsync(key, ct);
-
-        public ValueTask WriteAsync(string key, byte[] value, CancellationToken ct = default)
-            => StopBeforeIndex && key.EndsWith("outbox/index", StringComparison.Ordinal)
-                ? throw new IOException("The device stopped.")
-                : inner.WriteAsync(key, value, ct);
-
-        public ValueTask DeleteAsync(string key, CancellationToken ct = default) => inner.DeleteAsync(key, ct);
-    }
-
-    [Fact]
-    public async Task A_write_recovered_after_a_stop_survives_a_second_stop_before_the_index()
-    {
-        var storage = new StoppingStorage(new MemoryOfflineStorage()) { StopBeforeIndex = true };
-
-        var first = new Outbox();
-        first.Add(BatchOperationKind.Insert, "T", "-1", [1]);
-        await Assert.ThrowsAsync<IOException>(() => first.SaveAsync(storage, "p", default));   // staged, not indexed
-
-        var second = new Outbox();
-        await second.LoadAsync(storage, "p", default);                                          // recovered
-        second.Add(BatchOperationKind.Insert, "T", "-2", [2]);
-        await Assert.ThrowsAsync<IOException>(() => second.SaveAsync(storage, "p", default));  // stops again
-
-        storage.StopBeforeIndex = false;
-        var third = new Outbox();
-        await third.LoadAsync(storage, "p", default);
-        Assert.Equal(["-1", "-2"], third.Snapshot().Select(e => e.Key));
-    }
 
     // ---------- The cache keeps what this application wrote while it read a row ----------
 
@@ -86,42 +51,6 @@ public class CodeReviewAuditTests
 
     private static EntityRequestContext As(string user)
         => new(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user)], "test")));
-
-    [Fact]
-    public async Task An_update_cannot_go_round_a_policy_with_the_content_it_sends()
-    {
-        var locked = new TestClient { Name = "Locked" };
-        await new MemoryStore(_database).InsertAsync(locked);
-        var policy = EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read || r.Entity is TestClient { Name: not "Locked" });
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(Stores, policy));
-        await using var store = new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
-
-        var claimed = EntityValues.Copy(locked);
-        claimed.Name = "Free";                                                // what the client claims, to pass the policy
-
-        Assert.Equal(EntityErrorCode.Forbidden, (await Assert.ThrowsAsync<EntityStoreException>(() => store.UpdateAsync(claimed))).ErrorCode);
-        Assert.Equal(EntityErrorCode.Forbidden, (await Assert.ThrowsAsync<EntityStoreException>(() => store.DeleteAsync(claimed))).ErrorCode);
-        Assert.Equal("Locked", Assert.Single(_database.All<TestClient>()).Name);
-    }
-
-    [Fact]
-    public async Task An_update_of_many_rows_cannot_take_the_rows_of_others_with_the_values_it_sets()
-    {
-        await new MemoryStore(_database).InsertAsync(new TestClient { Name = "ana" });
-        await new MemoryStore(_database).InsertAsync(new TestClient { Name = "bob" });
-        // Name stands for the owner: a user writes only the rows it owns.
-        var policy = EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read || r.Entity is null || r.Entity is TestClient { Name: "ana" });
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(Stores, policy));
-        await using var store = new WritableRemoteEntityStore(new EntityRequestDispatcher(registry, _serializer, Stores).AsTransport(As("ana")), _serializer);
-
-        var taken = await Assert.ThrowsAsync<EntityStoreException>(
-            () => store.UpdateWhereAsync<TestClient>(c => c.Id > 0, set => set.Set(c => c.Name, "ana")));
-
-        Assert.Equal(EntityErrorCode.Forbidden, taken.ErrorCode);
-        Assert.Equal(["ana", "bob"], _database.All<TestClient>().Select(c => c.Name).Order());
-    }
 
     // ---------- A visibility rule sends to the connections it checked, not to all but the others ----------
 
@@ -179,20 +108,4 @@ public class CodeReviewAuditTests
         public void Dispose() => inner.Dispose();
     }
 
-    [Fact]
-    public async Task A_failed_cleanup_does_not_turn_an_applied_write_into_a_failure()
-    {
-        var errors = new ConcurrentQueue<Exception>();
-        var store = new StoreIdempotencyStore(new EntityStoreFactory(() => new TrimFailingStore(new MemoryStore(_database))))
-        {
-            OnError = errors.Enqueue,
-        };
-
-        for (var i = 0; i < 1024; i++)                                        // the 1024th write triggers a cleanup
-            Assert.True((await store.RunOnceAsync($"k{i}", () => Task.FromResult(TransportResult.Success()))).Successful);
-
-        for (var i = 0; i < 100 && errors.IsEmpty; i++)
-            await Task.Delay(10);
-        Assert.Single(errors);
-    }
 }

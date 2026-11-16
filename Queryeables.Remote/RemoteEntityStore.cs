@@ -15,7 +15,8 @@ namespace Queryeables.Remote;
 /// <b>No query and no write.</b> A client queries its replica in memory (<c>IEntityCache</c>), and writes by calling a
 /// service of the application, which uses its own stores on the server. Any other read, and every write, throws
 /// <see cref="EntityStoreException"/> with <see cref="EntityErrorCode.NotSupported"/>. The package
-/// <c>Queryeables.Offline</c> adds the generic writes and filters (and the offline mode), on both sides.
+/// A client that must work offline uses a local store of its own (Queryeables.Datasync: an EF Core copy synchronized by
+/// the Datasync Community Toolkit).
 /// </para>
 /// <para>
 /// <b>Errors:</b> reads throw <see cref="EntityStoreException"/>, with the kind of error (permissions, limits...).
@@ -64,7 +65,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
         Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default) where TEntity : class
     {
         var conditions = KeyConditions(predicate);
-        return DeserializeMany<TEntity>(await CallAsync("select", Name<TEntity>(), () => _remote.SelectAsync(Name<TEntity>(), conditions, false, ct)));
+        return DeserializeMany<TEntity>(await CallAsync("select", Name<TEntity>(), () => _remote.SelectAsync(Name<TEntity>(), conditions, ct)));
     }
 
     /// <inheritdoc cref="SelectAsync{TEntity}(Expression{Func{TEntity, bool}}, CancellationToken)"/>
@@ -116,8 +117,7 @@ public sealed class RemoteEntityStore(IEntityTransport remote, IEntitySerializer
 
     private static EntityStoreException NoWrites()
         => new(EntityErrorCode.NotSupported,
-            "A remote client does not write through its store: call a service of the application, or enable the writes of " +
-            "Queryeables.Offline (UseRemoteWrites on the client, AllowWrites on the server).");
+            "A remote client does not write through its store: call a service of the application, which writes on the server.");
 
     /// <summary><c>e.Key == value</c> (and <c>&amp;&amp;</c> for a composite key): the conditions that read one row.</summary>
     private static FilterCondition[] KeyConditions<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(

@@ -18,8 +18,7 @@ services.UseQueryeables(q => q
 
 `IEntityStoreFactory` then creates `RemoteEntityStore` instances (`IsRemote` is true): the caches of the client are replicas
 of what the server publishes (the rows its user may read), kept up to date by its notifications. The client writes through
-services of the application, or, with `Queryeables.Offline`, through the exposed types (`q.UseRemoteWrites()`, and
-`server.AllowWrites()` on the server): the generated services then send a parent with its children in one call.
+services of the application (`provider.Create<IPeopleService>(url)` on a MagicOnion service of the server).
 
 The channel goes over HTTP/2 (`SocketsHttpHandler`), and through the gRPC WebSocket bridge in the browser (the server
 must enable the bridge). The server certificate is validated by the system on every platform, Android included. Pass

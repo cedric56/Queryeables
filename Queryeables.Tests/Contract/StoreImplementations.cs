@@ -2,7 +2,6 @@ using Grpc.Core;
 using MagicOnion;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Dommel;
 using Queryeables.EntityFramework;
@@ -85,230 +84,82 @@ public sealed class EfWithSyncConventionsContractTests : SqliteContractTests
 }
 
 /// <summary>
-/// Remote store, transport-agnostic: <see cref="WritableRemoteEntityStore"/> → <see cref="EntityRequestDispatcher.AsTransport"/>
-/// → <see cref="EntityHandler{T}"/> → Dommel, with a JSON serializer: nothing of MagicOnion is involved.
+/// A replica over MagicOnion: <see cref="RemoteEntityStore"/> → <see cref="MagicOnionTransport"/> → MessagePack messages →
+/// <see cref="EntityRequestDispatcher"/> → <see cref="EntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
 /// </summary>
-public sealed class RemoteEntityStoreContractTests : SqliteContractTests
+public sealed class MagicOnionReplicaContractTests : IAsyncLifetime
 {
-    protected override IEntityStore CreateStore()
+    private readonly string _connectionString = $"Data Source=replica_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+    private SqliteConnection? _keepAlive;
+
+    public async Task InitializeAsync()
     {
+        _keepAlive = new SqliteConnection(_connectionString);
+        await _keepAlive.OpenAsync();
+        await using var command = _keepAlive.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE Clients (
+                Id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name      TEXT    NOT NULL,
+                Active    INTEGER NOT NULL,
+                SponsorId INTEGER NULL,
+                Version   INTEGER NOT NULL DEFAULT 0,
+                LastModified TEXT NOT NULL DEFAULT '0001-01-01 00:00:00',
+                Deleted INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO Clients (Name, Active) VALUES ('Ana', 1), ('Bob', 0);
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_keepAlive is not null)
+            await _keepAlive.DisposeAsync();
+    }
+
+    private IEntityStore Replica(RowLevelSecurity<TestClient>? rows = null)
+    {
+        IEntityStore Server() => new DommelEntityStore(new SqliteConnection(_connectionString));
         var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), CreateDommelStore);
-        return new WritableRemoteEntityStore(dispatcher.AsTransport(), new JsonTestSerializer());
-    }
-}
-
-/// <summary>
-/// Remote store over MagicOnion: <see cref="WritableRemoteEntityStore"/> → <see cref="MagicOnionTransport"/> → MessagePack messages
-/// → <see cref="EntityRequestDispatcher"/> → <see cref="WritableEntityHandler{T}"/> → Dommel. Only the network is replaced by a direct call.
-/// </summary>
-public sealed class MagicOnionEntityStoreContractTests : SqliteContractTests
-{
-    protected override IEntityStore CreateStore() => CreateRemoteStore(EntityAccessPolicies.AllowAll);
-
-    private IEntityStore CreateRemoteStore(IEntityAccessPolicy policy, bool syncConventions = false, int maxPageSize = 1000)
-    {
-        Func<IEntityStore> serverStore = syncConventions
-            ? () => CreateDommelStore().WithSyncConventions()
-            : CreateDommelStore;
-
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(serverStore, policy, maxPageSize: maxPageSize));
-        return Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, serverStore));
-    }
-
-    private static IEntityStore Client(EntityRequestDispatcher dispatcher)
-        => new WritableRemoteEntityStore(new MagicOnionTransport(new InProcessLayer(dispatcher)), MessagePackEntitySerializer.Default);
-
-    [Fact]
-    public async Task Server_caps_the_page_size()
-    {
-        await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, maxPageSize: 2);
-        for (var i = 0; i < 5; i++)
-            await store.InsertAsync(new TestClient { Name = $"C{i}" });
-
-        Assert.Equal(2, (await store.SelectPagedAsync<TestClient>(x => true, 1, 5000)).Count);
+        registry.Register(new EntityHandler<TestClient>(Server, EntityAccessPolicies.AllowAll, rows));
+        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default);
+        return MagicOnionTransport.Stores(new InProcessLayer(dispatcher), MessagePackEntitySerializer.Default).Create();
     }
 
     [Fact]
-    public async Task Remote_changes_include_soft_deleted_rows()
+    public async Task A_replica_reads_the_rows_of_its_user_and_a_row_by_key_over_MagicOnion()
     {
-        await using var store = CreateRemoteStore(EntityAccessPolicies.AllowAll, syncConventions: true);
-        var a = new TestClient { Name = "Ana" };
-        await store.InsertAsync(a);
-        await store.InsertAsync(new TestClient { Name = "Bob" });
+        await using var store = Replica(RowLevelSecurity.For<TestClient, long>(c => c.Id, _ => c => c.Active));
 
-        Assert.True(await store.DeleteAsync(a));
+        var ana = Assert.Single(await store.GetAllAsync<TestClient>());
+        var id = ana.Id;
 
-        Assert.Equal("Bob", Assert.Single(await store.GetAllAsync<TestClient>()).Name);
-        var changes = await store.SelectChangesAsync<TestClient>(DateTime.MinValue);
-        Assert.True(Assert.Single(changes, c => c.Name == "Ana").Deleted);
+        Assert.Equal("Ana", ana.Name);
+        Assert.Equal("Ana", (await store.FirstOrDefaultAsync<TestClient>(c => c.Id == id))?.Name);
     }
 
     [Fact]
-    public async Task Commit_sends_one_batch_and_assigns_generated_keys()
+    public async Task A_replica_refuses_writes_and_queries_over_MagicOnion()
     {
-        var a = new TestClient { Name = "Ana" };
-        var b = new TestClient { Name = "Bob" };
+        await using var store = Replica();
 
-        await using var store = CreateStore();
-        var result = await store.RunInTransactionAsync(async s =>
-        {
-            await s.InsertAsync(a);
-            await s.InsertAsync(b);
-            Assert.Equal(0, a.Id); // nothing is sent before Commit
-        });
+        var write = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "Eve" }));
+        var query = await Assert.ThrowsAsync<EntityStoreException>(() => store.SelectAsync<TestClient>(c => c.Name == "Ana"));
 
-        Assert.True(result.Successful);
-
-        Assert.True(a.Id > 0);
-        Assert.True(b.Id > a.Id);
+        Assert.Equal(EntityErrorCode.NotSupported, write.ErrorCode);
+        Assert.Equal(EntityErrorCode.NotSupported, query.ErrorCode);
     }
 
-    [Fact]
-    public async Task A_failing_operation_cancels_the_whole_batch()
-    {
-        await using var store = CreateStore();
-
-        var result = await store.RunInTransactionAsync(async s =>
-        {
-            await s.InsertAsync(new TestClient { Name = "Ana" });
-            await s.UpdateAsync(new TestClient { Id = 999, Name = "Ghost" }); // nonexistent row
-        });
-
-        Assert.False(result.Successful);
-        Assert.Equal(EntityErrorCode.NotFound, result.ErrorCode);
-        Assert.Empty(await store.GetAllAsync<TestClient>()); // the insert was rolled back too
-    }
-
-    [Fact]
-    public async Task Access_policy_is_enforced()
-    {
-        await using (var writer = CreateStore())
-            await writer.InsertAsync(new TestClient { Name = "Ana" });
-
-        await using var readOnly = CreateRemoteStore(EntityAccessPolicies.From(r => r.Operation == EntityOperation.Read));
-
-        Assert.Single(await readOnly.GetAllAsync<TestClient>());
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => readOnly.InsertAsync(new TestClient { Name = "Bob" }));
-        Assert.Equal(EntityErrorCode.Forbidden, error.ErrorCode);
-    }
-
-    [Fact]
-    public async Task Invalid_entities_are_rejected_by_the_server()
-    {
-        await using var store = CreateStore();
-
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "" }));
-
-        Assert.Equal(EntityErrorCode.Validation, error.ErrorCode);
-        Assert.Contains("The name is required.", error.Errors);
-        Assert.Empty(await store.GetAllAsync<TestClient>());
-    }
-
-    [Fact]
-    public async Task Writes_go_through_the_aggregate_service_when_provided()
-    {
-        var service = new RecordingService(CreateDommelStore);
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll, aggregate: service));
-        await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
-
-        var ana = new TestClient { Name = "Ana" };
-        await store.InsertAsync(ana);
-        ana.Name = "Ana B";
-        Assert.True(await store.UpdateAsync(ana));
-        Assert.True(await store.DeleteAsync(ana));
-
-        Assert.True(ana.Id > 0); // key generated by the service, sent back to the client
-        Assert.Equal(new[] { "SAVE Ana", "SAVE Ana B", "REMOVE Ana B" }, service.Calls);
-    }
-
-    [Fact]
-    public async Task Aggregate_service_failures_reach_the_client()
-    {
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(CreateDommelStore, EntityAccessPolicies.AllowAll,
-            aggregate: new RecordingService(CreateDommelStore, fail: true)));
-        await using var store = Client(new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default));
-
-        var error = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "Ana" }));
-
-        Assert.Equal(EntityErrorCode.Conflict, error.ErrorCode);
-    }
-
-    /// <summary>Aggregate service that saves through a Dommel store and records its calls.</summary>
-    private sealed class RecordingService(Func<IEntityStore> storeFactory, bool fail = false) : IAggregateRepository<TestClient>
-    {
-        public List<string> Calls { get; } = [];
-
-        public async Task<EntityResult> SaveAsync(TestClient entity, CancellationToken ct = default)
-        {
-            Calls.Add($"SAVE {entity.Name}");
-            if (fail)
-                return EntityResult.Failure(EntityErrorCode.Conflict, "conflit");
-
-            await using var store = storeFactory();
-            return await store.RunInTransactionAsync(async s =>
-            {
-                if (entity.Id == 0) await s.InsertAsync(entity, ct);
-                else await s.UpdateAsync(entity, ct);
-            }, ct);
-        }
-
-        public async Task<EntityResult> RemoveAsync(TestClient entity, CancellationToken ct = default)
-        {
-            Calls.Add($"REMOVE {entity.Name}");
-            await using var store = storeFactory();
-            return await store.RunInTransactionAsync(s => s.DeleteAsync(entity, ct), ct);
-        }
-    }
-
-    [Fact]
-    public async Task Unsupported_predicates_fail_before_calling_the_server()
-    {
-        await using var store = CreateStore();
-        // Name.Length is computed by the server now (the extended form); a method it does not know stays refused.
-        await Assert.ThrowsAsync<NotSupportedException>(() => store.SelectAsync<TestClient>(x => x.Name.GetHashCode() == 3));
-    }
-
-    /// <summary>
-    /// The MagicOnion service without the network: each call goes straight to the dispatcher, its messages through
-    /// MessagePack as on the network (numbers come back with the smallest possible type).
-    /// </summary>
     private sealed class InProcessLayer(EntityRequestDispatcher dispatcher) : IMagicOnionLayer
     {
         private static readonly EntityRequestContext Caller = EntityRequestContext.Anonymous;
 
         public UnaryResult<EntityResultMessage> GetAllAsync(string type) => Reply(dispatcher.GetAllAsync(type, Caller));
-        public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
-            => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, Caller));
-        public UnaryResult<EntityResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
-            => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize, Caller));
-        public UnaryResult<EntityResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
-            int pageSize, SortKeyMessage[] sort)
-            => Reply(dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), any, pageNumber, pageSize,
-                SortKeyMessage.ToKeys(RoundTrip(sort)), Caller));
+        public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions)
+            => Reply(dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(RoundTrip(conditions)), Caller));
         public UnaryResult<EntityResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
             => Reply(dispatcher.GetChangesAsync(type, RoundTrip(sinceUtc), Caller));
-        public UnaryResult<EntityResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
-            => Reply(dispatcher.InsertAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<EntityResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
-            => Reply(dispatcher.UpdateAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<EntityResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
-            => Reply(dispatcher.DeleteAsync(type, entity, Caller.WithConnection(connectionId)));
-        public UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
-            => Reply(dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(RoundTrip(operations)), Caller));
-
-        public UnaryResult<EntityResultMessage> ExecuteBatchOnceAsync(Guid operationId, BatchOperationMessage[] operations)
-            => Reply(dispatcher.ExecuteBatchOnceAsync(operationId, BatchOperationMessage.ToOperations(RoundTrip(operations)), Caller));
-
-        public UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId)
-            => Reply(dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller.WithConnection(connectionId)));
-
-        public UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request)
-            => Reply(dispatcher.ExecuteAsync(type, RoundTrip(request).ToRequest(), Caller));
 
         private static UnaryResult<EntityResultMessage> Reply(Task<TransportResult> call) => new(ReplyAsync(call));
 

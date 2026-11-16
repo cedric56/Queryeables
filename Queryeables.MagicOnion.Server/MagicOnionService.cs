@@ -8,9 +8,9 @@ using Queryeables.Remote;
 namespace Queryeables.MagicOnion.Server;
 
 /// <summary>
-/// MagicOnion entity access service: each call is forwarded to <see cref="EntityRequestDispatcher"/>, with the user
-/// authenticated by ASP.NET Core, so that the access policy of each type applies. Only the exposed types can be reached,
-/// and no SQL comes from the client.
+/// MagicOnion service of the replicas: each read is forwarded to <see cref="EntityRequestDispatcher"/>, with the user
+/// authenticated by ASP.NET Core, so that the access policy and the row filter of each type apply. Only the exposed types
+/// can be reached; no SQL comes from the client, and nothing is written.
 /// </summary>
 /// <example>
 /// <code>
@@ -28,46 +28,16 @@ public abstract class MagicOnionService(EntityRequestDispatcher dispatcher)
     private CancellationToken Aborted => Context.CallContext.CancellationToken;
 
     /// <summary>User authenticated by ASP.NET Core for this call.</summary>
-    private EntityRequestContext Caller(string? connectionId = null)
-        => new(Context.CallContext.GetHttpContext().User, connectionId);
+    private EntityRequestContext Caller() => new(Context.CallContext.GetHttpContext().User);
 
     public UnaryResult<EntityResultMessage> GetAllAsync(string type)
         => Reply(() => dispatcher.GetAllAsync(type, Caller(), Aborted));
 
-    public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions, bool any)
-        => Reply(() => dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(conditions), any, Caller(), Aborted));
-
-    public UnaryResult<EntityResultMessage> SelectPagedAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber, int pageSize)
-        => Reply(() => dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize, Caller(), Aborted));
-
-    public UnaryResult<EntityResultMessage> SelectSortedPageAsync(string type, FilterConditionMessage[] conditions, bool any, int pageNumber,
-        int pageSize, SortKeyMessage[] sort)
-        => Reply(() => dispatcher.SelectPagedAsync(type, FilterConditionMessage.ToConditions(conditions), any, pageNumber, pageSize,
-            SortKeyMessage.ToKeys(sort), Caller(), Aborted));
+    public UnaryResult<EntityResultMessage> SelectAsync(string type, FilterConditionMessage[] conditions)
+        => Reply(() => dispatcher.SelectAsync(type, FilterConditionMessage.ToConditions(conditions), Caller(), Aborted));
 
     public UnaryResult<EntityResultMessage> GetChangesAsync(string type, DateTime sinceUtc)
         => Reply(() => dispatcher.GetChangesAsync(type, sinceUtc, Caller(), Aborted));
-
-    public UnaryResult<EntityResultMessage> InsertAsync(string type, byte[] entity, string? connectionId)
-        => Reply(() => dispatcher.InsertAsync(type, entity, Caller(connectionId), Aborted));
-
-    public UnaryResult<EntityResultMessage> UpdateAsync(string type, byte[] entity, string? connectionId)
-        => Reply(() => dispatcher.UpdateAsync(type, entity, Caller(connectionId), Aborted));
-
-    public UnaryResult<EntityResultMessage> DeleteAsync(string type, byte[] entity, string? connectionId)
-        => Reply(() => dispatcher.DeleteAsync(type, entity, Caller(connectionId), Aborted));
-
-    public UnaryResult<EntityResultMessage> ExecuteBatchAsync(BatchOperationMessage[] operations)
-        => Reply(() => dispatcher.ExecuteBatchAsync(BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
-
-    public UnaryResult<EntityResultMessage> ExecuteBatchOnceAsync(Guid operationId, BatchOperationMessage[] operations)
-        => Reply(() => dispatcher.ExecuteBatchOnceAsync(operationId, BatchOperationMessage.ToOperations(operations), Caller(), Aborted));
-
-    public UnaryResult<EntityResultMessage> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId)
-        => Reply(() => dispatcher.WriteOnceAsync(operationId, type, kind, entity, Caller(connectionId), Aborted));
-
-    public UnaryResult<EntityResultMessage> ExecuteAsync(string type, RemoteRequestMessage request)
-        => Reply(() => dispatcher.ExecuteAsync(type, (request ?? throw new ArgumentNullException(nameof(request))).ToRequest(), Caller(), Aborted));
 
     /// <summary>
     /// The answer to a call. A malformed message (a null request, a null element in an array) is answered with

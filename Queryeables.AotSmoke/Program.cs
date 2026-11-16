@@ -3,7 +3,6 @@ using Queryeables;
 using Queryeables.Abstraction;
 using Queryeables.AotSmoke;
 using Queryeables.Generated;
-using Queryeables.Offline;
 using Queryeables.Remote;
 
 var serializer = new SmokeSerializer();
@@ -15,7 +14,6 @@ services.UseQueryeables(q => q
     .UseStores(_ => new MemoryStore(database, serializer))
     .AddGeneratedEntities()
     .AddEntityServer(serializer, server => server
-        .AllowWrites()
         .Expose<Person>(EntityAccessPolicies.AllowAll)
         .Expose<Contact>(EntityAccessPolicies.AllowAll)));
 await using var provider = services.BuildServiceProvider();
@@ -53,30 +51,16 @@ await using (var replica = RemoteEntityStore.Factory(dispatcher.AsTransport(), s
     Expect((await replica.FirstOrDefaultAsync<Person>(p => p.Id == id))?.Name == "Ana", "replica row by key");
 }
 
-// Remote writes (Queryeables.Offline): a client of the in-process server, with the same generated service.
+// Remote: a client of the in-process server, whose generated cache is a replica of the server's rows.
 var clientServices = new ServiceCollection();
 clientServices.UseQueryeables(q => q
-    .UseStores(_ => WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
+    .UseStores(_ => RemoteEntityStore.Factory(dispatcher.AsTransport(), serializer))
     .AddGeneratedEntities());
 await using var client = clientServices.BuildServiceProvider();
 
-var carl = new Person { Name = "Carl", Contacts = [new() { Kind = "fax" }] };
-Check(await client.GetRequiredService<IPersonRepository>().SaveAsync(carl), "remote save");
-Expect(carl.Id > 0 && carl.Contacts[0].Id > 0, "remote keys written back");
-
-await using (var remote = client.GetRequiredService<IEntityStoreFactory>().Create())
-{
-    var found = await remote.SelectAsync<Person>(p => p.Active && (p.Name == "Bob" || p.Name.StartsWith("A")));
-    Expect(found.Count == 1 && found[0].Name == "Ana", "nested remote filter");
-
-    var transaction = await remote.RunInTransactionAsync(async s =>
-    {
-        await s.InsertAsync(new Person { Name = "Dan" });
-        await s.InsertAsync(new Person { Name = "Eve" });
-    });
-    Check(transaction, "remote batch");
-    Expect(await remote.CountAsync<Person>(p => p.Name == "Dan" || p.Name == "Eve") == 2, "remote batch applied");
-}
+var replicaCache = client.GetRequiredService<IEntityCache<Person, long>>();
+await replicaCache.LoadAsync();
+Expect(replicaCache.Find(ana.Id)?.Name == "Ana" && replicaCache.Entities.Count == 2, "replica cache loaded");
 
 Console.WriteLine("Queryeables AOT smoke test: OK");
 return 0;

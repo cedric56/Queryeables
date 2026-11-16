@@ -1,6 +1,5 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Offline;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -18,8 +17,6 @@ public sealed class DiagnosticsTests : IDisposable
     private readonly ConcurrentQueue<(string Instrument, double Value, Dictionary<string, object?> Tags)> _measurements = new();
     private readonly ConcurrentQueue<Activity> _stopped = new();
     private readonly MemoryDatabase _database = new();
-    private readonly JsonTestSerializer _serializer = new();
-    private readonly EntityRequestDispatcher _dispatcher;
 
     public DiagnosticsTests()
     {
@@ -39,11 +36,6 @@ public sealed class DiagnosticsTests : IDisposable
             ActivityStopped = activity => _stopped.Enqueue(activity),
         };
         ActivitySource.AddActivityListener(_activities);
-
-        var stores = new EntityStoreFactory(() => new MemoryStore(_database));
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
-        _dispatcher = new EntityRequestDispatcher(registry, _serializer, stores);
     }
 
     public void Dispose()
@@ -66,22 +58,6 @@ public sealed class DiagnosticsTests : IDisposable
     private static readonly string Client = EntityName.Of<TestClient>();
 
     [Fact]
-    public async Task Remote_calls_are_timed_and_tagged_on_both_sides()
-    {
-        await using var store = new WritableRemoteEntityStore(_dispatcher.AsTransport(), _serializer);
-
-        await store.InsertAsync(new TestClient { Name = "Ana" });
-        await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new TestClient { Name = "" }));     // [Required]
-
-        Assert.True(Measured("queryeables.remote.duration", ("queryeables.operation", "insert"), ("queryeables.type", Client), ("queryeables.outcome", "ok")));
-        Assert.True(Measured("queryeables.remote.duration", ("queryeables.operation", "insert"), ("queryeables.outcome", "validation")));
-        Assert.True(Measured("queryeables.server.duration", ("queryeables.operation", "insert"), ("queryeables.type", Client), ("queryeables.outcome", "ok")));
-        Assert.Contains(_stopped, a => a.OperationName == "queryeables.remote" && a.Kind == ActivityKind.Client);
-        Assert.Contains(_stopped, a => a.OperationName == "queryeables.server" && a.Kind == ActivityKind.Server
-            && Equals(a.GetTagItem("queryeables.outcome"), "validation") && a.Status == ActivityStatusCode.Error);
-    }
-
-    [Fact]
     public void Published_changes_are_counted()
     {
         var registry = new ChangeFeedRegistry();
@@ -100,25 +76,6 @@ public sealed class DiagnosticsTests : IDisposable
 
         Assert.True(Measured("queryeables.cache.refreshes", ("queryeables.type", nameof(TestClient)), ("queryeables.kind", "load")));
         Assert.Contains(_stopped, a => a.OperationName == "queryeables.cache" && Equals(a.GetTagItem("queryeables.type"), nameof(TestClient)));
-    }
-
-    [Fact]
-    public async Task An_offline_synchronization_counts_what_it_sent()
-    {
-        await using var mode = new OfflineMode(_dispatcher.AsTransport(), _serializer, new MemoryOfflineStorage()).Add<TestClient, long>(c => c.Id);
-        var stores = new OfflineStoreFactory(WritableRemoteEntityStore.Factory(_dispatcher.AsTransport(), _serializer), mode);
-        await mode.GoOfflineAsync();
-        await using (var store = stores.Create())
-        {
-            await store.InsertAsync(new TestClient { Name = "Offline" });
-            await store.InsertAsync(new TestClient { Name = "" });       // refused: [Required]
-        }
-
-        await mode.GoOnlineAsync();
-
-        Assert.True(Measured("queryeables.offline.sent", ("queryeables.type", Client)));
-        Assert.True(Measured("queryeables.offline.conflicts", ("queryeables.type", Client), ("queryeables.outcome", "validation")));
-        Assert.Contains(_stopped, a => a.OperationName == "queryeables.offline.sync" && Equals(a.GetTagItem("queryeables.sent"), 1));
     }
 
     [Fact]

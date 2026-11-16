@@ -1,4 +1,3 @@
-using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
 using Queryeables.Remote;
@@ -14,41 +13,27 @@ public class RemoteContractTests
 
     private static readonly ClaimsPrincipal Anonymous = new(new ClaimsIdentity());
 
-    private static ValueTask<bool> Allowed(IEntityAccessPolicy policy, EntityOperation operation, ClaimsPrincipal? user)
-        => policy.IsAllowedAsync(new EntityAccessRequest(operation, typeof(TestClient), null, user));
+    private static ValueTask<bool> Allowed(IEntityAccessPolicy policy, ClaimsPrincipal? user)
+        => policy.IsAllowedAsync(new EntityAccessRequest(typeof(TestClient), user));
 
     // ---------- Access policies ----------
 
     [Fact]
     public async Task Authenticated_policy_rejects_anonymous_calls()
     {
-        Assert.True(await Allowed(EntityAccessPolicies.Authenticated, EntityOperation.Delete, User()));
-        Assert.False(await Allowed(EntityAccessPolicies.Authenticated, EntityOperation.Read, Anonymous));
-        Assert.False(await Allowed(EntityAccessPolicies.Authenticated, EntityOperation.Read, null));
-    }
-
-    [Fact]
-    public async Task ReadOnly_policy_allows_only_reads()
-    {
-        Assert.True(await Allowed(EntityAccessPolicies.ReadOnly, EntityOperation.Read, User()));
-        Assert.False(await Allowed(EntityAccessPolicies.ReadOnly, EntityOperation.Update, User("admin")));
+        Assert.True(await Allowed(EntityAccessPolicies.Authenticated, User()));
+        Assert.False(await Allowed(EntityAccessPolicies.Authenticated, Anonymous));
+        Assert.False(await Allowed(EntityAccessPolicies.Authenticated, null));
     }
 
     [Fact]
     public async Task Custom_policy_can_use_roles()
     {
-        var policy = EntityAccessPolicies.From(r =>
-            r.User?.Identity?.IsAuthenticated == true &&
-            (r.Operation == EntityOperation.Read || r.User.IsInRole("admin")));
+        var policy = EntityAccessPolicies.From(r => r.User?.IsInRole("sales") == true);
 
-        Assert.True(await Allowed(policy, EntityOperation.Read, User()));
-        Assert.False(await Allowed(policy, EntityOperation.Insert, User()));
-        Assert.True(await Allowed(policy, EntityOperation.Insert, User("admin")));
+        Assert.False(await Allowed(policy, User()));
+        Assert.True(await Allowed(policy, User("sales")));
     }
-
-    [Fact]
-    public void Handler_requires_a_policy()
-        => Assert.Throws<ArgumentNullException>(() => new WritableEntityHandler<TestClient>(() => throw new NotSupportedException(), null!));
 
     // ---------- Error codes ----------
 
@@ -96,14 +81,6 @@ public class RemoteContractTests
         Assert.Equal(EntityErrorCode.UnknownType, result.ErrorCode);
     }
 
-    [Fact]
-    public async Task Batches_need_a_transactional_store()
-    {
-        var dispatcher = new EntityRequestDispatcher(new EntityHandlerRegistry(), new JsonTestSerializer());
-        var result = await dispatcher.ExecuteBatchAsync([new BatchOperation("x", BatchOperationKind.Insert, [], null)], EntityRequestContext.Anonymous);
-        Assert.Equal(EntityErrorCode.NotSupported, result.ErrorCode);
-    }
-
     // ---------- Versions ----------
 
     public class WithIntVersion
@@ -122,7 +99,7 @@ public class RemoteContractTests
     public void Version_property_is_found()
     {
         Assert.Equal(nameof(TestClient.Version), ConcurrencyToken.Find(typeof(TestClient))?.Name);
-        Assert.Null(ConcurrencyToken.Find(typeof(FiltersTests.Row)));
+        Assert.Null(ConcurrencyToken.Find(typeof(Folder)));
     }
 
     [Fact]

@@ -14,9 +14,6 @@ permissions:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # The revision of Routeables.SignalR whose src/Routeables.Remote Queryeables.Replication is built against (until it uses the
-  # published package). Pin it to a commit, in its own change: a change there never breaks this build by surprise.
-  ROUTEABLES_SIGNALR_REF: 2244cac9de74e0ef369ad1dc0f6dad407f87cd5b   # "Correction essentials"
 
 jobs:
   build:
@@ -41,15 +38,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: cedric56/Routeables.SignalR
-          ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
-          path: .external/Routeables.SignalR
-      - name: Put Routeables.SignalR next to this repository
-        shell: bash
-        run: mv .external/Routeables.SignalR ../Routeables.SignalR
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
@@ -84,8 +72,6 @@ jobs:
         run: dotnet test Queryeables.slnx -c Release --no-build --logger trx --results-directory TestResults
 
       # Many clients writing online and offline while their networks come and go: longer than in the test suite.
-      - name: Convergence under load
-        run: dotnet test Queryeables.slnx -c Release --no-build --filter "FullyQualifiedName~ConvergenceTests"
         env:
           QUERYEABLES_LOAD_SCALE: 5
 
@@ -95,9 +81,6 @@ jobs:
 
       - name: Run the sample (SQLite, Dommel, generator, cache, in-process remote client)
         run: dotnet run --project Samples/Queryeables.Sample -c Release --no-build
-
-      - name: Run the offline demo (two clients, a network cut, concurrent writes, a conflict)
-        run: dotnet run --project Samples/Queryeables.OfflineDemo -c Release --no-build
 
       - name: Upload test results
         if: always()
@@ -117,10 +100,7 @@ jobs:
           fi
 
       - name: Pack
-        # Routeables.Remote is in the solution (Visual Studio needs it) but published by Routeables.SignalR, not here.
-        run: |
-          dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
-          rm -f artifacts/Routeables.Remote.*
+        run: dotnet pack Queryeables.slnx -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.value }}
 
       # The way in of a newcomer, with the packages just made: the templates are installed, generated outside the
       # repository, restored from these packages (and only them for Queryeables.*), built and run.
@@ -161,7 +141,7 @@ jobs:
           name: packages
           path: artifacts/*.nupkg
 
-  # File names, paths and line endings differ on Windows and macOS (FileOfflineStorage, SQLite): the tests run there too,
+  # File names, paths and line endings differ on Windows and macOS (SQLite): the tests run there too,
   # without the servers (their tests are reported as skipped).
   other-systems:
     name: Tests (${{ matrix.os }})
@@ -172,16 +152,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # The Routeables Remote Protocol, for Queryeables.Replication (Directory.Build.props: RouteablesRemoteRoot, next to this repository).
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: cedric56/Routeables.SignalR
-          ref: ${{ env.ROUTEABLES_SIGNALR_REF }}
-          path: .external/Routeables.SignalR
-      - name: Put Routeables.SignalR next to this repository
-        shell: bash
-        run: mv .external/Routeables.SignalR ../Routeables.SignalR
 
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:

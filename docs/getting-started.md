@@ -50,7 +50,7 @@ NuGet yet: build them first ([contributing](../CONTRIBUTING.md#trying-the-packag
 | MongoDB | `Queryeables.MongoDB` | `q.UseMongoDB(connectionString, "app")` |
 | A Queryeables server to reach | `Queryeables.MagicOnion.Client` | `q.UseMagicOnion("https://server:5001")`: replicas of what it publishes |
 | A server to build | `Queryeables.MagicOnion.Server` and a provider | `.AddMagicOnionServer(s => s.ExposeGenerated(policy))`, `app.MapQueryeables()` |
-| Clients that write through the server, or work offline | `Queryeables.Offline` (and `.Sqlite` or `.Browser` for the copy) | `s.AllowWrites()` on the server; `q.UseRemoteWrites()` or `q.WithOfflineMode(...)` on the client |
+| A client that works offline | `Queryeables.Datasync` | `q.UseDatasync(sp => new AppDbContext(...))`: Queryeables on the local database of Datasync |
 | Entities shared by a client and a server | `Queryeables` in the shared library | the attributes, nothing else |
 
 Three names cover the everyday work: the **repository** (`IPersonRepository`, a parent with its children), the **cache**

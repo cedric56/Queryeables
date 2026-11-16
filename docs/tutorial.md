@@ -91,16 +91,15 @@ Ana 10:42:07: friend, colleague
 
 - `Shop.Shared` holds `Person` and `Contact`, the same plain classes: they travel as JSON, with no attribute of the
   transport.
-- `Shop.Server` is the local application of step 1 plus `AddMagicOnionServer(server => server.AllowWrites().ExposeGenerated(policy))`
+- `Shop.Server` is the local application of step 1 plus `AddMagicOnionServer(server => server.ExposeGenerated(policy))`
   and `app.MapQueryeables()`: only the exposed types can be reached, each with an access policy (`Expose<T>(...)` gives
   one type its own policy and row filter).
 - `Shop.Client` registers `UseMagicOnion("http://localhost:5070")` instead of `UseSqlite(...)`, and `WaitForServer()` to
   wait for a server that is still starting. Its caches (`IPersonCache`) are **replicas** of what the server publishes, kept
   up to date by its notifications and queried in memory.
-- Writing from the client: the template uses `AllowWrites()` on the server and `UseRemoteWrites()` on the client (the
-  package `Queryeables.Offline`), so that `IPersonRepository` saves through the server as it did locally, each graph in one
-  transaction. Without that package, a client writes by calling a service of your own on the server
-  ([remote access](guides/remote-access.md#writing-from-a-client)).
+- Writing from the client: a MagicOnion service of the application, `PeopleService` (its contract `IPeopleService` in
+  `Shop.Shared`), saves through `IPersonRepository` on the server, each graph in one transaction; the client calls it with
+  `app.Create<IPeopleService>(url)` ([remote access](guides/remote-access.md#writing-from-a-client)).
 
 The template uses `EntityAccessPolicies.AllowAll` and plain HTTP/2 on this machine only (its `appsettings.json`). Before the server leaves your
 machine: HTTPS, authentication, `EntityAccessPolicies.Authenticated`, and a row filter when each user has its own rows,
@@ -109,19 +108,6 @@ in [security](guides/security.md). Change notifications to the clients are in
 
 ### And offline
 
-A client can keep working without the server: it reads and writes a local copy, and its writes wait in a queue. Add the
-offline mode to the client (packages `Queryeables.Offline` and `Queryeables.Offline.Sqlite`):
-
-```csharp
-services.UseQueryeables(q => q
-    .UseMagicOnion(url)
-    .AddGeneratedEntities()
-    .WithOfflineMode(o => o
-        .UseStorage(new SqliteOfflineStorage($"Data Source={Path.Combine(AppContext.BaseDirectory, "offline.db")}"))
-        .AllGeneratedEntities()));                    // or .Entity<Person>(p => p.OwnerId == me) to copy fewer rows
-```
-
-Nothing switches by itself: `OfflineMode.StatusChanged` tells the application that the server cannot be reached, the user
-chooses to work offline (`GoOfflineAsync`), then to send the queued writes when the server is back (`GoOnlineAsync`), and
-decides the conflicts. The code that reads and writes does not change. The scenario with two clients, a network cut and a
-conflict is `Samples/Queryeables.OfflineDemo`; the whole story is in [offline mode](guides/offline-mode.md).
+Queryeables has no offline mode of its own: a client that must work without the server keeps a local database synchronized
+by the Datasync Community Toolkit, and Queryeables works on it (`q.UseDatasync(...)`, package `Queryeables.Datasync`). See
+[offline with Datasync](guides/offline-with-datasync.md).

@@ -23,20 +23,6 @@
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
-  <!--
-    Where Routeables.Remote is (Queryeables.Replication references its src/Routeables.Remote/Routeables.Remote.csproj): the
-    repository Routeables.SignalR, next to this one, as on a developer's disk and in the CI. Queryeables.slnx lists the project
-    at that path too: Visual Studio restores only the projects of the solution (NU1105 otherwise). Another place:
-    -p:RouteablesRemoteRoot=<folder>/ (with the trailing separator). As a full path: one project, one path.
-  -->
-  <PropertyGroup>
-    <RouteablesRemoteRoot Condition="'$(RouteablesRemoteRoot)' == ''">$(MSBuildThisFileDirectory)../Routeables.SignalR/</RouteablesRemoteRoot>
-    <RouteablesRemoteRoot>$([MSBuild]::NormalizeDirectory('$(RouteablesRemoteRoot)'))</RouteablesRemoteRoot>
-    <!-- Without it, Queryeables.Replication and its tests are left out of the build (a warning says so); never in the CI. -->
-    <HasRouteablesRemote>false</HasRouteablesRemote>
-    <HasRouteablesRemote Condition="Exists('$(RouteablesRemoteRoot)src/Routeables.Remote/Routeables.Remote.csproj')">true</HasRouteablesRemote>
-  </PropertyGroup>
-
   <!-- Every library builds without warnings (nullability, trimming, AOT): one place, so that no project escapes it. Tests,
        benchmarks and samples are left out. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' != 'Queryeables.Tests' And '$(MSBuildProjectName)' != 'Queryeables.Benchmarks' And !$(MSBuildProjectDirectory.Contains('Samples'))">

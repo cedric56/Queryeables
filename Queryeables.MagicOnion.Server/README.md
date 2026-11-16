@@ -14,7 +14,7 @@ builder.Services.UseQueryeables(q => q
     .UseSqlite("Data Source=server.db")
     .AddGeneratedEntities()                                    // the graph services: children saved with their parent
     .AddMagicOnionServer(server => server
-        .Expose<Product>(EntityAccessPolicies.ReadOnly)        // one type, its own policy
+        .Expose<Product>(EntityAccessPolicies.AllowAll)        // one type, its own policy
         .ExposeGenerated(EntityAccessPolicies.Authenticated)));   // every other entity the generator knows
 
 var app = builder.Build();
@@ -24,23 +24,19 @@ app.MapQueryeables();
 `AddMagicOnionServer` registers MagicOnion and the JSON entity serializer of the clients; `MapQueryeables()` maps the
 service. A server that declares its own class deriving from `MagicOnionService` keeps working with `MapMagicOnionService()`.
 
-Only exposed types can be reached, each with its policy: `Authenticated`, `ReadOnly`, `AllowAll` (tests and closed networks
+Only exposed types can be reached, each with its policy: `Authenticated`, `AllowAll` (tests and closed networks
 only), or your own rule with `EntityAccessPolicies.From(request => ...)`. Each call runs with the user authenticated by
-ASP.NET Core. The clients read replicas: every row they may read, the changes, a row by key. To let them write and query
-through the exposed types, add `server.AllowWrites()` (package `Queryeables.Offline`): writes are then validated
-(DataAnnotations), remote transactions run in one transaction of the server's stores, and `Expose<T>` fails at startup when
-`T` has `[EntityGraph]` collections but no graph repository is registered.
+ASP.NET Core. The clients read replicas: every row they may read, the changes, a row by key. They write through services
+of the application (`app.MapMagicOnionService<PeopleService>()`), which use the stores of the server.
 
-A policy decides per type. To keep each user to its own rows, give the type a row filter: it is added to every read (and
-checked on every write).
+A policy decides per type. To keep each user to its own rows, give the type a row filter: it is added to every read.
 
 ```csharp
 .Expose<Order>(EntityAccessPolicies.Authenticated,
     rows: RowLevelSecurity.For<Order, long>(o => o.Id, user => o => o.TenantId == TenantOf(user)))
 ```
 
-A replica (a read that is not paged) fails beyond `maxReadSize` (10,000); with writes allowed, pages are cut to
-`maxPageSize` (1000). See
+A replica fails beyond `maxReadSize` (10,000) rows rather than being cut. See
 [security](https://github.com/cedric56/Queryeables/blob/master/docs/guides/security.md).
 
 ## Change notifications

@@ -16,4 +16,4 @@ The names an application meets, from the most common to the least.
 | **Dispatcher** (`EntityRequestDispatcher`) | The server's entry point: checks the policy and the rows of each request, then calls the stores. The transport calls it. | [Remote access](guides/remote-access.md) |
 | **Access policy** (`IEntityAccessPolicy`) | Who may read and write a type on a server; a row filter (`RowLevelSecurity`) says which rows. | [Security](guides/security.md) |
 | **Replica** | On a remote client, the cache of a type: the rows of the server its user may read, kept up to date by the server's notifications. | [Remote access](guides/remote-access.md) |
-| **Offline mode** (`OfflineMode`) | Package `Queryeables.Offline`: a copy of the server's rows on the client and a queue of the writes made without the server. | [Offline mode](guides/offline-mode.md) |
+| **Offline** | Not part of Queryeables: a local database synchronized by the Datasync Community Toolkit, on which Queryeables works (`Queryeables.Datasync`). | [Offline with Datasync](guides/offline-with-datasync.md) |

@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Queryeables.Abstraction;
 using Queryeables.Generated;
 using Queryeables.Remote;
-using Queryeables.Offline;
 using Queryeables.Tests.Graphs;
 
 namespace Queryeables.Tests;
@@ -127,61 +126,6 @@ public sealed class SimplerApiTests
     }
 
     // ---------- A server that exposes every generated entity, a client that copies them offline ----------
-
-    [Fact]
-    public async Task ExposeGenerated_exposes_every_entity_and_keeps_the_ones_exposed_one_by_one()
-    {
-        var services = new ServiceCollection();
-        services.UseQueryeables(q => q
-            .UseStores(_ => new EntityStoreFactory(() => new MemoryStore(_database)))
-            .AddGeneratedEntities()
-            .AddEntityServer(_serializer, server => server
-                .AllowWrites()
-                .Expose<GProduct>(EntityAccessPolicies.ReadOnly)
-                .ExposeGenerated(EntityAccessPolicies.Authenticated)));
-        await using var provider = services.BuildServiceProvider();
-        var user = new EntityRequestContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ana")], "test")));
-        await using var store = new WritableRemoteEntityStore(provider.GetRequiredService<EntityRequestDispatcher>().AsTransport(user), _serializer);
-
-        await store.InsertAsync(new GPerson { Name = "Ana" });              // exposed by ExposeGenerated
-        await store.InsertAsync(new GTag { Name = "red" });
-        var refused = await Assert.ThrowsAsync<EntityStoreException>(() => store.InsertAsync(new GProduct { Name = "Tea" }));
-
-        Assert.Equal(EntityErrorCode.Forbidden, refused.ErrorCode);         // its own policy: read only
-        Assert.Single(_database.All<GPerson>());
-    }
-
-    [Fact]
-    public void AllGeneratedEntities_makes_every_generated_entity_available_offline_with_its_key()
-    {
-        var services = new ServiceCollection();
-        services.UseQueryeables(q => q
-            .UseStores(_ => new EntityStoreFactory(() => new MemoryStore(_database)))
-            .AddGeneratedEntities());
-        using var provider = services.BuildServiceProvider();
-
-        var mode = new OfflineModeOptions()
-            .AllGeneratedEntities()
-            .Entity<GPerson>(p => p.Name != "")                             // a filter on one of them, no key to repeat
-            .Create(new EntityRequestDispatcher(new EntityHandlerRegistry(), _serializer, new EntityStoreFactory(() => new MemoryStore(_database))).AsTransport(),
-                _serializer, services: provider);
-
-        Assert.True(mode.Knows(typeof(GPerson)));
-        Assert.True(mode.Knows(typeof(GContact)));
-        Assert.True(mode.Knows(typeof(GProduct)));
-    }
-
-    [Fact]
-    public void An_entity_asked_offline_without_its_key_and_unknown_to_the_generator_is_refused_with_a_message()
-    {
-        var options = new OfflineModeOptions().Entity<TestClient>();
-
-        var refused = Assert.Throws<InvalidOperationException>(() => options.Create(
-            new EntityRequestDispatcher(new EntityHandlerRegistry(), _serializer, new EntityStoreFactory(() => new MemoryStore(_database))).AsTransport(),
-            _serializer));
-
-        Assert.Contains("TestClient", refused.Message);
-    }
 
     // ---------- JSON: no attribute on the classes ----------
 

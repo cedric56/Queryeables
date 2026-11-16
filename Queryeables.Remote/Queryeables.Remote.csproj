@@ -13,7 +13,6 @@
     Remote access, independent of any transport: the client store of the replicas (RemoteEntityStore), the server handlers
     that publish them, the routing and the wire contracts. A transport (MagicOnion, HTTP...) only implements IEntityTransport
     on the client, calls EntityRequestDispatcher on the server, and provides an IEntitySerializer. No package references.
-    Queryeables.Offline adds the writes, the filters and the offline mode through the extension points.
   -->
 
   <ItemGroup>

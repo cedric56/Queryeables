@@ -1,4 +1,3 @@
-using Queryeables.Offline;
 using Queryeables.Abstraction;
 using Queryeables.Remote;
 
@@ -17,14 +16,6 @@ public class EntityQueryTests
 
     private IEntityStoreFactory Local() => new EntityStoreFactory(() => new MemoryStore(_database));
 
-    private IEntityStoreFactory Remote()
-    {
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<AuditContact>(Local(), EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, new JsonTestSerializer(), Local());
-        return WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), new JsonTestSerializer());
-    }
-
     private static IEnumerable<AuditContact> All()
         => new[] { ("a", 1L), ("b", 2L), ("c", 2L), ("d", 3L), ("e", 3L), ("f", 3L), ("g", 4L) }
             .Select((x, i) => new AuditContact { Id = i + 1, Label = x.Item1, PersonId = x.Item2 });
@@ -34,7 +25,7 @@ public class EntityQueryTests
         Func<IEnumerable<AuditContact>, IEnumerable<AuditContact>> linq)
     {
         var expected = linq(All()).Select(c => c.Label).ToList();
-        foreach (var stores in new[] { Local(), Remote() })
+        foreach (var stores in new[] { Local() })
             Assert.Equal(expected, (await query(stores.Query<AuditContact>()).ToListAsync()).Select(c => c.Label));
     }
 
@@ -75,7 +66,7 @@ public class EntityQueryTests
     [Fact]
     public async Task Projection_first_count_and_any()
     {
-        foreach (var stores in new[] { Local(), Remote() })
+        foreach (var stores in new[] { Local() })
         {
             var query = stores.Query<AuditContact>().Where(c => c.PersonId == 3).OrderByDescending(c => c.Label);
 

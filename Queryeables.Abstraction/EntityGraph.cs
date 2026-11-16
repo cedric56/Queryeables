@@ -705,16 +705,6 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
                 throw new EntityStoreException(EntityErrorCode.InvalidRequest, $"{typeof(TParent).Name}.{Name} holds one child.");
             var removed = before.Where(b => !kept.Contains(_childKey(b))).ToList();
 
-            // Sent by a remote client: each child written follows the rules of its own type before anything is written.
-            if (GraphWriteGuard.Current is { } guard)
-            {
-                foreach (var child in inserts)
-                    await guard.CheckAsync(store, GraphWrite.Insert, child, null, ct).ConfigureAwait(false);
-                foreach (var (child, row) in updates)
-                    await guard.CheckAsync(store, GraphWrite.Update, child, row, ct).ConfigureAwait(false);
-                foreach (var child in removed)
-                    await guard.CheckAsync(store, GraphWrite.Delete, child, child, ct).ConfigureAwait(false);
-            }
 
             // Deletes first (their own children before them): a child replaced by a new one does not violate a unique constraint.
             if (removed.Count > 0)
@@ -744,11 +734,6 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             var children = new List<TChild>();
             foreach (var chunk in Chunks(keys.Distinct()))
                 children.AddRange(await store.SelectAsync(In(_foreignKey, chunk), ct).ConfigureAwait(false));
-            if (GraphWriteGuard.Current is { } guard)
-            {
-                foreach (var child in children)
-                    await guard.CheckAsync(store, GraphWrite.Delete, child, child, ct).ConfigureAwait(false);
-            }
             if (Graph is { } graph && children.Count > 0)
                 await graph.RemoveRelationsAsync(store, [.. children.Select(_childKey)], ct).ConfigureAwait(false);
             foreach (var child in children)
@@ -925,13 +910,6 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
                 return link;
             }).ToList();
 
-            if (GraphWriteGuard.Current is { } guard)
-            {
-                foreach (var link in added)
-                    await guard.CheckAsync(store, GraphWrite.Insert, link, null, ct).ConfigureAwait(false);
-                foreach (var link in removed)
-                    await guard.CheckAsync(store, GraphWrite.Delete, link, link, ct).ConfigureAwait(false);
-            }
             foreach (var link in removed)
                 await store.DeleteAsync(link, ct).ConfigureAwait(false);
             foreach (var link in added)
@@ -943,11 +921,6 @@ public sealed class EntityGraph<[DynamicallyAccessedMembers(EntityMembers.Requir
             var links = new List<TLink>();
             foreach (var chunk in Chunks(keys.Distinct()))
                 links.AddRange(await store.SelectAsync(In(_linkForeignKey, chunk), ct).ConfigureAwait(false));
-            if (GraphWriteGuard.Current is { } guard)
-            {
-                foreach (var link in links)
-                    await guard.CheckAsync(store, GraphWrite.Delete, link, link, ct).ConfigureAwait(false);
-            }
             foreach (var link in links)
                 await store.DeleteAsync(link, ct).ConfigureAwait(false);
         }

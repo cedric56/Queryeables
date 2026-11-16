@@ -211,7 +211,7 @@ services.UseQueryeables(q =&gt; q
 
 - [Introduction](introduction.md): the model, and an honest comparison.
 - [Getting started](getting-started.md): a working application in five steps.
-- [Guides](guides/stores-and-transactions.md): stores, queries, graphs, caches, remote access, notifications, [offline mode](guides/offline-mode.md), security.
+- [Guides](guides/stores-and-transactions.md): stores, queries, graphs, caches, remote access, notifications, [offline with Datasync](guides/offline-with-datasync.md), security.
 - [Benchmarks](benchmarks.md): what the abstraction costs, measured.
 - [API reference](api/Queryeables.html): every public type.
 

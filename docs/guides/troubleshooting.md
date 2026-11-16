@@ -2,7 +2,7 @@
 
 ### The children are not saved remotely
 
-With `AllowWrites()`, the server saved the parent without its graph repository. Check that the server calls `AddGeneratedEntities()` and that the
+The server saved the parent without its graph repository. Check that the server calls `AddGeneratedEntities()` and that the
 entities are in a library it references (the generator registers the entities of referenced projects). Since this check
 exists, `Expose<T>` fails at startup in that case.
 
@@ -29,14 +29,7 @@ Kestrel endpoint.
 ### `A remote client reads ... by key only`
 
 A remote client of the core reads replicas: every row, the changes, a row by key. Query the cache (`IPersonCache`) in memory,
-or call a service of the application; with `Queryeables.Offline` (`UseRemoteWrites()`), the client queries the server.
-
-### `Predicate cannot be sent to the server`
-
-With `Queryeables.Offline`, the remote store accepts comparisons, booleans, `Contains` on a list, and `StartsWith`, `EndsWith`, `Contains` on strings,
-combined with `&&`, `||` and `!`, nested up to 32 levels. It cannot negate a `Contains`, a text search, or an ordering on a
-nullable property, nor compare two properties. Split the query, filter the rest in memory, or write a dedicated server
-method.
+or call a service of the application.
 
 ### See the SQL
 

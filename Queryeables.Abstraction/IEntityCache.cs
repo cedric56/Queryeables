@@ -34,3 +34,14 @@ public interface IEntityCache<TEntity, TKey>
     /// </summary>
     Task SyncAsync(CancellationToken ct = default) => LoadAsync(ct);
 }
+
+/// <summary>
+/// A cache that catches up with its store, without knowing its type: what an application calls after its store was changed
+/// behind the change feeds (a synchronization that wrote into the local database). See
+/// <c>IServiceProvider.RefreshCachesAsync()</c>.
+/// </summary>
+public interface ISynchronizableCache
+{
+    /// <summary>Reads what changed in the store since the last load (only the changed rows with <c>[LastModified]</c>).</summary>
+    Task SyncAsync(CancellationToken ct = default);
+}

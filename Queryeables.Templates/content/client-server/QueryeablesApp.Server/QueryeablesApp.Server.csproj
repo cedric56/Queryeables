@@ -9,7 +9,6 @@
   <ItemGroup>
     <PackageReference Include="Queryeables.Sqlite" Version="QUERYEABLES_VERSION" />
     <PackageReference Include="Queryeables.MagicOnion.Server" Version="QUERYEABLES_VERSION" />
-    <PackageReference Include="Queryeables.Offline" Version="QUERYEABLES_VERSION" />
   </ItemGroup>
 
   <ItemGroup>

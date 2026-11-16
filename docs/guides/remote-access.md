@@ -2,8 +2,8 @@
 
 A server publishes its entity types; each client keeps a **replica** of the rows its user may read, in its caches, kept up to
 date by the server's notifications, and queried in memory. A client writes by calling a service of the application, which
-uses its own stores on the server. Queries composed by the client and generic writes are not part of the core: the package
-`Queryeables.Offline` adds them (with the offline mode), on both sides.
+uses its own stores on the server. Queries composed by the client and generic writes are not served: the rules of a write
+are those of your service.
 
 ## The layers
 
@@ -68,10 +68,8 @@ Write through a service of your application: a MagicOnion service, an HTTP endpo
 uses. It runs on the server, with the stores and graph repositories of the server, under the rules you write; the replicas
 follow by the notification of the change, the author's included.
 
-To let the clients write and query through the exposed types themselves (inserts, updates, deletes, graphs, transactions,
-filters, pages), add the package `Queryeables.Offline`: `server.AllowWrites()` on the server, `q.UseRemoteWrites()` on the
-client. Each write then goes through the access policy, the row filter and validation of its type
-([security](security.md)), and the offline mode is available ([offline mode](offline-mode.md)).
+A client that must work without the server keeps a local database synchronized by Datasync, and Queryeables works on it
+([offline with Datasync](offline-with-datasync.md)).
 
 ## Entities on the wire
 
@@ -93,4 +91,4 @@ the server, with the `Queryeables` package only: `AddGeneratedEntities()` regist
 
 - A replica holds at most `maxReadSize` rows of a type for a user: a larger type is read through a service.
 - Reads are authorized per type by a policy, and per row by a row filter (see [security](security.md#row-filters)).
-- Without `Queryeables.Offline`, a client has no generic write and no query composed for the server: that is the point.
+- A client has no generic write and no query composed for the server: that is the point.

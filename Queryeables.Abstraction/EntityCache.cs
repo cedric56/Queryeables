@@ -37,7 +37,7 @@ namespace Queryeables.Abstraction;
 /// Incremental synchronization: idea taken from the Datasync Community Toolkit; coalescing of invalidations:
 /// idea taken from ActualLab.Fusion. See CREDITS.md.
 /// </remarks>
-public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TEntity, TKey> : IEntityCache<TEntity, TKey>, IUserScopedData, IDisposable
+public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Required | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TEntity, TKey> : IEntityCache<TEntity, TKey>, ISynchronizableCache, IUserScopedData, IDisposable
     where TEntity : class
     where TKey : notnull
 {
@@ -262,6 +262,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         RaiseEntitiesChanged();
     }
+
+    /// <summary>A cache the application never loaded stays unloaded.</summary>
+    Task ISynchronizableCache.SyncAsync(CancellationToken ct) => _loaded ? SyncAsync(ct) : Task.CompletedTask;
 
     public TEntity? Find(TKey key) => _byKey.TryGetValue(key, out var entity) ? entity : null;
 

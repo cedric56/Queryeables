@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>Queryeables.Datasync</PackageId>
+    <Description>Queryeables on the local database of a Datasync Community Toolkit client: the stores, caches and graphs of Queryeables work on the offline copy (an OfflineDbContext), Datasync pushes, pulls and resolves the conflicts, and the caches follow each pull.</Description>
+    <PackageTags>$(PackageTags);datasync;offline;sync</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Datasync.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Queryeables.EntityFramework\Queryeables.EntityFramework.csproj" />
+  </ItemGroup>
+
+</Project>

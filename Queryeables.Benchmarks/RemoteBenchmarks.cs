@@ -1,13 +1,12 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
-using Queryeables.Offline;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
 
 /// <summary>
-/// What the remote layer costs without the network: the client store, predicate translation, MessagePack, access policy
+/// What the remote layer costs without the network: the reads of a replica (every row, a row by key), MessagePack, access policy
 /// and the server dispatcher, all in process (<see cref="EntityRequestDispatcher.AsTransport"/>). Add the round trip of your
 /// network to these numbers for a real deployment.
 /// </summary>
@@ -26,9 +25,9 @@ public class RemoteBenchmarks
     {
         _database = await BenchmarkDatabase.CreateAsync("remote-benchmarks", Rows);
         var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, _database.Stores);
-        _remote = WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
+        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default);
+        _remote = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
         _id = Rows / 2;
     }
 
@@ -61,17 +60,5 @@ public class RemoteBenchmarks
     {
         await using var store = _remote.Create();
         return (await store.GetAllAsync<Item>()).Count;
-    }
-
-    /// <summary>Two writes queued on the client and sent in one batch, applied in one server transaction.</summary>
-    [Benchmark]
-    public async Task<EntityResult> Remote_InsertDelete_InTransaction()
-    {
-        await using var store = _remote.Create();
-        var item = new Item { Name = "new", Quantity = 1 };
-        var inserted = await store.RunInTransactionAsync(s => s.InsertAsync(item));
-        if (!inserted.Successful)
-            return inserted;
-        return await store.RunInTransactionAsync(async s => { await s.DeleteAsync(item); });
     }
 }

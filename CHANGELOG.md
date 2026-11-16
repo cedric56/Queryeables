@@ -12,17 +12,22 @@ First public version.
   read, kept up to date by the notifications. `RemoteEntityStore` reads every row, the changes since a date and a row by
   key; any other read, and every write, throws `NotSupported`. `EntityHandler<T>` serves only those (its constructor takes
   the stores, the policy, the row filter and `maxReadSize`). A client writes through the services of the application.
-- **New package `Queryeables.Offline` (experimental)**: the offline mode (`OfflineMode`, outbox, storages, conflicts), and
-  the generic remote writes and filters it needs, moved out of the core: `server.AllowWrites(durableIdempotency)` on the
-  server (`WritableEntityHandler<T>`, `StoreIdempotencyStore`), `q.UseRemoteWrites()` and `q.WithOfflineMode(...)` on the
-  client (`WritableRemoteEntityStore`). Namespace `Queryeables.Offline` (was `Queryeables.Remote.Offline`).
-- `SqliteOfflineStorage` moves to the package `Queryeables.Offline.Sqlite`; `Queryeables.Browser` becomes
-  `Queryeables.Offline.Browser` (its script: `_content/Queryeables.Offline.Browser/queryeables-indexeddb.js`).
-- Extension points of the core: `QueryeablesBuilder.DecorateStores`, `EntityServerBuilder.Handlers` (`IEntityHandlerFactory`,
-  `ExposeOptions<T>`) and `EntityServerBuilder.Services`, `IRelationRestrictor<T>`, `HandlerRelationGuard`, `FilterValues`,
-  `RemoteDiagnostics` and the members of `RowLevelSecurity<T>` made public. `EntityServerBuilder.DurableIdempotency` is
-  replaced by `AllowWrites(durableIdempotency: true)`; `RemoteEntityStore` and `MagicOnionTransport.Stores` no longer take an
-  `IChangeSession`.
+- **No offline mode of its own**: the offline mode, the generic remote writes and filters, and the durable idempotency are
+  removed. A client that works offline keeps a local database synchronized by the Datasync Community Toolkit: the new
+  package `Queryeables.Datasync` puts Queryeables on it (`q.UseDatasync(...)`, `PullAsync().ThenRefreshCachesAsync(app)`).
+  `Queryeables.Browser` and `SqliteOfflineStorage` are removed with it, and so is `Queryeables.Replication` (the durable
+  server of the Routeables Remote Protocol): the build no longer needs Routeables.SignalR.
+- `IServiceProvider.RefreshCachesAsync()` and `ISynchronizableCache`: the loaded caches catch up with their store after a
+  change made behind the change feeds.
+- Extension point of the core: `QueryeablesBuilder.DecorateStores`. `EntityServerBuilder.DurableIdempotency` is removed;
+  `RemoteEntityStore` and `MagicOnionTransport.Stores` no longer take an `IChangeSession`.
+- **The write protocol is removed from the transports.** `IEntityTransport` has three reads (`GetAllAsync`, `SelectAsync` by
+  key, `GetChangesAsync`); its writes, batches and `WriteOnce`, the MagicOnion write messages (`BatchOperationMessage`,
+  `RemoteRequestMessage`, `SortKeyMessage`), the in-memory idempotency of the dispatcher, `GraphWriteGuard`,
+  `[ServerOwned]` and `[NotQueryable]` are removed. `Expose<T>(policy, rows, maxReadSize)` replaces the write options.
+- **Access policies decide on reads only**: `EntityAccessRequest(EntityType, User)`; `EntityOperation`,
+  `EntityAccessPolicies.ReadOnly` and `ChecksEntities` are removed. `EntityRequestContext` keeps only the user.
+- The client-server template writes through a MagicOnion service of its own (`IPeopleService`) and reads a replica.
 
 ### Fixed (review of November 15, evening)
 - On a remote client, `UpdateWhere` and `DeleteWhere` now reach the author's own caches: they are sent without its

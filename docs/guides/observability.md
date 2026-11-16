@@ -23,7 +23,6 @@ dotnet-counters monitor --process-id <pid> --counters Queryeables
 | `queryeables.remote` | Client | Each call of a remote store (`RemoteEntityStore`) | `queryeables.operation`, `queryeables.type`, `queryeables.outcome` |
 | `queryeables.server` | Server | Each request handled by `EntityRequestDispatcher` | same |
 | `queryeables.cache` | Internal | A cache load, synchronization or row refresh | `queryeables.type`, `queryeables.kind` (`load`, `sync`, `row`) |
-| `queryeables.offline.sync` | Internal | `OfflineMode.GoOnlineAsync` | `queryeables.sent`, `queryeables.conflicts` |
 
 An activity whose outcome is not `ok` has the `Error` status: a failed request shows in red in a trace viewer.
 
@@ -35,8 +34,6 @@ An activity whose outcome is not `ok` has the `Error` status: a failed request s
 | `queryeables.server.duration` (histogram) | ms | same |
 | `queryeables.changes.published` (counter) | changes | `queryeables.table`, `queryeables.change` (`Insert`, `Update`, `Delete`) |
 | `queryeables.cache.refreshes` (counter) | refreshes | `queryeables.type`, `queryeables.kind` |
-| `queryeables.offline.sent` (counter) | writes | `queryeables.type` |
-| `queryeables.offline.conflicts` (counter) | writes | `queryeables.type`, `queryeables.outcome` |
 
 Operations: `get_all`, `select`, `select_paged`, `get_changes`, `insert`, `update`, `delete`, `batch`. Outcomes: `ok`,
 an error kind (`validation`, `conflict`, `not_found`, `forbidden`, `invalid_request`, `unknown_type`...), `unreachable`
@@ -49,4 +46,3 @@ an error kind (`validation`, `conflict`, `not_found`, `forbidden`, `invalid_requ
 - **`queryeables.server.duration` p95 by `queryeables.type`**: the slow entity types.
 - **`queryeables.cache.refreshes` with `kind=load`**: a cache reloading often means its change feed misses changes, or
   reconnects too often.
-- **`queryeables.offline.conflicts`**: how often offline work collides with someone else's.

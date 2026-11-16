@@ -361,5 +361,3 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-# The Routeables.SignalR repository, checked out by the CI for Queryeables.Replication
-.external/

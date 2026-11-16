@@ -10,19 +10,15 @@ namespace Queryeables.Remote;
 /// the server, given by <see cref="EntityRequestDispatcher"/>.
 /// </summary>
 /// <remarks>
-/// What a request may do is the handler's: <see cref="EntityHandler{T}"/> serves the replicas of the clients (every row the
-/// user may read, the changes since a date, rows by key) and nothing else. A package extends it (the offline mode serves
-/// writes and filters).
+/// <see cref="EntityHandler{T}"/> serves the replicas of the clients: every row the user may read, the changes since a date,
+/// rows by key, and nothing else.
 /// </remarks>
 public abstract class EntityHandler
 {
-    /// <summary>The default limit of a read that is not paged.</summary>
+    /// <summary>The default limit of a replica: most rows a read returns.</summary>
     public const int DefaultMaxReadSize = 10_000;
 
     public abstract Type Type { get; }
-
-    /// <summary>True when this handler applies the writes of the clients.</summary>
-    public virtual bool AcceptsWrites => false;
 
     /// <summary>
     /// Why <paramref name="serializer"/> cannot carry this type safely (a property marked to be left out by an attribute the
@@ -43,51 +39,16 @@ public abstract class EntityHandler
               + "([IgnoreMember] for MessagePack, [JsonIgnore] for System.Text.Json).";
     }
 
+    /// <summary>Every row the user may read.</summary>
     public abstract Task<TransportResult> GetAllAsync(IEntitySerializer serializer, EntityRequestContext context, CancellationToken ct = default);
 
-    public abstract Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
+    /// <summary>The rows of one key, among those the user may read.</summary>
+    public abstract Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions,
         EntityRequestContext context, CancellationToken ct = default);
 
-    public virtual Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
-        int pageSize, EntityRequestContext context, CancellationToken ct = default)
-        => NotSupported("Pages");
-
-    /// <summary>A page in the given order. The properties of the sort are checked against the entity type.</summary>
-    public virtual Task<TransportResult> SelectPagedAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any, int pageNumber,
-        int pageSize, SortKey[] sort, EntityRequestContext context, CancellationToken ct = default)
-        => sort is not { Length: > 0 }
-            ? SelectPagedAsync(serializer, conditions, any, pageNumber, pageSize, context, ct)
-            : NotSupported("Sorted pages");
-
+    /// <summary>The rows changed since <paramref name="sinceUtc"/>, among those the user may read.</summary>
     public abstract Task<TransportResult> GetChangesAsync(IEntitySerializer serializer, DateTime sinceUtc, EntityRequestContext context,
         CancellationToken ct = default);
-
-    /// <summary>Standalone write, in its own store.</summary>
-    public virtual Task<TransportResult> WriteAsync(IEntitySerializer serializer, BatchOperationKind kind, byte[] entity,
-        EntityRequestContext context, CancellationToken ct = default)
-        => NotSupported("Writes");
-
-    /// <summary>
-    /// Write in a given store, for example during the transaction of a batch.
-    /// Throws <see cref="EntityStoreException"/> on failure, which rolls back the batch.
-    /// </summary>
-    /// <param name="requireEffect">When true, an update or delete with no effect is an error (NotFound).</param>
-    public virtual Task<byte[]> WriteAsync(IEntitySerializer serializer, IEntityStore store, BatchOperationKind kind, byte[] entity,
-        EntityRequestContext context, bool requireEffect, CancellationToken ct = default)
-        => throw NotSupportedException("Writes");
-
-    /// <summary>Counts, aggregates, projections, patches, writes of many rows, graph saves (<see cref="RemoteRequestKind"/>).</summary>
-    public virtual Task<TransportResult> ExecuteAsync(IEntitySerializer serializer, RemoteRequest request, EntityRequestContext context,
-        CancellationToken ct = default)
-        => NotSupported("This request");
-
-    private Task<TransportResult> NotSupported(string what)
-        => Task.FromResult(TransportResult.FromException(NotSupportedException(what)));
-
-    private EntityStoreException NotSupportedException(string what)
-        => new(EntityErrorCode.NotSupported,
-            $"{what} on {Type.Name}: not served. A client reads its replica (rows by key, changes); it writes through a service " +
-            "of the application, or with the writes of Queryeables.Offline enabled on the server.");
 }
 
 /// <summary>The rows of its type a relation filter of another type may read, for a user (see <see cref="HandlerRelationGuard"/>).</summary>
@@ -99,7 +60,7 @@ public interface IRelationRestrictor<T> where T : class
 /// <summary>
 /// Serves the replica of <typeparamref name="T"/> to the clients: every row the user may read (at most
 /// <c>maxReadSize</c>), the rows changed since a date, and rows by key (what a cache reads again on a notification).
-/// Writes and other filters are refused (<see cref="EntityErrorCode.NotSupported"/>).
+/// Any other condition is refused (<see cref="EntityErrorCode.InvalidRequest"/>).
 /// </summary>
 /// <example>
 /// <code>
@@ -140,13 +101,13 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
         => ReadAsync(serializer, All, context, ct);
 
     /// <summary>Rows by key only (<c>Id == 7</c>, every column of a composite key): what a cache reads again.</summary>
-    public override Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions, bool any,
+    public override Task<TransportResult> SelectAsync(IEntitySerializer serializer, FilterCondition[] conditions,
         EntityRequestContext context, CancellationToken ct = default)
         => (conditions?.Length ?? 0) == 0
             ? GetAllAsync(serializer, context, ct)
             : TransportResult.RunAsync(async () =>
             {
-                var predicate = KeyPredicate(conditions!, any);
+                var predicate = KeyPredicate(conditions!);
                 return await ReadCoreAsync(serializer, predicate, context, ct);
             });
 
@@ -186,10 +147,10 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
     }
 
     /// <summary><c>key == value</c> for every column of the key, and nothing else.</summary>
-    private static Expression<Func<T, bool>> KeyPredicate(FilterCondition[] conditions, bool any)
+    private static Expression<Func<T, bool>> KeyPredicate(FilterCondition[] conditions)
     {
         var keys = SyncMetadata.Keys(typeof(T));
-        if (any || keys.Count == 0 || conditions.Length != keys.Count
+        if (keys.Count == 0 || conditions.Length != keys.Count
             || conditions.Any(c => c.Operator != FilterOperator.Equal)
             || conditions.Select(c => c.Property).Distinct(StringComparer.Ordinal).Count() != keys.Count)
             throw KeysOnly();
@@ -214,8 +175,8 @@ public sealed class EntityHandler<[DynamicallyAccessedMembers(EntityMembers.Requ
 
     private async Task AuthorizeAsync(EntityRequestContext context, CancellationToken ct)
     {
-        if (!await _policy.IsAllowedAsync(new EntityAccessRequest(EntityOperation.Read, typeof(T), null, context.User), ct))
-            throw new EntityStoreException(EntityErrorCode.Forbidden, $"Access denied: Read on {typeof(T).Name}.");
+        if (!await _policy.IsAllowedAsync(new EntityAccessRequest(typeof(T), context.User), ct))
+            throw new EntityStoreException(EntityErrorCode.Forbidden, $"Access denied: {typeof(T).Name}.");
     }
 
     private EntityStoreException TooMany()

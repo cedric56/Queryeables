@@ -11,79 +11,23 @@ public delegate bool CertificateValidator(X509Certificate2? certificate, X509Cha
 
 
 /// <summary>
-/// What a transport implements on the client to reach the server: one method per operation, entities as bytes
+/// What a transport implements on the client to reach the server: the reads of a replica, entities as bytes
 /// (see <see cref="IEntitySerializer"/>), answers as <see cref="TransportResult"/>. <see cref="RemoteEntityStore"/> does the rest.
 /// </summary>
 /// <remarks>
 /// On the server, the transport forwards each call to <see cref="EntityRequestDispatcher"/>, whose methods have the same
-/// shape. <see cref="EntityRequestDispatcher.AsTransport"/> connects the two in-process, without a network.
-/// Filters are "property operator value" conditions (<see cref="FilterCondition"/>), all combined with AND
-/// (<c>any</c> = false) or all with OR (<c>any</c> = true), or nested in postfix order with
-/// <see cref="FilterOperator.And"/> and <see cref="FilterOperator.Or"/> nodes: no SQL and no expression goes over the wire.
+/// shape. <see cref="EntityRequestDispatcher.AsTransport"/> connects the two in-process, without a network. A row is read by
+/// its key: "property = value" conditions (<see cref="FilterCondition"/>), one per column of the key. No SQL and no
+/// expression goes over the wire, and nothing is written through it.
 /// </remarks>
 public interface IEntityTransport
 {
+    /// <summary>Every row of the type the user may read.</summary>
     Task<TransportResult> GetAllAsync(string type, CancellationToken ct = default);
 
-    Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any, CancellationToken ct = default);
-
-    Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
-        CancellationToken ct = default);
-
-    /// <summary>
-    /// A page in the given order, sorted by the server. Transports written before sorting existed only support an empty
-    /// sort.
-    /// </summary>
-    Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
-        SortKey[] sort, CancellationToken ct = default)
-        => sort is not { Length: > 0 }
-            ? SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct)
-            : Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not support sorted pages."));
+    /// <summary>The rows of one key, among those the user may read.</summary>
+    Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, CancellationToken ct = default);
 
     /// <summary>Rows modified since <paramref name="sinceUtc"/>, soft-deleted ones included (incremental synchronization).</summary>
     Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default);
-
-    /// <summary>Returns the inserted entity, with its generated key and version.</summary>
-    Task<TransportResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default);
-
-    /// <summary>Returns the updated entity (new version), or empty data when the row does not exist.</summary>
-    Task<TransportResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default);
-
-    /// <summary>Returns true if the row was deleted.</summary>
-    Task<TransportResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Runs every write in a single transaction: all succeed, or none is applied.
-    /// Returns one result per operation (the entity for an insert or an update, true for a delete).
-    /// </summary>
-    Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default);
-
-    /// <summary>
-    /// <see cref="ExecuteBatchAsync"/>, applied once however many times it is sent with the same
-    /// <paramref name="operationId"/>: a commit sent again after a lost answer gets the first result back, and inserts
-    /// nothing twice. A transport that cannot carry the id answers NotSupported: the client then sends a plain batch, once.
-    /// </summary>
-    Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
-        => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not carry operation ids for batches."));
-
-    /// <summary>
-    /// Counts, aggregates, projections, patches, writes of many rows and graph saves (<see cref="RemoteRequestKind"/>): done
-    /// by the server in one call. A transport without it answers NotSupported, and the store does the work itself.
-    /// </summary>
-    Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, CancellationToken ct = default)
-        => Task.FromResult(TransportResult.Failure(EntityErrorCode.NotSupported, "This transport does not carry this request."));
-
-    /// <summary>
-    /// A write that the server applies once, however many times it is sent with the same <paramref name="operationId"/>:
-    /// a retry after a lost answer gets the first result back (see <see cref="IIdempotencyStore"/>). Used by the offline
-    /// synchronization. A transport that cannot carry the id falls back to a plain write, without that guarantee.
-    /// </summary>
-    Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
-        CancellationToken ct = default)
-        => kind switch
-        {
-            BatchOperationKind.Insert => InsertAsync(type, entity, connectionId, ct),
-            BatchOperationKind.Update => UpdateAsync(type, entity, connectionId, ct),
-            _ => DeleteAsync(type, entity, connectionId, ct),
-        };
 }

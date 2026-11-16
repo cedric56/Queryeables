@@ -27,54 +27,9 @@ public sealed class MagicOnionTransport(IMagicOnionLayer layer) : IEntityTranspo
     public async Task<TransportResult> GetAllAsync(string type, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).GetAllAsync(type)).ToTransportResult();
 
-    public async Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, bool any, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).SelectAsync(type, FilterConditionMessage.From(conditions), any)).ToTransportResult();
-
-    public async Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
-        CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct)
-            .SelectPagedAsync(type, FilterConditionMessage.From(conditions), any, pageNumber, pageSize)).ToTransportResult();
-
-    public async Task<TransportResult> SelectPagedAsync(string type, FilterCondition[] conditions, bool any, int pageNumber, int pageSize,
-        SortKey[] sort, CancellationToken ct = default)
-        => sort is not { Length: > 0 }
-            ? await SelectPagedAsync(type, conditions, any, pageNumber, pageSize, ct)
-            : (await _layer.WithCancellationToken(ct).SelectSortedPageAsync(type, FilterConditionMessage.From(conditions), any,
-                pageNumber, pageSize, SortKeyMessage.From(sort))).ToTransportResult();
+    public async Task<TransportResult> SelectAsync(string type, FilterCondition[] conditions, CancellationToken ct = default)
+        => (await _layer.WithCancellationToken(ct).SelectAsync(type, FilterConditionMessage.From(conditions))).ToTransportResult();
 
     public async Task<TransportResult> GetChangesAsync(string type, DateTime sinceUtc, CancellationToken ct = default)
         => (await _layer.WithCancellationToken(ct).GetChangesAsync(type, sinceUtc)).ToTransportResult();
-
-    public async Task<TransportResult> InsertAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).InsertAsync(type, entity, connectionId)).ToTransportResult();
-
-    public async Task<TransportResult> UpdateAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).UpdateAsync(type, entity, connectionId)).ToTransportResult();
-
-    public async Task<TransportResult> DeleteAsync(string type, byte[] entity, string? connectionId, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).DeleteAsync(type, entity, connectionId)).ToTransportResult();
-
-    public async Task<TransportResult> ExecuteBatchAsync(BatchOperation[] operations, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).ExecuteBatchAsync(BatchOperationMessage.From(operations))).ToTransportResult();
-
-    public async Task<TransportResult> ExecuteBatchOnceAsync(Guid operationId, BatchOperation[] operations, CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).ExecuteBatchOnceAsync(operationId, BatchOperationMessage.From(operations))).ToTransportResult();
-
-    /// <summary>A server of an earlier version has no such method: NotSupported, and the store does the work itself.</summary>
-    public async Task<TransportResult> ExecuteAsync(string type, RemoteRequest request, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        try
-        {
-            return (await _layer.WithCancellationToken(ct).ExecuteAsync(type, RemoteRequestMessage.From(request))).ToTransportResult();
-        }
-        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unimplemented)
-        {
-            return TransportResult.Failure(EntityErrorCode.NotSupported, "The server does not carry this request.");
-        }
-    }
-
-    public async Task<TransportResult> WriteOnceAsync(Guid operationId, BatchOperationKind kind, string type, byte[] entity, string? connectionId,
-        CancellationToken ct = default)
-        => (await _layer.WithCancellationToken(ct).WriteOnceAsync(operationId, kind, type, entity, connectionId)).ToTransportResult();
 }

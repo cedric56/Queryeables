@@ -33,6 +33,3 @@ SQLite reports the **rowid**. It is the entity key only for an `INTEGER PRIMARY 
 resynchronize on each change instead (only the changed rows when the type has `[LastModified]`). Changes made outside the
 application's connections (another process, a SQLite tool) are not seen.
 
-## Offline storage
-
-The offline copy in a SQLite file is in [`Queryeables.Offline.Sqlite`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Offline.Sqlite/README.md).

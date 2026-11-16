@@ -35,6 +35,18 @@ public static class QueryeablesServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Brings every registered cache up to date with its store: after the store was written behind the change feeds, for
+    /// example a Datasync pull into the local database (<c>Queryeables.Datasync</c>). Only the caches already loaded, and only
+    /// the changed rows for the types with <c>[LastModified]</c>; the others are reloaded.
+    /// </summary>
+    public static async Task RefreshCachesAsync(this IServiceProvider services, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        foreach (var cache in services.GetServices<IUserScopedData>().OfType<ISynchronizableCache>())
+            await cache.SyncAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Changes the user of a client: forgets what the caches (and an offline copy) hold for the previous one, then loads
     /// the caches again for the new one (see <see cref="UserScopedData.ChangeUserAsync"/>). Call it after sign-out or
     /// sign-in, once the transport sends the new credentials.

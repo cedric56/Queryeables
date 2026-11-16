@@ -58,7 +58,7 @@ public sealed class QueryeablesBuilder
 
     /// <summary>
     /// Wraps the stores of the provider, in the order of the calls, before the caches are told of the writes: what an
-    /// extension adds to every store (<c>Queryeables.Offline</c> switches between the server and a local copy).
+    /// extension adds to every store (logging, a local copy in front of the server...).
     /// </summary>
     /// <param name="decorate">Takes the services and the factory so far; returns the factory that replaces it.</param>
     public QueryeablesBuilder DecorateStores(Func<IServiceProvider, IEntityStoreFactory, IEntityStoreFactory> decorate)
@@ -133,7 +133,7 @@ public sealed class QueryeablesBuilder
     /// <summary>
     /// The entity types of the application, with their keys: those <c>AddGeneratedEntities()</c> knows (caches, graphs and
     /// their children, references), and those added by <see cref="AddEntity{TEntity, TKey}"/>. What applies to every
-    /// entity reads them: <c>ExposeGenerated</c> on a server, <c>AllGeneratedEntities</c> offline, <c>CreateTables</c>.
+    /// entity reads them: <c>ExposeGenerated</c> on a server, <c>CreateTables</c>.
     /// </summary>
     public IReadOnlyList<IEntityType> Entities => _entities;
 
@@ -186,15 +186,15 @@ public sealed class QueryeablesBuilder
         Services.AddSingleton<IQueryeablesStartupTask>(new QueryeablesStartupTask(-100, async (sp, ct) =>
         {
             var transport = sp.GetRequiredService<IEntityTransport>();
-            var type = sp.GetServices<IEntityType>().Select(t => EntityName.Of(t.Type)).FirstOrDefault() ?? "Ping";
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(limit);
             while (true)
             {
                 try
                 {
-                    await transport.SelectPagedAsync(type, [], false, 1, 1, deadline.Token);
-                    return;                     // any answer, even an error, comes from the server
+                    // A type no server exposes: the answer (UnknownType) is cheap, and any answer comes from the server.
+                    await transport.GetChangesAsync("Queryeables.Ping", DateTime.MaxValue, deadline.Token);
+                    return;
                 }
                 catch (Exception) when (!ct.IsCancellationRequested)
                 {

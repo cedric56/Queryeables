@@ -36,7 +36,7 @@ public sealed class Sort<[DynamicallyAccessedMembers(EntityMembers.Required)] TE
 
     /// <summary>A sort received by name (from a remote client): every property must be a readable property of the entity.</summary>
     /// <exception cref="ArgumentException">Unknown property, duplicate, or more than <see cref="MaxKeys"/> keys.</exception>
-    /// <param name="properties">The properties a client may sort on (<see cref="RemoteMembers{T}.Queryable"/>); any public property when null.</param>
+    /// <param name="properties">The properties a client may sort on ; any public property when null.</param>
     public static Sort<TEntity> FromKeys(IEnumerable<SortKey> keys, IReadOnlySet<string>? properties = null)
     {
         ArgumentNullException.ThrowIfNull(keys);

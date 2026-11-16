@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Queryeables.Core\Queryeables.Core.csproj" />
-    <ProjectReference Include="..\Queryeables.Offline\Queryeables.Offline.csproj" />
     <ProjectReference Include="..\Queryeables.Generated\Queryeables.Generated.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 

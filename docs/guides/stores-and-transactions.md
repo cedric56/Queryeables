@@ -128,9 +128,7 @@ await store.PatchAsync(original, customer);
 ```
 
 Only the changed columns are written over the stored row: what others changed meanwhile in other columns is kept, and
-`customer` then holds the stored row. A column changed both here and by someone else is a `Conflict`. Remotely, only the
-changed values travel, and the server never takes from them the key, the version, `[ServerOwned]` properties or those the
-serializer leaves out.
+`customer` then holds the stored row. A column changed both here and by someone else is a `Conflict`.
 
 ## Sync conventions
 

@@ -27,7 +27,7 @@ read is refused, not cut.
 ```csharp
 q.AddEntityServer(serializer, server => server
     .Expose<Person>(EntityAccessPolicies.Authenticated)
-    .Expose<Product>(EntityAccessPolicies.ReadOnly));
+    .Expose<Product>(EntityAccessPolicies.AllowAll));
 ```
 
 `dispatcher.AsTransport(context)` connects both sides in-process: for tests, or an application that hosts its own server.
@@ -35,9 +35,7 @@ q.AddEntityServer(serializer, server => server
 ## Extension points
 
 What a server serves is the handler of each type: `EntityServerBuilder.Handlers` (an `IEntityHandlerFactory`) replaces the
-read-only `EntityHandler<T>`. On the client, `QueryeablesBuilder.DecorateStores` wraps the stores. The package
-[`Queryeables.Offline`](https://github.com/cedric56/Queryeables/blob/master/Queryeables.Offline/README.md) uses both: the generic
-writes and filters (`AllowWrites`, `UseRemoteWrites`) and the offline mode.
+read-only `EntityHandler<T>`. On the client, `QueryeablesBuilder.DecorateStores` wraps the stores.
 
 ## Writing a transport
 

@@ -1,7 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using Queryeables.Abstraction;
 using Queryeables.MagicOnion;
-using Queryeables.Offline;
 using Queryeables.Remote;
 
 namespace Queryeables.Benchmarks;
@@ -33,9 +32,9 @@ public class NetworkBenchmarks
         _grpc = _server.Client();
 
         var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
-        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default, _database.Stores);
-        _inProcess = WritableRemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
+        registry.Register(new EntityHandler<Item>(_database.Stores, EntityAccessPolicies.AllowAll));
+        var dispatcher = new EntityRequestDispatcher(registry, MessagePackEntitySerializer.Default);
+        _inProcess = RemoteEntityStore.Factory(dispatcher.AsTransport(), MessagePackEntitySerializer.Default);
         _id = Rows / 2;
 
         // The first call opens the HTTP/2 connection: not measured.
@@ -62,15 +61,6 @@ public class NetworkBenchmarks
         return (await store.GetAllAsync<Item>()).Count;
     }
 
-    private static async Task<EntityResult> InsertDelete(IEntityStoreFactory stores)
-    {
-        await using var store = stores.Create();
-        var item = new Item { Name = "new", Quantity = 1 };
-        var inserted = await store.RunInTransactionAsync(s => s.InsertAsync(item));
-        if (!inserted.Successful)
-            return inserted;
-        return await store.RunInTransactionAsync(async s => { await s.DeleteAsync(item); });
-    }
 
     [Benchmark(Baseline = true)]
     public Task<Item?> Local_FirstOrDefault() => FirstOrDefault(_database.Stores);
@@ -90,12 +80,6 @@ public class NetworkBenchmarks
     [Benchmark]
     public Task<int> Grpc_GetAll() => GetAll(_grpc);
 
-    /// <summary>An insert then a delete, each in its own transaction: two batches, two round trips.</summary>
-    [Benchmark]
-    public Task<EntityResult> InProcess_InsertDelete() => InsertDelete(_inProcess);
-
-    [Benchmark]
-    public Task<EntityResult> Grpc_InsertDelete() => InsertDelete(_grpc);
 
     /// <summary>
     /// <see cref="Parallel"/> reads at once on one connection (HTTP/2 multiplexes them): the time per read, under load.

@@ -9,7 +9,7 @@
     <id>Queryeables</id>
     <version>$version$</version>
     <authors>Cédric Boutin</authors>
-    <description>One data-access API for .NET: IEntityStore over Dommel, EF Core or MongoDB, transactions that report an EntityResult, entity graphs, in-memory caches that follow the database, replicas of a server's rows on its clients, and a source generator ([EntityCache], [EntityGraph]). Add a provider package (Queryeables.Sqlite, Queryeables.Dommel, Queryeables.EntityFramework...) or a transport (Queryeables.MagicOnion.Client) to use it; Queryeables.Offline for clients that write through the server or work offline.</description>
+    <description>One data-access API for .NET: IEntityStore over Dommel, EF Core or MongoDB, transactions that report an EntityResult, entity graphs, in-memory caches that follow the database, replicas of a server's rows on its clients, and a source generator ([EntityCache], [EntityGraph]). Add a provider package (Queryeables.Sqlite, Queryeables.Dommel, Queryeables.EntityFramework...) or a transport (Queryeables.MagicOnion.Client) to use it; Queryeables.Datasync to work offline on a database synchronized by the Datasync Community Toolkit.</description>
     <license type="expression">MIT</license>
     <projectUrl>https://github.com/cedric56/Queryeables</projectUrl>
     <repository type="git" url="https://github.com/cedric56/Queryeables.git" />

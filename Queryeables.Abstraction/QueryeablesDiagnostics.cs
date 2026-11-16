@@ -15,7 +15,7 @@ namespace Queryeables.Abstraction;
 /// <item><term>queryeables.changes.published</term><description>Row changes published to the change feeds.</description></item>
 /// <item><term>queryeables.cache.refreshes</term><description>Cache loads, synchronizations and row refreshes; activity <c>queryeables.cache</c>.</description></item>
 /// </list>
-/// Extensions add their own instruments to the same meter (the offline mode: <c>queryeables.offline.*</c>).
+/// Extensions add their own instruments to the same meter.
 /// Tags: <c>queryeables.type</c> (entity type), <c>queryeables.operation</c>, <c>queryeables.outcome</c> (<c>ok</c>, an
 /// error kind such as <c>conflict</c>, or <c>unreachable</c>), <c>queryeables.table</c>, <c>queryeables.change</c>,
 /// <c>queryeables.kind</c>.

@@ -1,6 +1,5 @@
 using Queryeables.Abstraction;
 using Queryeables.Remote;
-using Queryeables.Offline;
 using System.ComponentModel.DataAnnotations;
 using System.Linq.Expressions;
 using System.Net;
@@ -14,14 +13,14 @@ using System.Text.Json.Serialization;
 
 namespace Queryeables.Tests.Unit;
 
-/// <summary>An account as an application exposes it: a secret never sent, a note not to search on, a role the server owns.</summary>
+/// <summary>An account as an application exposes it: a secret never sent.</summary>
 public class HAccount
 {
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
     [JsonIgnore] public string Secret { get; set; } = string.Empty;
-    [NotQueryable] public string Note { get; set; } = string.Empty;
-    [ServerOwned] public string? Role { get; set; }
+    public string Note { get; set; } = string.Empty;
+    public string? Role { get; set; }
 }
 
 /// <summary>A folder and its notes: a graph whose children have rules of their own.</summary>
@@ -301,125 +300,18 @@ public class SecurityHardeningTests
         Assert.NotEqual(UserKey.Of(User("ana")), UserKey.Of(User("bob")));
     }
 
-    // ---------- Server: errors, batches, hidden columns, server-owned values, filters, pages ----------
+    // ---------- Server ----------
 
     private readonly MemoryDatabase _database = new();
     private readonly JsonTestSerializer _serializer = new();
 
-    private EntityRequestDispatcher Dispatcher(IEntityStoreFactory? stores = null, bool detailed = false, Action<Exception, string>? log = null)
-    {
-        stores ??= new EntityStoreFactory(() => new MemoryStore(_database));
-        var registry = new EntityHandlerRegistry();
-        registry.Register(new WritableEntityHandler<HAccount>(stores, EntityAccessPolicies.AllowAll));
-        registry.Register(new WritableEntityHandler<TestClient>(stores, EntityAccessPolicies.AllowAll));
-        return new EntityRequestDispatcher(registry, _serializer, stores) { DetailedErrors = detailed, UnexpectedError = log, MaxBatchSize = 3 };
-    }
-
     private static readonly EntityRequestContext Anyone = new(new ClaimsPrincipal(new ClaimsIdentity()));
-
-    [Fact]
-    public async Task An_unexpected_error_reaches_the_client_as_a_reference_and_the_log_with_its_message()
-    {
-        var failing = new EntityStoreFactory(() => throw new InvalidOperationException("relation \"secret_users\" does not exist"));
-        (Exception Error, string Reference)? logged = null;
-        var dispatcher = Dispatcher(failing, log: (e, r) => logged = (e, r));
-
-        var result = await dispatcher.InsertAsync(EntityName.Of<HAccount>(), _serializer.Serialize(new HAccount { Name = "x" }), Anyone);
-
-        Assert.Equal(EntityErrorCode.Unknown, result.ErrorCode);
-        Assert.DoesNotContain("secret_users", result.Exception);
-        Assert.NotNull(logged);
-        Assert.Contains(logged!.Value.Reference, result.Exception);
-        Assert.Contains("secret_users", logged.Value.Error.Message);
-
-        var detailed = await Dispatcher(failing, detailed: true)
-            .InsertAsync(EntityName.Of<HAccount>(), _serializer.Serialize(new HAccount { Name = "x" }), Anyone);
-        Assert.Contains("secret_users", detailed.Exception);
-    }
-
-    [Fact]
-    public async Task A_batch_larger_than_allowed_is_refused_before_any_transaction()
-    {
-        var operations = Enumerable.Range(0, 4)
-            .Select(i => new BatchOperation(EntityName.Of<TestClient>(), BatchOperationKind.Insert, _serializer.Serialize(new TestClient { Name = $"n{i}" }), null))
-            .ToArray();
-
-        var result = await Dispatcher().ExecuteBatchAsync(operations, Anyone);
-
-        Assert.Equal(EntityErrorCode.InvalidRequest, result.ErrorCode);
-        Assert.Empty(_database.All<TestClient>());
-    }
-
-    [Fact]
-    public async Task A_column_the_client_cannot_read_cannot_be_searched_or_sorted_either()
-    {
-        await new MemoryStore(_database).InsertAsync(new HAccount { Name = "ana", Secret = "a1b2", Note = "vip" });
-        var dispatcher = Dispatcher();
-        var type = EntityName.Of<HAccount>();
-
-        foreach (var hidden in new[] { nameof(HAccount.Secret), nameof(HAccount.Note) })
-        {
-            var search = await dispatcher.SelectAsync(type, [new FilterCondition(hidden, FilterOperator.StartsWith, "a")], any: false, Anyone);
-            Assert.Equal(EntityErrorCode.InvalidRequest, search.ErrorCode);
-            Assert.Contains("Unknown property", search.Exception);      // as if it did not exist
-
-            var sort = await dispatcher.SelectPagedAsync(type, [], false, 1, 10, [new SortKey(hidden)], Anyone);
-            Assert.Equal(EntityErrorCode.InvalidRequest, sort.ErrorCode);
-        }
-
-        var allowed = await dispatcher.SelectAsync(type, [new FilterCondition(nameof(HAccount.Name), FilterOperator.Equal, "ana")], false, Anyone);
-        Assert.True(allowed.Successful, allowed.Exception);
-    }
-
-    [Fact]
-    public async Task A_server_owned_value_never_comes_from_the_client()
-    {
-        var dispatcher = Dispatcher();
-        var type = EntityName.Of<HAccount>();
-
-        var inserted = await dispatcher.InsertAsync(type, _serializer.Serialize(new HAccount { Name = "mallory", Role = "admin" }), Anyone);
-        Assert.True(inserted.Successful, inserted.Exception);
-        var stored = Assert.Single(_database.All<HAccount>());
-        Assert.Null(stored.Role);
-
-        stored.Role = "reader";                                  // set by the server's own code
-        await new MemoryStore(_database).UpdateAsync(stored);
-        var update = new HAccount { Id = stored.Id, Name = "mallory2", Role = "admin" };
-        var updated = await dispatcher.UpdateAsync(type, _serializer.Serialize(update), Anyone);
-        Assert.True(updated.Successful, updated.Exception);
-        var after = Assert.Single(_database.All<HAccount>());
-        Assert.Equal("mallory2", after.Name);
-        Assert.Equal("reader", after.Role);
-    }
-
-    [Fact]
-    public async Task A_filter_is_limited_in_values_in_all_and_stays_shallow()
-    {
-        var dispatcher = Dispatcher();
-        var many = Enumerable.Range(0, 1000).Select(i => (object)(long)i).ToList();
-        var conditions = Enumerable.Range(0, 3).Select(_ => new FilterCondition(nameof(TestClient.Id), FilterOperator.In, many)).ToArray();
-
-        var refused = await dispatcher.SelectAsync(EntityName.Of<TestClient>(), conditions, any: true, Anyone);
-        Assert.Equal(EntityErrorCode.InvalidRequest, refused.ErrorCode);
-
-        // 1000 conditions: a balanced tree, about 10 levels deep, not 1000.
-        var wide = Enumerable.Range(0, 1000).Select(i => new FilterCondition(nameof(TestClient.Id), FilterOperator.NotEqual, (long)i)).ToList();
-        var predicate = Filters.ToPredicate<TestClient>(wide, any: false);
-        Assert.InRange(Depth(predicate.Body), 1, 16);
-    }
 
     private static int Depth(Expression expression) => expression switch
     {
         BinaryExpression { NodeType: ExpressionType.AndAlso or ExpressionType.OrElse } binary => 1 + Math.Max(Depth(binary.Left), Depth(binary.Right)),
         _ => 1,
     };
-
-    [Fact]
-    public async Task A_page_beyond_any_table_is_refused_instead_of_overflowing()
-    {
-        var result = await Dispatcher().SelectPagedAsync(EntityName.Of<TestClient>(), [], false, int.MaxValue, 100, Anyone);
-        Assert.Equal(EntityErrorCode.InvalidRequest, result.ErrorCode);
-    }
 
     [Fact]
     public void The_children_of_a_graph_are_validated_with_the_parent()
@@ -432,21 +324,6 @@ public class SecurityHardeningTests
         Assert.All(errors, e => Assert.StartsWith("HNotes[", e.ErrorMessage));
         Assert.Contains(errors, e => e.ErrorMessage!.StartsWith("HNotes[1]:", StringComparison.Ordinal));
         Assert.Contains(errors, e => e.ErrorMessage!.StartsWith("HNotes[2]:", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task An_operation_id_sent_again_for_another_kind_of_write_is_not_answered_with_the_first_result()
-    {
-        var dispatcher = Dispatcher();
-        var id = Guid.NewGuid();
-        var type = EntityName.Of<TestClient>();
-
-        var inserted = await dispatcher.WriteOnceAsync(id, type, BatchOperationKind.Insert, _serializer.Serialize(new TestClient { Name = "x" }), Anyone);
-        var row = _serializer.Deserialize<TestClient>(inserted.Data!)!;
-        var deleted = await dispatcher.WriteOnceAsync(id, type, BatchOperationKind.Delete, _serializer.Serialize(row), Anyone);
-
-        Assert.True(deleted.Successful, deleted.Exception);
-        Assert.Empty(_database.All<TestClient>());
     }
 
     // ---------- Cache: a row tracked during a load is not lost ----------
@@ -479,55 +356,6 @@ public class SecurityHardeningTests
         Assert.Equal("Bob", cache.Find(2)?.Name);
     }
 
-    // ---------- Offline queue: a write maybe applied is never changed afterwards ----------
-
-    [Fact]
-    public void A_write_already_sent_is_not_merged_with_a_later_one_on_its_row()
-    {
-        var outbox = new Outbox();
-        outbox.Add(BatchOperationKind.Insert, "T", "-1", [1]);
-        var insert = Assert.Single(outbox.Snapshot());
-        Assert.True(outbox.MarkSent(insert.Id));
-
-        outbox.Add(BatchOperationKind.Update, "T", "-1", [2]);       // made while the insert's answer is unknown
-
-        Assert.Equal(2, outbox.Snapshot().Count);
-        Assert.Equal([1], outbox.Find(insert.Id)!.Payload);
-
-        outbox.Rekey("T", "-1", "42", payload => [.. payload, 42]);
-        Assert.All(outbox.Snapshot(), e => Assert.Equal("42", e.Key));
-    }
-
-    [Fact]
-    public void A_queue_saved_by_the_previous_version_is_still_read()
-    {
-        // Version 1: no "sent" flag after each entry.
-        using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
-        {
-            writer.Write((byte)1);
-            writer.Write(2);
-            foreach (var key in new[] { "1", "2" })
-            {
-                writer.Write(Guid.NewGuid().ToByteArray());
-                writer.Write("T");
-                writer.Write((byte)BatchOperationKind.Update);
-                writer.Write(key);
-                writer.Write(3);
-                writer.Write(new byte[] { 7, 8, 9 });
-                writer.Write(DateTime.UtcNow.Ticks);
-            }
-        }
-
-        var entries = OfflineCodec.ReadEntries(stream.ToArray());
-
-        Assert.Equal(["1", "2"], entries.Select(e => e.Key));
-        Assert.All(entries, e => Assert.False(e.Sent));
-        Assert.All(entries, e => Assert.Equal([7, 8, 9], e.Payload));
-
-        var again = OfflineCodec.ReadEntries(OfflineCodec.Write([entries[0] with { Sent = true }, entries[1]]));
-        Assert.Equal([true, false], again.Select(e => e.Sent));
-    }
 }
 
 /// <summary>The SQL log: at Debug, and without the values of the parameters unless asked for.</summary>
