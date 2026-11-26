@@ -143,10 +143,10 @@ public sealed class SyncConventionsDecorator(IEntityStore inner, TimeProvider? c
 
     public bool AggregatesInStore => _inner.AggregatesInStore;
 
-    /// <summary>A read: the store's own aggregation.</summary>
+    /// <summary>A read: the store's own aggregation, over the rows that are not soft-deleted (as <see cref="CountAsync{TEntity}"/>).</summary>
     public Task<IReadOnlyList<AggregateRow>> AggregateAsync<[DynamicallyAccessedMembers(EntityMembers.Required)] TEntity>(
         Expression<Func<TEntity, bool>> predicate, Aggregation<TEntity> aggregation, CancellationToken ct = default) where TEntity : class
-        => _inner.AggregateAsync(predicate, aggregation, ct);
+        => _inner.AggregateAsync(SyncMetadata.NotDeleted(predicate), aggregation, ct);
 
     public Task<IEntityTransaction> BeginTransactionAsync(CancellationToken ct = default) => _inner.BeginTransactionAsync(ct);
 

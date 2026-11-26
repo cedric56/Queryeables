@@ -102,19 +102,18 @@ public static class SyncMetadata
     }
 
     /// <summary>
-    /// <c>e => e.Key == entity.Key &amp;&amp; e.Deleted == false</c>: the stored row <paramref name="entity"/> targets, when it
+    /// <c>e => e.Key == entity.Key &amp;&amp; e.Deleted == false</c> (every property of a composite key): the stored row <paramref name="entity"/> targets, when it
     /// is not soft-deleted. Null when the type has no soft delete or no key found by convention.
     /// </summary>
     public static Expression<Func<T, bool>>? LiveRowOf<[DynamicallyAccessedMembers(EntityMembers.Required)] T>(T entity)
     {
         ArgumentNullException.ThrowIfNull(entity);
         var properties = For(typeof(T));
-        if (properties.SoftDelete is null || properties.Key is not { } key)
+        if (properties.SoftDelete is null || properties.Keys.Count == 0)
             return null;
 
-        var parameter = Expression.Parameter(typeof(T), "e");
-        var sameKey = Expression.Equal(Expression.Property(parameter, key), Expression.Constant(key.GetValue(entity), key.PropertyType));
-        return NotDeleted(Expression.Lambda<Func<T, bool>>(sameKey, parameter));
+        // Every column of the key: with the first one alone, another row of a link table would answer for this one.
+        return NotDeleted(SameKey(entity));
     }
 
     /// <summary>

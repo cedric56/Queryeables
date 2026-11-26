@@ -114,6 +114,9 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
 
                 case UnaryExpression { NodeType: ExpressionType.Convert } convert when convert.Type == typeof(bool):
                     return Condition(convert.Operand);
+
+                case MemberExpression hasValue when HasValueOf(hasValue) is { } nullable:
+                    return Uses(nullable) ? $"{Value(nullable)} is not null" : Evaluate(nullable) is not null ? "1 = 1" : "1 = 0";
             }
 
             if (!Uses(expression))
@@ -144,6 +147,8 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
             }
             if (!Uses(operand))
                 return Evaluate(operand) is true ? "1 = 0" : "1 = 1";
+            if (operand is MemberExpression hasValue && HasValueOf(hasValue) is { } nullable)
+                return $"{Value(nullable)} is null";
             if (operand is MemberExpression && (operand.Type == typeof(bool)))
                 return $"{Value(operand)} = {owner.Parameter(false)}";
             // !list.Contains(e.X): a null X is not in the list, as C# says.
@@ -348,7 +353,8 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
                     return $"(case when {Condition(conditional.Test)} then {Value(conditional.IfTrue)} else {Value(conditional.IfFalse)} end)";
 
                 default:
-                    if (expression.Type == typeof(bool))
+                    // Only what Condition translates by itself: anything else would come back here, without end.
+                    if (expression.Type == typeof(bool) && IsCondition(expression))
                         return $"(case when {Condition(expression)} then 1 else 0 end)";
                     throw Unsupported(expression);
             }
@@ -523,6 +529,22 @@ internal sealed class CSharpSqlExpression<TEntity>(ISqlBuilder sqlBuilder) : Sql
             MethodCallExpression { Method.Name: nameof(string.CompareTo), Object: { } self, Arguments.Count: 1 } compareTo
                 when self.Type == typeof(string) => (self, compareTo.Arguments[0]),
             _ => null,
+        };
+
+        /// <summary><c>x.HasValue</c> on a nullable: the nullable <c>x</c>; null for anything else.</summary>
+        private static Expression? HasValueOf(MemberExpression member)
+            => member is { Member.Name: "HasValue", Expression: { } nullable } && Nullable.GetUnderlyingType(nullable.Type) is not null
+                ? nullable
+                : null;
+
+        /// <summary>A condition <see cref="Condition"/> translates without asking <see cref="Value"/> for the same expression.</summary>
+        private static bool IsCondition(Expression expression) => expression switch
+        {
+            BinaryExpression { NodeType: ExpressionType.AndAlso or ExpressionType.OrElse } => true,
+            BinaryExpression binary => IsComparison(binary.NodeType),
+            UnaryExpression { NodeType: ExpressionType.Not } => true,
+            MemberExpression member => HasValueOf(member) is not null,
+            _ => false,
         };
 
         private static bool IsComparison(ExpressionType type) => type is ExpressionType.Equal or ExpressionType.NotEqual

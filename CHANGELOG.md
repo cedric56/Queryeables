@@ -7,6 +7,20 @@ may change the API.
 
 First public version.
 
+### Fixed
+- **MagicOnion change hub**: the broadcaster kept the first group it was given. MagicOnion disposes a group when its last
+  member leaves, so once every client had disconnected, the clients that came back received no change until the server
+  restarted. It now uses the group of the latest subscription.
+- **SQL translation (Dommel, SQLite, PostgreSQL)**: `e.Prop.HasValue` on a nullable column made the translator call itself
+  without end (a stack overflow, which stops the process). It is translated (`is not null`), and a boolean expression
+  the translator does not know throws `NotSupportedException`.
+- **Soft delete**: `AggregateAsync` (and the sums, minimums, maximums and averages built on it) counted soft-deleted rows
+  through `SyncConventionsDecorator`; they are left out, as in `CountAsync`.
+- **Soft delete with a composite key**: the check "is the stored row live" compared the first column of the key only.
+- **Caches**: a row deleted by the application while its cache was loading, synchronizing or reading that row again came
+  back into the cache. A burst of "reload everything" notifications now makes one reload.
+- Documentation: the `RowLevelSecurity.For` example of `EntityHandler<T>` had its arguments in the wrong order.
+
 ### Changed (recentring of November 15)
 - **The core publishes read-only replicas.** A server exposes its types; a remote client's caches hold the rows its user may
   read, kept up to date by the notifications. `RemoteEntityStore` reads every row, the changes since a date and a row by

@@ -17,12 +17,13 @@ public sealed class ChangeHubConnections<TObject>(
     ChangeHubOptions? options = null)
     : ChangeBroadcaster<TObject>(monitor, registry, options) where TObject : class
 {
-    // Shared broadcast group, captured on the first subscription.
+    // Shared broadcast group, as the latest subscription gave it: MagicOnion disposes a group when its last member leaves
+    // and creates another for the next subscriber, so the first one captured must not be kept.
     private volatile IGroup<IChangeHubReceiver<TObject>>? _group;
 
     public void RegisterGroup(IGroup<IChangeHubReceiver<TObject>> group, Guid contextId, ClaimsPrincipal? user = null)
     {
-        _group ??= group;
+        _group = group;
         if (AddSubscriber(contextId.ToString(), user))
             logger?.LogInformation("{ContextId} subscribed", contextId);
     }

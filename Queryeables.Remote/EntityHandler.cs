@@ -65,7 +65,7 @@ public interface IRelationRestrictor<T> where T : class
 /// <example>
 /// <code>
 /// registry.Register(new EntityHandler&lt;Customer&gt;(stores, EntityAccessPolicies.Authenticated,
-///     RowLevelSecurity.For&lt;Customer, long&gt;(user =&gt; c =&gt; c.OwnerId == user.Id(), c =&gt; c.Id)));
+///     RowLevelSecurity.For&lt;Customer, long&gt;(c =&gt; c.Id, user =&gt; c =&gt; c.OwnerId == user.Id())));
 /// </code>
 /// </example>
 /// <param name="storeFactory">Creates a store per call; the handler disposes it.</param>

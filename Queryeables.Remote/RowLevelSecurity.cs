@@ -6,9 +6,10 @@ using System.Security.Claims;
 namespace Queryeables.Remote;
 
 /// <summary>
-/// The rows of <typeparamref name="T"/> a user may reach, decided by the server: added to every read, and checked on every
-/// write. A row outside the filter does not exist for that user: reads skip it, and an update or a delete of it answers
-/// NotFound. Multi-user and multi-tenant applications need one on every exposed type that holds per-user data.
+/// The rows of <typeparamref name="T"/> a user may reach, decided by the server: added to every read of a replica. A row
+/// outside the filter does not exist for that user: reads skip it. Clients write through the services of the application,
+/// which check their own writes (<see cref="SameKey"/> finds the stored row a write targets). Multi-user and multi-tenant
+/// applications need one on every exposed type that holds per-user data.
 /// </summary>
 /// <example>
 /// <code>

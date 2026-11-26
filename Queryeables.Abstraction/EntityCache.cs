@@ -66,6 +66,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     // Entities tracked while a load reads the table (guarded by _writeLock): applied over what it read.
     private List<TEntity>? _trackedDuringRead;
 
+    // Keys this application deleted while a read is in progress (guarded by _writeLock): the read must not bring them back.
+    private readonly HashSet<TKey> _removedDuringRead = [];
+
     // Freshness (guarded by _writeLock). _filled: loaded since the last ClearUserDataAsync, unlike _loaded which survives it.
     private bool _filled;
     private DateTimeOffset? _lastRefreshedAt;
@@ -79,6 +82,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
     // Notification coalescing: one pending full update, and the keys already pending.
     private int _fullRefreshQueued;
+    private int _fullLoadQueued;
     private readonly ConcurrentDictionary<TKey, byte> _queuedKeys = new();
 
     /// <param name="stores">Creates a store for each load; the cache disposes it afterwards.</param>
@@ -137,7 +141,16 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             return;
         }
         lock (_writeLock)
-            _byKey.TryRemove(_key(entity), out _);
+        {
+            var key = _key(entity);
+            _byKey.TryRemove(key, out _);
+            if (_trackedDuringRead is { } tracked)
+            {
+                // A read in progress may have read the row before this delete: it stays deleted.
+                tracked.RemoveAll(t => EqualityComparer<TKey>.Default.Equals(_key(t), key));
+                _removedDuringRead.Add(key);
+            }
+        }
         RaiseEntitiesChanged();
     }
 
@@ -274,7 +287,11 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         lock (_writeLock)
         {
             Apply(_byKey, entity);
-            _trackedDuringRead?.Add(entity);       // a read in progress may have read the table before this write
+            if (_trackedDuringRead is { } tracked)
+            {
+                tracked.Add(entity);                // a read in progress may have read the table before this write
+                _removedDuringRead.Remove(_key(entity));
+            }
         }
 
         RaiseEntitiesChanged();
@@ -303,7 +320,10 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
     {
         using var activity = QueryeablesDiagnostics.StartCacheRefresh(typeof(TEntity), "load");
         lock (_writeLock)
+        {
             _trackedDuringRead = [];
+            _removedDuringRead.Clear();
+        }
         IReadOnlyList<TEntity> entities;
         try
         {
@@ -332,6 +352,9 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             // What was tracked while the table was read is newer than what was read: it stays.
             foreach (var tracked in _trackedDuringRead ?? [])
                 Apply(byKey, tracked);
+            foreach (var removed in _removedDuringRead)
+                byKey.TryRemove(removed, out _);
+            _removedDuringRead.Clear();
             _trackedDuringRead = null;
             _byKey = byKey;
             _syncedUpTo = _incremental ? latest ?? DateTime.MinValue : null;
@@ -355,7 +378,10 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
         IReadOnlyList<TEntity> changes;
         lock (_writeLock)
+        {
             _trackedDuringRead = [];
+            _removedDuringRead.Clear();
+        }
         try
         {
             await using var store = _storeFactory();
@@ -388,10 +414,13 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         }
     }
 
-    /// <summary>The keys tracked during the read that ends (under <c>_writeLock</c>); stops tracking them.</summary>
+    /// <summary>The keys written or deleted by this application during the read that ends (under <c>_writeLock</c>); stops tracking them.</summary>
     private HashSet<TKey> TakeTracked()
     {
         var keys = (_trackedDuringRead ?? []).Select(_key).ToHashSet();
+        if (_trackedDuringRead is not null)
+            keys.UnionWith(_removedDuringRead);
+        _removedDuringRead.Clear();
         _trackedDuringRead = null;
         return keys;
     }
@@ -421,7 +450,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
         {
             // The source changed (offline copy, server, another user): reload, since rows may have vanished.
             if (string.IsNullOrEmpty(record.EntityKey))
-                await LoadAsync();
+                await LoadCoalescedAsync();
             return;
         }
 
@@ -454,7 +483,10 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
             if (record.ChangeType != ChangeType.Delete)
             {
                 lock (_writeLock)
+                {
                     _trackedDuringRead = [];
+                    _removedDuringRead.Clear();
+                }
                 try
                 {
                     await using var store = _storeFactory();
@@ -470,7 +502,7 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
 
             lock (_writeLock)
             {
-                // Written by this application during the read (its own notification never comes): newer, it stays.
+                // Written or deleted by this application during the read (its own notification never comes): newer, it stays.
                 if (TakeTracked().Contains(key))
                 {
                     if (entity is not null && _syncedUpTo is not null)
@@ -485,6 +517,27 @@ public sealed class EntityCache<[DynamicallyAccessedMembers(EntityMembers.Requir
                 if (entity is not null && _syncedUpTo is not null)
                     _syncedUpTo = Latest(_syncedUpTo, entity);
             }
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+
+        RaiseEntitiesChanged();
+    }
+
+    /// <summary>A full reload asked by the source; a burst of such requests makes one reload.</summary>
+    private async Task LoadCoalescedAsync()
+    {
+        // A reload is already pending: it will read what this request is about too.
+        if (Interlocked.Exchange(ref _fullLoadQueued, 1) == 1)
+            return;
+
+        await _refreshLock.WaitAsync();
+        try
+        {
+            Interlocked.Exchange(ref _fullLoadQueued, 0);
+            await Tracked(LoadCoreAsync(CancellationToken.None));
         }
         finally
         {
